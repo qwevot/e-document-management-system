@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS `dms_nodes` (
     `parent_id` BIGINT UNSIGNED NULL DEFAULT NULL,
     `node_type` ENUM('project', 'doctype', 'folder', 'document') NOT NULL DEFAULT 'folder',
     `name` VARCHAR(255) NOT NULL,
-    `code` VARCHAR(100) NULL DEFAULT NULL,
+    `doc_type` VARCHAR(50) NULL DEFAULT NULL,
     `status` ENUM('active', 'hold', 'suspend', 'published', 'obsolete') NOT NULL DEFAULT 'active',
     `version` VARCHAR(20) NOT NULL DEFAULT 'v0.1',
     `file_path` VARCHAR(255) NULL DEFAULT NULL,
@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS `dms_nodes` (
     `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX `idx_parent_id` (`parent_id`),
     INDEX `idx_node_type` (`node_type`),
+    INDEX `idx_doc_type` (`doc_type`),
     INDEX `idx_status` (`status`),
     INDEX `idx_is_deleted` (`is_deleted`),
     INDEX `idx_created_by` (`created_by`),
@@ -54,23 +55,23 @@ VALUES (1, 'admin', 'admin@nec.com', '$2y$10$e8k8R7i31i7qC0Z1QvYqE.M7yK2E07g3eZ2
 ON DUPLICATE KEY UPDATE `username` = VALUES(`username`);
 
 -- 2. Sample Project Roots & DocType Roots
-INSERT INTO `dms_nodes` (`id`, `parent_id`, `node_type`, `name`, `code`, `status`, `version`, `created_by`) VALUES
-(1, NULL, 'project', 'Project Alpha - WMS Upgrade', 'PRJ-WMS-01', 'active', 'v1.0', 1),
-(2, NULL, 'project', 'Project Beta - Cloud Migration', 'PRJ-CLD-02', 'active', 'v1.0', 1),
-(3, NULL, 'doctype', 'Standard Operating Procedures', 'TYPE-SOP', 'active', 'v1.0', 1),
-(4, NULL, 'doctype', 'Technical Drawings', 'TYPE-DWG', 'active', 'v1.0', 1)
+INSERT INTO `dms_nodes` (`id`, `parent_id`, `node_type`, `name`, `status`, `version`, `created_by`) VALUES
+(1, NULL, 'project', 'Project Alpha - WMS Upgrade', 'active', 'v0.1', 1),
+(2, NULL, 'project', 'Project Beta - Cloud Migration', 'active', 'v0.1', 1),
+(3, NULL, 'doctype', 'Standard Operating Procedures', 'active', 'v0.1', 1),
+(4, NULL, 'doctype', 'Technical Drawings', 'active', 'v0.1', 1)
 ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
 -- 3. Sample Subfolders inside Project Alpha
-INSERT INTO `dms_nodes` (`id`, `parent_id`, `node_type`, `name`, `code`, `status`, `version`, `created_by`) VALUES
-(5, 1, 'folder', 'Architecture & Design', NULL, 'active', 'v1.0', 1),
-(6, 1, 'folder', 'Specifications & Requirements', NULL, 'active', 'v1.0', 1),
-(7, 5, 'folder', 'Database Schemas', NULL, 'active', 'v1.0', 1)
+INSERT INTO `dms_nodes` (`id`, `parent_id`, `node_type`, `name`, `status`, `version`, `created_by`) VALUES
+(5, 1, 'folder', 'Architecture & Design', 'active', 'v0.1', 1),
+(6, 1, 'folder', 'Specifications & Requirements', 'active', 'v0.1', 1),
+(7, 5, 'folder', 'Database Schemas', 'active', 'v0.1', 1)
 ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
 -- 4. Sample Documents
-INSERT INTO `dms_nodes` (`id`, `parent_id`, `node_type`, `name`, `code`, `doc_type`, `status`, `version`, `file_extension`, `mime_type`, `created_by`) VALUES
-(8, 7, 'document', 'EDMS_Relational_Schema_v0.1.pdf', 'DOC-2026-001', 'Specification', 'active', 'v0.1', 'pdf', 'application/pdf', 1),
-(9, 6, 'document', 'System_Requirement_Specification.docx', 'DOC-2026-002', 'Specification', 'published', 'v0.2', 'docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 1),
-(10, 3, 'document', 'SOP_Document_Control_Standard.pdf', 'SOP-QMS-001', 'SOP', 'published', 'v1.0', 'pdf', 'application/pdf', 1)
+INSERT INTO `dms_nodes` (`id`, `parent_id`, `node_type`, `name`, `doc_type`, `status`, `version`, `file_extension`, `mime_type`, `created_by`) VALUES
+(8, 7, 'document', 'EDMS_Relational_Schema_v0.1.pdf', 'Specification', 'active', 'v0.1', 'pdf', 'application/pdf', 1),
+(9, 6, 'document', 'System_Requirement_Specification.docx', 'Specification', 'published', 'v0.2', 'docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 1),
+(10, 3, 'document', 'SOP_Document_Control_Standard.pdf', 'SOP', 'published', 'v1.0', 'pdf', 'application/pdf', 1)
 ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
