@@ -529,6 +529,7 @@
         // 8. Action Popover Menu & Item Operations (Rename, Move, Delete)
         // ============================================================
         const popover = document.getElementById("edmsActionPopover");
+        const popoverDownload = document.getElementById("popoverActionDownload");
         const popoverRename = document.getElementById("popoverActionRename");
         const popoverMove = document.getElementById("popoverActionMove");
         const popoverDelete = document.getElementById("popoverActionDelete");
@@ -583,6 +584,17 @@
 
             currentActiveItem = { id: nodeId, name: nodeName, type: nodeType };
 
+            // Configure Download link in popover
+            if (popoverDownload) {
+                if (nodeType === "document") {
+                    popoverDownload.style.display = "flex";
+                    popoverDownload.href = "download.php?id=" + encodeURIComponent(nodeId);
+                    popoverDownload.onclick = () => hidePopover();
+                } else {
+                    popoverDownload.style.display = "none";
+                }
+            }
+
             // Position popover
             const rect = btn.getBoundingClientRect();
             popover.style.display = "flex";
@@ -590,8 +602,8 @@
             let left = rect.right - popoverWidth;
             if (left < 10) left = 10;
             let top = rect.bottom + 4;
-            if (top + 130 > window.innerHeight) {
-                top = rect.top - 130;
+            if (top + 160 > window.innerHeight) {
+                top = rect.top - 160;
             }
 
             popover.style.left = left + "px";

@@ -682,9 +682,9 @@ function render_card_list_html($items, $viewMode, $parentId, $currentNode, $brea
                         <button type="button" class="btn-action" title="View / Annotate" onclick="alert('Viewing specimen: <?php echo addslashes($item['name']); ?>');">
                             <?php echo render_icon('view'); ?>
                         </button>
-                        <button type="button" class="btn-action" title="Download" onclick="alert('Downloading: <?php echo addslashes($item['name']); ?>');">
+                        <a href="download.php?id=<?php echo e((string)$item['id']); ?>" class="btn-action" title="Download: <?php echo e($item['file_original_name'] ?: $item['name']); ?>" download>
                             <?php echo render_icon('download'); ?>
-                        </button>
+                        </a>
                         <button type="button" class="btn-action btn-more-actions" title="More Actions" data-id="<?php echo e((string)$item['id']); ?>" data-name="<?php echo e($item['name']); ?>" data-type="document">
                             <?php echo render_icon('more-v'); ?>
                         </button>
@@ -1004,6 +1004,10 @@ require_once __DIR__ . '/../includes/header.php';
 
 <!-- Floating Action Popover Menu (3-Dots Context Menu) -->
 <div class="edms-action-popover" id="edmsActionPopover" style="display: none;">
+    <a href="#" class="popover-item" id="popoverActionDownload" style="text-decoration: none;">
+        <?php echo render_icon('download'); ?>
+        <span>Download</span>
+    </a>
     <button type="button" class="popover-item" id="popoverActionRename">
         <?php echo render_icon('edit'); ?>
         <span>Rename</span>
