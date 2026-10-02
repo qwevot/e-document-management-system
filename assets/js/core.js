@@ -365,6 +365,167 @@
         }
 
         // ============================================================
+        // 8. Upload Document Modal Controls & Drag-and-Drop Dropzone
+        // ============================================================
+        const btnUploadDoc = document.getElementById("btnUploadDoc");
+        const modalUploadDoc = document.getElementById("modalUploadDoc");
+        const formUploadDoc = document.getElementById("formUploadDoc");
+        const uploadFileInput = document.getElementById("uploadFileInput");
+        const uploadDropzone = document.getElementById("uploadDropzone");
+        const selectedFilePreview = document.getElementById("selectedFilePreview");
+        const previewFileName = document.getElementById("previewFileName");
+        const previewFileSize = document.getElementById("previewFileSize");
+        const btnClearSelectedFile = document.getElementById("btnClearSelectedFile");
+        const uploadDocName = document.getElementById("uploadDocName");
+        const uploadParentId = document.getElementById("uploadParentId");
+        const uploadLocationHelp = document.getElementById("uploadLocationHelp");
+        const btnCloseUpload = document.getElementById("btnCloseUploadModal");
+        const btnCancelUpload = document.getElementById("btnCancelUpload");
+        const btnSubmitUpload = document.getElementById("btnSubmitUpload");
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return "0 Bytes";
+            const k = 1024;
+            const sizes = ["Bytes", "KB", "MB", "GB"];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+        }
+
+        function handleFileSelection(file) {
+            if (!file) return;
+            if (previewFileName) previewFileName.textContent = file.name;
+            if (previewFileSize) previewFileSize.textContent = formatBytes(file.size);
+
+            if (selectedFilePreview) selectedFilePreview.style.display = "flex";
+            if (uploadDropzone) uploadDropzone.style.display = "none";
+
+            // Auto-fill Document Name if empty or default
+            if (uploadDocName) {
+                const baseName = file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
+                uploadDocName.value = baseName;
+            }
+        }
+
+        function clearSelectedFile() {
+            if (uploadFileInput) uploadFileInput.value = "";
+            if (selectedFilePreview) selectedFilePreview.style.display = "none";
+            if (uploadDropzone) uploadDropzone.style.display = "block";
+        }
+
+        function openUploadModal() {
+            if (!modalUploadDoc) return;
+            const currentFolder = folderInput ? folderInput.value : "";
+            if (uploadParentId) uploadParentId.value = currentFolder;
+
+            if (uploadLocationHelp) {
+                const activeCrumb = document.querySelector(".breadcrumb-item.current");
+                if (currentFolder && activeCrumb) {
+                    uploadLocationHelp.innerHTML = "Target location: Inside <strong>" + activeCrumb.textContent.trim() + "</strong>";
+                } else {
+                    uploadLocationHelp.innerHTML = "Target location: <strong>Root Level</strong>";
+                }
+            }
+
+            clearSelectedFile();
+            if (uploadDocName) uploadDocName.value = "";
+            openModal(modalUploadDoc, uploadFileInput);
+        }
+
+        if (btnUploadDoc) btnUploadDoc.addEventListener("click", openUploadModal);
+        if (btnCloseUpload) btnCloseUpload.addEventListener("click", () => closeModal(modalUploadDoc));
+        if (btnCancelUpload) btnCancelUpload.addEventListener("click", () => closeModal(modalUploadDoc));
+        if (btnClearSelectedFile) btnClearSelectedFile.addEventListener("click", clearSelectedFile);
+
+        if (modalUploadDoc) {
+            modalUploadDoc.addEventListener("click", (e) => {
+                if (e.target === modalUploadDoc) closeModal(modalUploadDoc);
+            });
+        }
+
+        if (uploadFileInput) {
+            uploadFileInput.addEventListener("change", function () {
+                if (uploadFileInput.files && uploadFileInput.files[0]) {
+                    handleFileSelection(uploadFileInput.files[0]);
+                }
+            });
+        }
+
+        // Drag and drop events for dropzone
+        if (uploadDropzone) {
+            ["dragenter", "dragover"].forEach(eventName => {
+                uploadDropzone.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    uploadDropzone.classList.add("is-dragover");
+                });
+            });
+
+            ["dragleave", "drop"].forEach(eventName => {
+                uploadDropzone.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    uploadDropzone.classList.remove("is-dragover");
+                });
+            });
+
+            uploadDropzone.addEventListener("drop", (e) => {
+                const dt = e.dataTransfer;
+                if (dt && dt.files && dt.files[0]) {
+                    uploadFileInput.files = dt.files;
+                    handleFileSelection(dt.files[0]);
+                }
+            });
+        }
+
+        if (formUploadDoc) {
+            formUploadDoc.addEventListener("submit", function (e) {
+                e.preventDefault();
+                if (!uploadFileInput || !uploadFileInput.files || !uploadFileInput.files[0]) {
+                    alert("Please select a file to upload.");
+                    return;
+                }
+
+                if (btnSubmitUpload) {
+                    btnSubmitUpload.disabled = true;
+                    btnSubmitUpload.innerHTML = '<span>Uploading specimen...</span>';
+                    btnSubmitUpload.style.opacity = "0.7";
+                }
+
+                const formData = new FormData(formUploadDoc);
+
+                fetch("explorer.php", {
+                    method: "POST",
+                    body: formData,
+                    headers: { "X-Requested-With": "XMLHttpRequest" }
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (btnSubmitUpload) {
+                        btnSubmitUpload.disabled = false;
+                        btnSubmitUpload.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg><span>Upload Specimen</span>';
+                        btnSubmitUpload.style.opacity = "1";
+                    }
+
+                    if (data.success) {
+                        closeModal(modalUploadDoc);
+                        performAjaxUpdate();
+                    } else {
+                        alert(data.message || "Failed to upload document.");
+                    }
+                })
+                .catch(err => {
+                    if (btnSubmitUpload) {
+                        btnSubmitUpload.disabled = false;
+                        btnSubmitUpload.innerHTML = '<span>Upload Specimen</span>';
+                        btnSubmitUpload.style.opacity = "1";
+                    }
+                    console.error("Upload error:", err);
+                    alert("An error occurred during file upload.");
+                });
+            });
+        }
+
+        // ============================================================
         // 8. Action Popover Menu & Item Operations (Rename, Move, Delete)
         // ============================================================
         const popover = document.getElementById("edmsActionPopover");

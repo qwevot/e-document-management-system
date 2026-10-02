@@ -222,6 +222,135 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
     }
+
+    // 6. Upload Document Specimen
+    if ($action === 'upload_document') {
+        require_once __DIR__ . '/../includes/metadata.php';
+
+        $docName     = trim($_POST['name'] ?? '');
+        $docType     = trim($_POST['doc_type'] ?? 'Specification');
+        $status      = in_array($_POST['status'] ?? '', ['active', 'published', 'hold'], true) ? $_POST['status'] : 'active';
+        $postParentId = isset($_POST['parent_id']) && is_numeric($_POST['parent_id']) && (int)$_POST['parent_id'] > 0
+            ? (int)$_POST['parent_id']
+            : null;
+
+        if (empty($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+            $errorCode = $_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE;
+            $errMessage = match ($errorCode) {
+                UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'File exceeds maximum upload size limit.',
+                UPLOAD_ERR_PARTIAL   => 'File was only partially uploaded.',
+                UPLOAD_ERR_NO_FILE   => 'No file was selected for upload.',
+                default              => 'File upload failed with error code: ' . $errorCode
+            };
+            if ($isAjax) {
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'message' => $errMessage]);
+                exit;
+            }
+        } else {
+            $file = $_FILES['file'];
+            $originalName = $file['name'];
+            $fileSize     = (int)$file['size'];
+            $tmpPath      = $file['tmp_name'];
+
+            // Calculate SHA-256 genetic hash of the specimen
+            $fileHash = hash_file('sha256', $tmpPath);
+
+            // Determine extension and clean mime type
+            $fileExt = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+            if ($fileExt === '') {
+                $fileExt = 'dat';
+            }
+
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            $mimeType = finfo_file($finfo, $tmpPath) ?: 'application/octet-stream';
+            finfo_close($finfo);
+
+            // Default document name if omitted
+            if ($docName === '') {
+                $docName = pathinfo($originalName, PATHINFO_FILENAME);
+            }
+
+            // Extract built-in metadata (DOCX, XLSX, PDF, EXIF)
+            $extractedMeta = DocumentMetadataExtractor::extract($tmpPath, $fileExt);
+
+            // Prepare safe physical storage directory
+            $yearMonth = date('Y/m');
+            $uploadDir = __DIR__ . '/../uploads/documents/' . $yearMonth;
+            if (!is_dir($uploadDir)) {
+                @mkdir($uploadDir, 0755, true);
+            }
+
+            // Generate randomized unique storage filename to prevent directory collisions
+            $safeStorageName = bin2hex(random_bytes(16)) . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $originalName);
+            $destinationPath = $uploadDir . '/' . $safeStorageName;
+            $relativeStoragePath = 'uploads/documents/' . $yearMonth . '/' . $safeStorageName;
+
+            if (!move_uploaded_file($tmpPath, $destinationPath)) {
+                if ($isAjax) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => 'Failed to store file in physical repository.']);
+                    exit;
+                }
+            } else {
+                // Verify parent folder exists if specified
+                if ($postParentId !== null) {
+                    $chk = $pdo->prepare("SELECT id FROM dms_nodes WHERE id = :id AND is_deleted = 0 AND node_type = 'folder'");
+                    $chk->execute(['id' => $postParentId]);
+                    if (!$chk->fetch()) {
+                        $postParentId = null;
+                    }
+                }
+
+                $userId = current_user()['id'] ?? 1;
+
+                $stmt = $pdo->prepare("
+                    INSERT INTO dms_nodes (
+                        parent_id, node_type, name, doc_type, status, version,
+                        file_path, file_original_name, file_size, file_extension,
+                        mime_type, file_hash, is_locked, is_deleted, created_by,
+                        created_at, updated_at
+                    ) VALUES (
+                        :parent_id, 'document', :name, :doc_type, :status, 'v0.1',
+                        :file_path, :file_original_name, :file_size, :file_extension,
+                        :mime_type, :file_hash, 0, 0, :created_by,
+                        NOW(), NOW()
+                    )
+                ");
+
+                $stmt->execute([
+                    'parent_id'          => $postParentId,
+                    'name'               => $docName,
+                    'doc_type'           => $docType,
+                    'status'             => $status,
+                    'file_path'          => $relativeStoragePath,
+                    'file_original_name' => $originalName,
+                    'file_size'          => $fileSize,
+                    'file_extension'     => $fileExt,
+                    'mime_type'          => $mimeType,
+                    'file_hash'          => $fileHash,
+                    'created_by'         => $userId,
+                ]);
+
+                $newDocId = $pdo->lastInsertId();
+
+                if ($isAjax) {
+                    header('Content-Type: application/json');
+                    echo json_encode([
+                        'success'        => true,
+                        'message'        => 'Document uploaded and registered successfully.',
+                        'id'             => $newDocId,
+                        'name'           => $docName,
+                        'extracted_meta' => $extractedMeta
+                    ]);
+                    exit;
+                }
+
+                header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? 'explorer.php'));
+                exit;
+            }
+        }
+    }
 }
 
 // 1. Capture request parameters
@@ -673,8 +802,8 @@ require_once __DIR__ . '/../includes/header.php';
                 <?php echo render_icon('plus'); ?>
                 <span>New Folder</span>
             </button>
-            <button type="button" class="btn btn-primary" onclick="alert('Feature coming in the next step: Upload Document Modal');">
-                <?php echo render_icon('files'); ?>
+            <button type="button" id="btnUploadDoc" class="btn btn-primary">
+                <?php echo render_icon('cloud-upload'); ?>
                 <span>Upload Document</span>
             </button>
         </div>
@@ -724,7 +853,6 @@ require_once __DIR__ . '/../includes/header.php';
                             <option value="published" <?php echo $statusFilt === 'published' ? 'selected' : ''; ?>>Published</option>
                             <option value="hold" <?php echo $statusFilt === 'hold' ? 'selected' : ''; ?>>On Hold</option>
                             <option value="suspend" <?php echo $statusFilt === 'suspend' ? 'selected' : ''; ?>>Suspended</option>
-                            <option value="obsolete" <?php echo $statusFilt === 'obsolete' ? 'selected' : ''; ?>>Obsolete</option>
                         </select>
                     </div>
                 </div>
@@ -738,6 +866,102 @@ require_once __DIR__ . '/../includes/header.php';
         <?php render_card_list_html($items, $viewMode, $parentId, $currentNode, $breadcrumbs, $searchQ, $page, $perPage, $totalCount, $totalPages); ?>
     </div>
 
+</div>
+
+<!-- Modal: Upload Document Specimen -->
+<div class="edms-modal-backdrop" id="modalUploadDoc">
+    <div class="edms-modal-dialog" style="max-width: 520px; width: 95%;">
+        <div class="edms-modal-header">
+            <div class="edms-modal-title">
+                <?php echo render_icon('cloud-upload'); ?>
+                <span>Upload Document Specimen</span>
+            </div>
+            <button type="button" class="btn-modal-close" id="btnCloseUploadModal" title="Close modal">&times;</button>
+        </div>
+        <form id="formUploadDoc" method="POST" action="explorer.php" enctype="multipart/form-data">
+            <input type="hidden" name="action" value="upload_document">
+            <input type="hidden" name="parent_id" id="uploadParentId" value="<?php echo ($parentId !== null && $viewMode === 'project') ? e((string)$parentId) : ''; ?>">
+
+            <div class="edms-modal-body">
+                <!-- Dropzone Area -->
+                <div class="upload-dropzone" id="uploadDropzone">
+                    <input type="file" name="file" id="uploadFileInput" class="upload-file-input" required>
+                    <div class="dropzone-content">
+                        <div class="dropzone-icon">
+                            <?php echo render_icon('cloud-upload'); ?>
+                        </div>
+                        <p class="dropzone-text">
+                            <strong>Click to browse</strong> or drag &amp; drop your file here
+                        </p>
+                        <span class="dropzone-hint">Universal acceptance: PDF, DOCX, XLSX, DWG, PNG, ZIP, etc.</span>
+                    </div>
+                </div>
+
+                <!-- Selected File Pill (Shown when file is selected) -->
+                <div class="selected-file-preview" id="selectedFilePreview" style="display: none;">
+                    <div class="preview-file-icon" id="previewFileIcon">
+                        <?php echo render_icon('files'); ?>
+                    </div>
+                    <div class="preview-file-details">
+                        <span class="preview-file-name" id="previewFileName">filename.ext</span>
+                        <span class="preview-file-size" id="previewFileSize">0 KB</span>
+                    </div>
+                    <button type="button" class="btn-clear-selected-file" id="btnClearSelectedFile" title="Remove file">&times;</button>
+                </div>
+
+                <!-- Document Form Inputs -->
+                <div class="form-group" style="margin-top: 14px;">
+                    <label for="uploadDocName" class="form-label">Document Title</label>
+                    <input type="text" id="uploadDocName" name="name" class="form-input" placeholder="e.g. Standard Operating Procedure" required autocomplete="off">
+                </div>
+
+                <div class="upload-form-row">
+                    <div class="form-group" style="flex: 1;">
+                        <label for="uploadDocType" class="form-label">Document Type</label>
+                        <div class="select-wrapper">
+                            <select id="uploadDocType" name="doc_type" class="form-input">
+                                <option value="SOP">SOP</option>
+                                <option value="Specification" selected>Specification</option>
+                                <option value="Drawing">Drawing</option>
+                                <option value="Contract">Contract</option>
+                                <option value="Report">Report</option>
+                                <option value="Manual">Manual</option>
+                                <option value="Architecture">Architecture</option>
+                                <option value="Design">Design</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="flex: 1;">
+                        <label for="uploadDocStatus" class="form-label">Initial Status</label>
+                        <div class="select-wrapper">
+                            <select id="uploadDocStatus" name="status" class="form-input">
+                                <option value="active" selected>Active (Draft)</option>
+                                <option value="published">Published</option>
+                                <option value="hold">On Hold</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="form-help" id="uploadLocationHelp">
+                    <?php if ($currentNode && $viewMode === 'project'): ?>
+                        Target location: Inside <strong><?php echo e($currentNode['name']); ?></strong>
+                    <?php else: ?>
+                        Target location: <strong>Root Level</strong>
+                    <?php endif; ?>
+                </p>
+            </div>
+            <div class="edms-modal-footer">
+                <button type="button" class="btn btn-secondary" id="btnCancelUpload">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="btnSubmitUpload">
+                    <?php echo render_icon('cloud-upload'); ?>
+                    <span>Upload Specimen</span>
+                </button>
+            </div>
+        </form>
+    </div>
 </div>
 
 <!-- Modal: Create New Folder -->
@@ -892,7 +1116,7 @@ require_once __DIR__ . '/../includes/header.php';
                     Move <strong id="deleteItemNameDisplay"></strong> to Archives?
                 </p>
                 <p class="form-help" style="color: var(--muted); line-height: 1.5;">
-                    This specimen will be marked as <strong>Obsolete</strong> and archived away from the active workspace. It can be viewed in the Archives repository.
+                    This document will be marked as <strong>OBSOLETE</strong> and archived away from the active workspace. It can be viewed in the Archives repository.
                 </p>
             </div>
             <div class="edms-modal-footer">

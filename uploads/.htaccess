@@ -1,0 +1,25 @@
+# Security Guard: Prevent any script execution inside the uploads repository
+# Biological Pathogen Neutralizer
+
+# 1. Disable PHP execution entirely
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php8.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+
+# 2. Treat all executable extensions as plain inert binary files
+RemoveHandler .php .phtml .php3 .php4 .php5 .php7 .php8 .phps .cgi .pl .asp .aspx .exe .sh .bash .bat .cmd
+SetHandler default-handler
+
+# 3. Disable directory listing and CGI execution
+Options -Indexes -ExecCGI
+
+# 4. Enforce nosniff header
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+</IfModule>
