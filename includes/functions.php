@@ -38,3 +38,26 @@ function current_role(): string
     $user = current_user();
     return strtolower($user['role'] ?? 'user');
 }
+
+/**
+ * Generate 1-2 character initials for user avatars.
+ */
+function get_initials(?string $name): string
+{
+    $name = trim($name ?? '');
+    if ($name === '') {
+        return 'U';
+    }
+    $parts = preg_split('/\s+/', $name);
+    $initials = '';
+    foreach ($parts as $p) {
+        if ($p !== '') {
+            $initials .= mb_strtoupper(mb_substr($p, 0, 1));
+            if (mb_strlen($initials) >= 2) {
+                break;
+            }
+        }
+    }
+    return $initials !== '' ? $initials : 'U';
+}
+

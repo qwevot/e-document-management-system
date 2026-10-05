@@ -528,11 +528,59 @@
         // ============================================================
         // 8. Action Popover Menu & Item Operations (Rename, Move, Delete)
         // ============================================================
+        // CONTEXT POPOVER & ACTION MODALS (RENAME, MOVE, DELETE, VIEWER)
+        // ============================================================
         const popover = document.getElementById("edmsActionPopover");
+        const popoverView = document.getElementById("popoverActionView");
         const popoverDownload = document.getElementById("popoverActionDownload");
         const popoverRename = document.getElementById("popoverActionRename");
         const popoverMove = document.getElementById("popoverActionMove");
         const popoverDelete = document.getElementById("popoverActionDelete");
+
+        // Document Viewer Modal
+        const modalDocViewer = document.getElementById("modalDocViewer");
+        const viewerDocTitle = document.getElementById("viewerDocTitle");
+        const viewerDocExtBadge = document.getElementById("viewerDocExtBadge");
+        const viewerDocVersionBadge = document.getElementById("viewerDocVersionBadge");
+        const btnViewerNewTab = document.getElementById("btnViewerNewTab");
+        const btnViewerDownload = document.getElementById("btnViewerDownload");
+        const btnCloseViewer = document.getElementById("btnCloseViewerModal");
+        const docViewerFrame = document.getElementById("docViewerFrame");
+        const viewerLoadingIndicator = document.getElementById("viewerLoadingIndicator");
+
+        function openDocViewer(id, name, ext, version) {
+            if (!modalDocViewer || !id) return;
+            if (viewerDocTitle) viewerDocTitle.textContent = name || "Document Preview";
+            if (viewerDocExtBadge) viewerDocExtBadge.textContent = (ext || "PDF").toUpperCase();
+            if (viewerDocVersionBadge) {
+                viewerDocVersionBadge.textContent = version || "v1.0";
+                viewerDocVersionBadge.style.display = version ? "inline-block" : "none";
+            }
+            if (btnViewerNewTab) btnViewerNewTab.href = "stream.php?id=" + encodeURIComponent(id);
+            if (btnViewerDownload) btnViewerDownload.href = "download.php?id=" + encodeURIComponent(id);
+
+            if (viewerLoadingIndicator) viewerLoadingIndicator.classList.remove("is-hidden");
+            if (docViewerFrame) {
+                docViewerFrame.onload = function () {
+                    if (viewerLoadingIndicator) viewerLoadingIndicator.classList.add("is-hidden");
+                };
+                docViewerFrame.src = "stream.php?id=" + encodeURIComponent(id);
+            }
+            openModal(modalDocViewer);
+        }
+
+        function closeDocViewer() {
+            if (!modalDocViewer) return;
+            closeModal(modalDocViewer);
+            if (docViewerFrame) docViewerFrame.src = "about:blank";
+        }
+
+        if (btnCloseViewer) btnCloseViewer.addEventListener("click", closeDocViewer);
+        if (modalDocViewer) {
+            modalDocViewer.addEventListener("click", function (e) {
+                if (e.target === modalDocViewer) closeDocViewer();
+            });
+        }
 
         // Modals & Forms
         const modalRename = document.getElementById("modalRenameNode");
@@ -546,7 +594,8 @@
         const formMove = document.getElementById("formMoveNode");
         const inputMoveId = document.getElementById("moveNodeId");
         const inputMoveTargetFolderId = document.getElementById("moveTargetFolderId");
-        const displayMoveName = document.getElementById("moveItemNameDisplay");
+        const moveModalTitleName = document.getElementById("moveModalTitleName");
+        const moveItemLocationDisplay = document.getElementById("moveItemLocationDisplay");
         const driveMoveBreadcrumbs = document.getElementById("driveMoveBreadcrumbs");
         const driveMoveFolderList = document.getElementById("driveMoveFolderList");
         const driveMoveSelectedName = document.getElementById("driveMoveSelectedName");
@@ -571,8 +620,22 @@
             if (popover) popover.style.display = "none";
         }
 
-        // Delegated 3-Dots Button Click Handler
+        // Delegated Item Click Handler (View Document & 3-Dots Popover)
         cardListContainer.addEventListener("click", function (e) {
+            // 1. Check if user clicked a view button / title / icon on a document
+            const viewBtn = e.target.closest(".btn-view-doc");
+            if (viewBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                const docId = viewBtn.dataset.id;
+                const docName = viewBtn.dataset.name;
+                const docExt = viewBtn.dataset.ext || "pdf";
+                const docVersion = viewBtn.dataset.version || "v1.0";
+                openDocViewer(docId, docName, docExt, docVersion);
+                return;
+            }
+
+            // 2. Check 3-Dots button
             const btn = e.target.closest(".btn-more-actions");
             if (!btn || !popover) return;
             e.preventDefault();
@@ -581,8 +644,29 @@
             const nodeId = btn.dataset.id;
             const nodeName = btn.dataset.name;
             const nodeType = btn.dataset.type || "document";
+            const nodeLocation = btn.dataset.location || "Root";
+            const nodeExt = btn.dataset.ext || "pdf";
+            const nodeVersion = btn.dataset.version || "v1.0";
 
-            currentActiveItem = { id: nodeId, name: nodeName, type: nodeType };
+            currentActiveItem = {
+                id: nodeId,
+                name: nodeName,
+                type: nodeType,
+                location: nodeLocation,
+                ext: nodeExt,
+                version: nodeVersion
+            };
+
+            // Configure Open Workspace link in popover
+            if (popoverView) {
+                if (nodeType === "document") {
+                    popoverView.style.display = "flex";
+                    popoverView.href = "view.php?id=" + encodeURIComponent(nodeId);
+                    popoverView.onclick = () => hidePopover();
+                } else {
+                    popoverView.style.display = "none";
+                }
+            }
 
             // Configure Download link in popover
             if (popoverDownload) {
@@ -598,12 +682,12 @@
             // Position popover
             const rect = btn.getBoundingClientRect();
             popover.style.display = "flex";
-            const popoverWidth = 160;
+            const popoverWidth = 175;
             let left = rect.right - popoverWidth;
             if (left < 10) left = 10;
             let top = rect.bottom + 4;
-            if (top + 160 > window.innerHeight) {
-                top = rect.top - 160;
+            if (top + 180 > window.innerHeight) {
+                top = rect.top - 180;
             }
 
             popover.style.left = left + "px";
@@ -621,12 +705,23 @@
         document.addEventListener("keydown", function (e) {
             if (e.key === "Escape") {
                 hidePopover();
+                if (modalDocViewer && modalDocViewer.classList.contains("is-open")) closeDocViewer();
                 if (modalNewFolder && modalNewFolder.classList.contains("is-open")) closeModal(modalNewFolder);
+                if (modalUploadDoc && modalUploadDoc.classList.contains("is-open")) closeModal(modalUploadDoc);
                 if (modalRename && modalRename.classList.contains("is-open")) closeModal(modalRename);
                 if (modalMove && modalMove.classList.contains("is-open")) closeModal(modalMove);
                 if (modalDelete && modalDelete.classList.contains("is-open")) closeModal(modalDelete);
             }
         });
+
+        // --- Action: Preview Document from Popover ---
+        if (popoverView) {
+            popoverView.addEventListener("click", function () {
+                hidePopover();
+                if (!currentActiveItem || currentActiveItem.type !== "document") return;
+                openDocViewer(currentActiveItem.id, currentActiveItem.name, currentActiveItem.ext, currentActiveItem.version);
+            });
+        }
 
         // --- Action: Rename ---
         if (popoverRename) {
@@ -678,6 +773,22 @@
         const chevronRightIconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
         const folderIconSvg = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>';
 
+        // Helper: Compute full hierarchical string for a folder
+        function getFullFolderPath(folderId) {
+            if (folderId === null || folderId === "" || !folderId) {
+                return "Projects";
+            }
+            const pathNames = [];
+            let currId = parseInt(folderId, 10);
+            while (currId) {
+                const f = moveTreeData.find(item => item.id === currId);
+                if (!f) break;
+                pathNames.unshift(f.name);
+                currId = f.parent_id;
+            }
+            return "Projects > " + pathNames.join(" > ");
+        }
+
         function renderDriveMoveExplorer() {
             if (!driveMoveFolderList || !driveMoveBreadcrumbs) return;
 
@@ -689,13 +800,13 @@
             const rootCrumb = document.createElement("button");
             rootCrumb.type = "button";
             rootCrumb.className = "drive-crumb-btn" + (moveCurrentViewingFolderId === null ? " is-current" : "");
-            rootCrumb.innerHTML = "📁 Root";
+            rootCrumb.textContent = "Projects";
             rootCrumb.addEventListener("click", () => {
                 if (moveCurrentViewingFolderId !== null) {
                     moveCurrentViewingFolderId = null;
                     moveSelectedDestinationFolderId = null;
                     if (inputMoveTargetFolderId) inputMoveTargetFolderId.value = "";
-                    if (driveMoveSelectedName) driveMoveSelectedName.textContent = "📁 Root (Top Level)";
+                    if (driveMoveSelectedName) driveMoveSelectedName.textContent = getFullFolderPath(null);
                     renderDriveMoveExplorer();
                 }
             });
@@ -728,7 +839,7 @@
                             moveCurrentViewingFolderId = f.id;
                             moveSelectedDestinationFolderId = f.id;
                             if (inputMoveTargetFolderId) inputMoveTargetFolderId.value = f.id;
-                            if (driveMoveSelectedName) driveMoveSelectedName.textContent = "📁 " + f.name;
+                            if (driveMoveSelectedName) driveMoveSelectedName.textContent = getFullFolderPath(f.id);
                             renderDriveMoveExplorer();
                         });
                     }
@@ -775,7 +886,7 @@
                         moveCurrentViewingFolderId = folder.id;
                         moveSelectedDestinationFolderId = folder.id;
                         if (inputMoveTargetFolderId) inputMoveTargetFolderId.value = folder.id;
-                        if (driveMoveSelectedName) driveMoveSelectedName.textContent = "📁 " + folder.name;
+                        if (driveMoveSelectedName) driveMoveSelectedName.textContent = getFullFolderPath(folder.id);
                         renderDriveMoveExplorer();
                     });
                     row.appendChild(navBtn);
@@ -785,7 +896,7 @@
                     row.addEventListener("click", () => {
                         moveSelectedDestinationFolderId = folder.id;
                         if (inputMoveTargetFolderId) inputMoveTargetFolderId.value = folder.id;
-                        if (driveMoveSelectedName) driveMoveSelectedName.textContent = "📁 " + folder.name;
+                        if (driveMoveSelectedName) driveMoveSelectedName.textContent = getFullFolderPath(folder.id);
                         renderDriveMoveExplorer();
                     });
 
@@ -794,7 +905,7 @@
                         moveCurrentViewingFolderId = folder.id;
                         moveSelectedDestinationFolderId = folder.id;
                         if (inputMoveTargetFolderId) inputMoveTargetFolderId.value = folder.id;
-                        if (driveMoveSelectedName) driveMoveSelectedName.textContent = "📁 " + folder.name;
+                        if (driveMoveSelectedName) driveMoveSelectedName.textContent = getFullFolderPath(folder.id);
                         renderDriveMoveExplorer();
                     });
                 }
@@ -809,14 +920,15 @@
                 hidePopover();
                 if (!currentActiveItem) return;
                 if (inputMoveId) inputMoveId.value = currentActiveItem.id;
-                if (displayMoveName) displayMoveName.textContent = currentActiveItem.name;
+                if (moveModalTitleName) moveModalTitleName.textContent = currentActiveItem.name;
+                if (moveItemLocationDisplay) moveItemLocationDisplay.textContent = currentActiveItem.location || "Projects";
 
                 // Reset Move Navigator State
                 moveTreeData = [];
                 moveCurrentViewingFolderId = null;
                 moveSelectedDestinationFolderId = null;
                 if (inputMoveTargetFolderId) inputMoveTargetFolderId.value = "";
-                if (driveMoveSelectedName) driveMoveSelectedName.textContent = "📁 Root (Top Level)";
+                if (driveMoveSelectedName) driveMoveSelectedName.textContent = "Projects";
 
                 if (driveMoveFolderList) {
                     driveMoveFolderList.innerHTML = '<div class="drive-move-empty">Loading folder structure...</div>';
@@ -839,6 +951,16 @@
                 .then(data => {
                     if (data.success && Array.isArray(data.folders)) {
                         moveTreeData = data.folders;
+
+                        // If item is in a subfolder, compute its full current location trail
+                        if (currentActiveItem.location && currentActiveItem.location !== "Root") {
+                            // Find parent folder in moveTreeData
+                            const parentMatch = moveTreeData.find(f => f.name === currentActiveItem.location);
+                            if (parentMatch) {
+                                moveItemLocationDisplay.textContent = getFullFolderPath(parentMatch.id);
+                            }
+                        }
+
                         renderDriveMoveExplorer();
                     }
                 })

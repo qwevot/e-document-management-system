@@ -523,17 +523,18 @@ function get_status_class(string $status): string {
     };
 }
 
-// Helper for user initials avatar
-function get_initials(string $name): string {
-    $parts = preg_split('/\s+/', trim($name));
-    $initials = '';
-    foreach ($parts as $p) {
-        if ($p !== '') {
-            $initials .= mb_strtoupper(mb_substr($p, 0, 1));
-            if (mb_strlen($initials) >= 2) break;
+if (!function_exists('get_initials')) {
+    function get_initials(string $name): string {
+        $parts = preg_split('/\s+/', trim($name));
+        $initials = '';
+        foreach ($parts as $p) {
+            if ($p !== '') {
+                $initials .= mb_strtoupper(mb_substr($p, 0, 1));
+                if (mb_strlen($initials) >= 2) break;
+            }
         }
+        return $initials ?: 'U';
     }
-    return $initials ?: 'U';
 }
 
 // Helper function to render cards HTML (shared between normal load and AJAX)
@@ -620,16 +621,28 @@ function render_card_list_html($items, $viewMode, $parentId, $currentNode, $brea
                 </div>
 
                 <!-- Type Icon -->
-                <a href="<?php echo e($itemLink); ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>">
-                    <?php echo render_icon($extIcon); ?>
-                </a>
+                <?php if ($isFolder): ?>
+                    <a href="<?php echo e($itemLink); ?>" class="item-icon-col icon-folder">
+                        <?php echo render_icon('folder'); ?>
+                    </a>
+                <?php else: ?>
+                    <a href="view.php?id=<?php echo e((string)$item['id']); ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open Workspace: <?php echo e($item['name']); ?>">
+                        <?php echo render_icon($extIcon); ?>
+                    </a>
+                <?php endif; ?>
 
                 <!-- 1. Name Column -->
                 <div class="item-main-col">
                     <div class="item-title-row">
-                        <a href="<?php echo e($itemLink); ?>" class="item-title" title="<?php echo e($item['name']); ?>">
-                            <?php echo e($item['name']); ?>
-                        </a>
+                        <?php if ($isFolder): ?>
+                            <a href="<?php echo e($itemLink); ?>" class="item-title" title="<?php echo e($item['name']); ?>">
+                                <?php echo e($item['name']); ?>
+                            </a>
+                        <?php else: ?>
+                            <a href="view.php?id=<?php echo e((string)$item['id']); ?>" class="item-title" title="<?php echo e($item['name']); ?>">
+                                <?php echo e($item['name']); ?>
+                            </a>
+                        <?php endif; ?>
                         <?php if (!empty($item['doc_type'])): ?>
                             <span class="item-type-badge"><?php echo e($item['doc_type']); ?></span>
                         <?php endif; ?>
@@ -658,7 +671,7 @@ function render_card_list_html($items, $viewMode, $parentId, $currentNode, $brea
                             <span class="loc-name"><?php echo e($item['parent_name']); ?></span>
                         </a>
                     <?php else: ?>
-                        <span class="location-badge is-root" title="Located at Root">
+                        <span class="location-badge" title="Located at Root">
                             <?php echo render_icon('folder'); ?>
                             <span class="loc-name">Root</span>
                         </span>
@@ -679,17 +692,17 @@ function render_card_list_html($items, $viewMode, $parentId, $currentNode, $brea
                 <!-- 6. Quick Action Tools -->
                 <div class="item-actions-col">
                     <?php if (!$isFolder): ?>
-                        <button type="button" class="btn-action" title="View / Annotate" onclick="alert('Viewing specimen: <?php echo addslashes($item['name']); ?>');">
+                        <a href="view.php?id=<?php echo e((string)$item['id']); ?>" class="btn-action" title="Open Workspace">
                             <?php echo render_icon('view'); ?>
-                        </button>
+                        </a>
                         <a href="download.php?id=<?php echo e((string)$item['id']); ?>" class="btn-action" title="Download: <?php echo e($item['file_original_name'] ?: $item['name']); ?>" download>
                             <?php echo render_icon('download'); ?>
                         </a>
-                        <button type="button" class="btn-action btn-more-actions" title="More Actions" data-id="<?php echo e((string)$item['id']); ?>" data-name="<?php echo e($item['name']); ?>" data-type="document">
+                        <button type="button" class="btn-action btn-more-actions" title="More Actions" data-id="<?php echo e((string)$item['id']); ?>" data-name="<?php echo e($item['name']); ?>" data-type="document" data-ext="<?php echo e($extIcon); ?>" data-version="<?php echo e($item['version'] ?? 'v1.0'); ?>" data-location="<?php echo e($item['parent_name'] ?: 'Root'); ?>">
                             <?php echo render_icon('more-v'); ?>
                         </button>
                     <?php else: ?>
-                        <button type="button" class="btn-action btn-more-actions" title="Folder Actions" data-id="<?php echo e((string)$item['id']); ?>" data-name="<?php echo e($item['name']); ?>" data-type="folder">
+                        <button type="button" class="btn-action btn-more-actions" title="Folder Actions" data-id="<?php echo e((string)$item['id']); ?>" data-name="<?php echo e($item['name']); ?>" data-type="folder" data-location="<?php echo e($item['parent_name'] ?: 'Root'); ?>">
                             <?php echo render_icon('more-v'); ?>
                         </button>
                     <?php endif; ?>
@@ -873,8 +886,7 @@ require_once __DIR__ . '/../includes/header.php';
     <div class="edms-modal-dialog" style="max-width: 520px; width: 95%;">
         <div class="edms-modal-header">
             <div class="edms-modal-title">
-                <?php echo render_icon('cloud-upload'); ?>
-                <span>Upload Document Specimen</span>
+                <span>Upload Document</span>
             </div>
             <button type="button" class="btn-modal-close" id="btnCloseUploadModal" title="Close modal">&times;</button>
         </div>
@@ -893,7 +905,7 @@ require_once __DIR__ . '/../includes/header.php';
                         <p class="dropzone-text">
                             <strong>Click to browse</strong> or drag &amp; drop your file here
                         </p>
-                        <span class="dropzone-hint">Universal acceptance: PDF, DOCX, XLSX, DWG, PNG, ZIP, etc.</span>
+                        <span class="dropzone-hint">PDF, DOCX, XLSX, DWG, PNG, ZIP, etc.</span>
                     </div>
                 </div>
 
@@ -957,7 +969,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <button type="button" class="btn btn-secondary" id="btnCancelUpload">Cancel</button>
                 <button type="submit" class="btn btn-primary" id="btnSubmitUpload">
                     <?php echo render_icon('cloud-upload'); ?>
-                    <span>Upload Specimen</span>
+                    <span>Upload Document</span>
                 </button>
             </div>
         </form>
@@ -969,7 +981,6 @@ require_once __DIR__ . '/../includes/header.php';
     <div class="edms-modal-dialog">
         <div class="edms-modal-header">
             <div class="edms-modal-title">
-                <?php echo render_icon('folder'); ?>
                 <span>Create New Folder</span>
             </div>
             <button type="button" class="btn-modal-close" id="btnCloseNewFolderModal" title="Close modal">&times;</button>
@@ -1004,6 +1015,10 @@ require_once __DIR__ . '/../includes/header.php';
 
 <!-- Floating Action Popover Menu (3-Dots Context Menu) -->
 <div class="edms-action-popover" id="edmsActionPopover" style="display: none;">
+    <a href="#" class="popover-item" id="popoverActionView" style="text-decoration: none;">
+        <?php echo render_icon('view'); ?>
+        <span>Open Workspace</span>
+    </a>
     <a href="#" class="popover-item" id="popoverActionDownload" style="text-decoration: none;">
         <?php echo render_icon('download'); ?>
         <span>Download</span>
@@ -1057,8 +1072,7 @@ require_once __DIR__ . '/../includes/header.php';
     <div class="edms-modal-dialog modal-dialog-drive">
         <div class="edms-modal-header">
             <div class="edms-modal-title">
-                <?php echo render_icon('move'); ?>
-                <span>Move to Destination</span>
+                <span>Moving: <strong id="moveModalTitleName">Item</strong></span>
             </div>
             <button type="button" class="btn-modal-close" id="btnCloseMoveModal" title="Close modal">&times;</button>
         </div>
@@ -1069,8 +1083,8 @@ require_once __DIR__ . '/../includes/header.php';
             
             <div class="edms-modal-body" style="padding-bottom: 8px;">
                 <div class="drive-move-header">
-                    <span class="drive-move-label">Moving:</span>
-                    <strong id="moveItemNameDisplay" class="drive-move-target-name"></strong>
+                    <span class="drive-move-label">Current Location:</span>
+                    <strong id="moveItemLocationDisplay" class="drive-move-target-name">Projects</strong>
                 </div>
 
                 <!-- Interactive Breadcrumb Directory for Destination -->
@@ -1089,7 +1103,7 @@ require_once __DIR__ . '/../includes/header.php';
                 
                 <div class="drive-move-current-target">
                     <span>Destination: </span>
-                    <strong id="driveMoveSelectedName">📁 Root (Top Level)</strong>
+                    <strong id="driveMoveSelectedName">Projects</strong>
                 </div>
             </div>
             <div class="edms-modal-footer">
@@ -1107,7 +1121,6 @@ require_once __DIR__ . '/../includes/header.php';
     <div class="edms-modal-dialog">
         <div class="edms-modal-header">
             <div class="edms-modal-title" style="color: var(--amber-dark, var(--ink));">
-                <?php echo render_icon('archive'); ?>
                 <span>Move to Archives</span>
             </div>
             <button type="button" class="btn-modal-close" id="btnCloseDeleteModal" title="Close modal">&times;</button>
@@ -1131,6 +1144,40 @@ require_once __DIR__ . '/../includes/header.php';
                 </button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- Modal: Document Viewer (PDF & Inline Viewer) -->
+<div class="edms-modal-backdrop modal-backdrop-viewer" id="modalDocViewer">
+    <div class="edms-modal-dialog modal-dialog-viewer">
+        <div class="edms-modal-header modal-header-viewer">
+            <div class="viewer-meta-info">
+                <span class="viewer-doc-icon" id="viewerDocIcon">
+                    <?php echo render_icon('pdf'); ?>
+                </span>
+                <span class="viewer-doc-title" id="viewerDocTitle">Document Title</span>
+                <span class="viewer-badge badge-ext" id="viewerDocExtBadge">PDF</span>
+                <span class="viewer-badge badge-version" id="viewerDocVersionBadge">v1.0</span>
+            </div>
+            <div class="viewer-header-actions">
+                <a href="#" target="_blank" class="btn btn-secondary btn-sm" id="btnViewerNewTab" title="Open in New Tab">
+                    <?php echo render_icon('external-link'); ?>
+                    <span>New Tab</span>
+                </a>
+                <a href="#" class="btn btn-primary btn-sm" id="btnViewerDownload" title="Download Document" download>
+                    <?php echo render_icon('download'); ?>
+                    <span>Download</span>
+                </a>
+                <button type="button" class="btn-modal-close" id="btnCloseViewerModal" title="Close viewer">&times;</button>
+            </div>
+        </div>
+        <div class="edms-modal-body modal-body-viewer">
+            <div class="viewer-loading-indicator" id="viewerLoadingIndicator">
+                <div class="viewer-spinner"></div>
+                <span>Loading preview...</span>
+            </div>
+            <iframe id="docViewerFrame" class="doc-viewer-iframe" src="about:blank" title="Document Preview"></iframe>
+        </div>
     </div>
 </div>
 

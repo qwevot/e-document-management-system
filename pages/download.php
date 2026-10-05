@@ -36,8 +36,27 @@ if (!file_exists($physicalFilePath) || !is_readable($physicalFilePath)) {
     die('Physical file does not exist on disk.');
 }
 
-// Determine clean download filename for user
-$downloadName = $doc['file_original_name'] ?: ($doc['name'] . '.' . ($doc['file_extension'] ?: 'dat'));
+// Determine clean download filename based on the current active title in the system
+$baseName = trim($doc['name'] ?? '');
+if ($baseName === '') {
+    $baseName = $doc['file_original_name'] ?: 'document';
+}
+
+// Strip invalid filename characters for client OS filesystem safety
+$sanitizedBaseName = preg_replace('/[\\\\\/:\*\?"<>\|]/', '_', $baseName);
+
+// Ensure proper extension is appended if not already present
+$ext = trim($doc['file_extension'] ?? '', '.');
+if ($ext !== '') {
+    $extWithDot = '.' . $ext;
+    if (!str_ends_with(strtolower($sanitizedBaseName), strtolower($extWithDot))) {
+        $downloadName = $sanitizedBaseName . $extWithDot;
+    } else {
+        $downloadName = $sanitizedBaseName;
+    }
+} else {
+    $downloadName = $sanitizedBaseName;
+}
 
 // Clean output buffers to prevent corruption in binary stream
 if (ob_get_level()) {
