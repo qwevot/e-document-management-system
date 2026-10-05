@@ -100,7 +100,25 @@ if ($action) {
             unset($layerData);
         }
 
-        echo json_encode(['success' => true, 'layers' => $layersMap]);
+        // Fetch recent annotation history
+        $histStmt = $pdo->prepare("
+            SELECT h.id, h.user_id, h.action_type, h.tool_type, h.page_number, h.details,
+                   DATE_FORMAT(h.created_at, '%b %d, %H:%i') AS formatted_time,
+                   COALESCE(u.full_name, u.username, 'Collaborator') AS author_name
+            FROM dms_annotation_history h
+            LEFT JOIN users u ON h.user_id = u.id
+            WHERE h.document_id = :doc_id
+            ORDER BY h.id DESC
+            LIMIT 50
+        ");
+        $histStmt->execute(['doc_id' => $docId]);
+        $historyLogs = $histStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        echo json_encode([
+            'success' => true,
+            'layers'  => $layersMap,
+            'history' => $historyLogs
+        ]);
         exit;
     }
 
@@ -174,28 +192,97 @@ if ($action) {
 
         $annoId = (int)$pdo->lastInsertId();
 
+        // Log creation history
+        $rawText = trim($data['content'] ?? ($data['text'] ?? ''));
+        $textSnippet = mb_strlen($rawText) > 35 ? mb_substr($rawText, 0, 32) . '...' : $rawText;
+        $createDetails = ($tool === 'text')
+            ? ('Added comment: "' . $textSnippet . '"')
+            : (($tool === 'highlighter') ? 'Highlighted section' : 'Drawn freehand');
+
+        $logStmt = $pdo->prepare("
+            INSERT INTO dms_annotation_history (document_id, user_id, action_type, tool_type, page_number, details)
+            VALUES (:doc_id, :user_id, 'create', :tool, :page, :details)
+        ");
+        $logStmt->execute([
+            'doc_id'  => $docId,
+            'user_id' => $userId,
+            'tool'    => $tool,
+            'page'    => $page,
+            'details' => $createDetails
+        ]);
+
         echo json_encode([
             'success'       => true,
             'annotation_id' => $annoId,
-            'layer_id'      => $layerId
+            'layer_id'      => $layerId,
+            'history_event' => [
+                'id'             => (int)$pdo->lastInsertId(),
+                'user_id'        => $userId,
+                'author_name'    => $userName,
+                'action_type'    => 'create',
+                'tool_type'      => $tool,
+                'page_number'    => $page,
+                'details'        => $createDetails,
+                'formatted_time' => date('M d, H:i')
+            ]
         ]);
         exit;
     }
 
-    // 3. Delete single stroke (Undo)
+    // 3. Delete single stroke (Undo / Delete key)
     if ($action === 'delete_stroke') {
         $rawInput = file_get_contents('php://input');
         $data = json_decode($rawInput, true);
         $annoId = isset($data['id']) ? (int)$data['id'] : (int)($_POST['id'] ?? 0);
 
         if ($annoId > 0) {
+            $findStmt = $pdo->prepare("SELECT tool_type, page_number, payload_json FROM dms_annotations WHERE id = :id");
+            $findStmt->execute(['id' => $annoId]);
+            $foundAnno = $findStmt->fetch(PDO::FETCH_ASSOC);
+            $delTool = $foundAnno['tool_type'] ?? 'pen';
+            $delPage = (int)($foundAnno['page_number'] ?? 1);
+
             $delStmt = $pdo->prepare("
                 DELETE a FROM dms_annotations a
                 JOIN dms_annotation_layers l ON a.layer_id = l.id
                 WHERE a.id = :id AND l.user_id = :user_id
             ");
             $delStmt->execute(['id' => $annoId, 'user_id' => $userId]);
-            echo json_encode(['success' => true]);
+
+            if ($delTool === 'text') {
+                $delPayload = json_decode($foundAnno['payload_json'] ?? '', true);
+                $delContent = trim($delPayload['content'] ?? ($delPayload['text'] ?? ''));
+                $delSnippet = mb_strlen($delContent) > 35 ? mb_substr($delContent, 0, 32) . '...' : $delContent;
+                $delDetails = $delSnippet !== '' ? ('Deleted comment: "' . $delSnippet . '"') : 'Deleted comment';
+            } else {
+                $delDetails = 'Erased stroke';
+            }
+
+            $logStmt = $pdo->prepare("
+                INSERT INTO dms_annotation_history (document_id, user_id, action_type, tool_type, page_number, details)
+                VALUES (:doc_id, :user_id, 'delete', :tool, :page, :details)
+            ");
+            $logStmt->execute([
+                'doc_id'  => $docId,
+                'user_id' => $userId,
+                'tool'    => $delTool,
+                'page'    => $delPage,
+                'details' => $delDetails
+            ]);
+
+            echo json_encode([
+                'success'       => true,
+                'history_event' => [
+                    'id'             => (int)$pdo->lastInsertId(),
+                    'user_id'        => $userId,
+                    'author_name'    => $userName,
+                    'action_type'    => 'delete',
+                    'tool_type'      => $delTool,
+                    'page_number'    => $delPage,
+                    'details'        => $delDetails,
+                    'formatted_time' => date('M d, H:i')
+                ]
+            ]);
             exit;
         }
 
@@ -211,7 +298,29 @@ if ($action) {
             WHERE a.document_id = :doc_id AND l.user_id = :user_id
         ");
         $delStmt->execute(['doc_id' => $docId, 'user_id' => $userId]);
-        echo json_encode(['success' => true]);
+
+        $logStmt = $pdo->prepare("
+            INSERT INTO dms_annotation_history (document_id, user_id, action_type, tool_type, page_number, details)
+            VALUES (:doc_id, :user_id, 'clear', NULL, 1, 'Cleared personal annotations')
+        ");
+        $logStmt->execute([
+            'doc_id'  => $docId,
+            'user_id' => $userId
+        ]);
+
+        echo json_encode([
+            'success'       => true,
+            'history_event' => [
+                'id'             => (int)$pdo->lastInsertId(),
+                'user_id'        => $userId,
+                'author_name'    => $userName,
+                'action_type'    => 'clear',
+                'tool_type'      => null,
+                'page_number'    => 1,
+                'details'        => 'Cleared personal annotations',
+                'formatted_time' => date('M d, H:i')
+            ]
+        ]);
         exit;
     }
 }
@@ -423,12 +532,22 @@ if ($action) {
                         <span>Overlay Opacity</span>
                         <span id="opacityDisplayVal">100%</span>
                     </div>
-                    <input type="range" id="layerOpacitySlider" min="20" max="100" value="100" class="layer-opacity-slider">
+                    <input type="range" id="layerOpacitySlider" min="0" max="100" value="100" class="layer-opacity-slider">
                 </div>
 
-                <div class="layer-section-title" style="margin-top: 24px;">Workspace Tips</div>
-                <div class="layer-info-card">
-                    <p>Each collaborator draws on their own transparent layer. Annotations naturally bind to each page and follow your scroll with absolute fidelity.</p>
+                <div class="history-accordion-header" id="btnToggleHistoryAccordion" title="Toggle Annotation History">
+                    <div class="history-accordion-title">
+                        <span class="history-accordion-arrow" id="historyAccordionArrow">
+                            <?php echo render_icon('chevron-right'); ?>
+                        </span>
+                        <span>Annotation History</span>
+                    </div>
+                    <span class="history-count-badge" id="historyCountBadge">0 events</span>
+                </div>
+                <div class="annotation-history-feed is-collapsed" id="annotationHistoryFeed">
+                    <div class="history-empty-state" id="historyEmptyState">
+                        <span>No annotation events recorded yet.</span>
+                    </div>
                 </div>
 
             </div>

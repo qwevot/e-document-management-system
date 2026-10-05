@@ -47,6 +47,9 @@ document.addEventListener("DOMContentLoaded", function () {
     const layerOpacitySlider = document.getElementById("layerOpacitySlider");
     const opacityDisplayVal = document.getElementById("opacityDisplayVal");
     const layersList = document.getElementById("layersList");
+    const annotationHistoryFeed = document.getElementById("annotationHistoryFeed");
+    const historyCountBadge = document.getElementById("historyCountBadge");
+    const btnToggleHistoryAccordion = document.getElementById("btnToggleHistoryAccordion");
 
     // --- State Management ---
     let pdfDocument = null;
@@ -58,6 +61,7 @@ document.addEventListener("DOMContentLoaded", function () {
     let activeColor = "#16a34a"; // Default Emerald
     let activeStrokeWidth = 2;
     let layerOpacity = 1.0;
+    let annotationHistoryList = [];
     
     // Active Drawing State
     let isDrawing = false;
@@ -111,6 +115,12 @@ document.addEventListener("DOMContentLoaded", function () {
                         isSelf: true,
                         strokes: []
                     };
+                }
+
+                // Load annotation history logs
+                if (data.history && Array.isArray(data.history)) {
+                    annotationHistoryList = data.history;
+                    renderAnnotationHistory();
                 }
 
                 updateCollaboratorLayersUI();
@@ -439,7 +449,14 @@ document.addEventListener("DOMContentLoaded", function () {
                         method: "POST",
                         headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
                         body: JSON.stringify({ id: deleted.id })
-                    }).catch(err => console.error("Error deleting stroke:", err));
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data && data.history_event) {
+                            prependHistoryEvent(data.history_event);
+                        }
+                    })
+                    .catch(err => console.error("Error deleting stroke:", err));
                 }
             }
             selectedAnnotation = null;
@@ -572,6 +589,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 strokeObj.id = data.annotation_id;
                 if (data.layer_id && annotationLayers[currentUserId]) {
                     annotationLayers[currentUserId].layerId = data.layer_id;
+                }
+                if (data.history_event) {
+                    prependHistoryEvent(data.history_event);
                 }
             }
         })
@@ -794,6 +814,76 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
+    // --- 7b. Annotation History & Audit Trail Feed ---
+    function renderAnnotationHistory() {
+        if (!annotationHistoryFeed) return;
+        annotationHistoryFeed.innerHTML = "";
+
+        if (historyCountBadge) {
+            const count = annotationHistoryList.length;
+            historyCountBadge.textContent = `${count} ${count === 1 ? 'event' : 'events'}`;
+        }
+
+        if (!annotationHistoryList || annotationHistoryList.length === 0) {
+            annotationHistoryFeed.innerHTML = `
+                <div class="history-empty-state">
+                    <span>No annotation events recorded yet.</span>
+                </div>
+            `;
+            return;
+        }
+
+        annotationHistoryList.forEach(item => {
+            const row = document.createElement("div");
+            row.className = "history-item";
+            const pageNum = parseInt(item.page_number, 10) || null;
+            if (pageNum) {
+                row.title = `Click to jump to Page ${pageNum}`;
+            }
+
+            const isErase = item.action_type === "delete" || item.action_type === "clear";
+            const actionClass = isErase ? "is-erase" : "is-write";
+            const actionText = escapeHtml(item.details || (isErase ? 'Erased item' : 'Added item'));
+
+            row.innerHTML = `
+                <div class="history-main-line">
+                    <span class="history-user">${escapeHtml(item.author_name || 'Collaborator')}</span>
+                    <span class="history-action-text ${actionClass}">${actionText}</span>
+                </div>
+                <div class="history-meta-line">
+                    <span class="history-time">${escapeHtml(item.formatted_time || 'Just now')}</span>
+                    ${pageNum ? `<span class="history-page-tag">Page ${pageNum}</span>` : ''}
+                </div>
+            `;
+
+            if (pageNum) {
+                row.addEventListener("click", () => {
+                    scrollToPage(pageNum);
+                });
+            }
+
+            annotationHistoryFeed.appendChild(row);
+        });
+    }
+
+    function prependHistoryEvent(evt) {
+        if (!evt) return;
+        annotationHistoryList.unshift(evt);
+        if (annotationHistoryList.length > 50) {
+            annotationHistoryList.pop();
+        }
+        renderAnnotationHistory();
+    }
+
+    // Accordion Dropdown Toggle for Annotation History
+    if (btnToggleHistoryAccordion && annotationHistoryFeed) {
+        btnToggleHistoryAccordion.addEventListener("click", function () {
+            const isCurrentlyCollapsed = annotationHistoryFeed.classList.contains("is-collapsed");
+            annotationHistoryFeed.classList.toggle("is-collapsed", !isCurrentlyCollapsed);
+            this.classList.toggle("is-open", isCurrentlyCollapsed);
+        });
+    }
+
     // --- 8. Continuous Scroll & Page Navigation Observer ---
     function setupScrollObserver() {
         if (!window.IntersectionObserver || !workspaceCenterStage) return;
@@ -867,6 +957,34 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
+    // Intercept Keyboard Zoom (Ctrl + / Ctrl - / Ctrl 0)
+    window.addEventListener("keydown", function (e) {
+        if (e.ctrlKey || e.metaKey) {
+            if (e.key === "=" || e.key === "+" || e.keyCode === 187 || e.keyCode === 107) {
+                e.preventDefault();
+                setZoom(currentZoomPercent + 15);
+            } else if (e.key === "-" || e.key === "_" || e.keyCode === 189 || e.keyCode === 109) {
+                e.preventDefault();
+                setZoom(currentZoomPercent - 15);
+            } else if (e.key === "0" || e.keyCode === 96 || e.keyCode === 48) {
+                e.preventDefault();
+                setZoom(100);
+            }
+        }
+    }, { passive: false });
+
+    // Intercept Mouse Wheel Zoom (Ctrl + Scroll Wheel)
+    window.addEventListener("wheel", function (e) {
+        if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            if (e.deltaY < 0) {
+                setZoom(currentZoomPercent + 10);
+            } else if (e.deltaY > 0) {
+                setZoom(currentZoomPercent - 10);
+            }
+        }
+    }, { passive: false });
+
     // --- 10. Tool Palette Switching ---
     dockButtons.forEach(btn => {
         btn.addEventListener("click", function () {
@@ -925,7 +1043,14 @@ document.addEventListener("DOMContentLoaded", function () {
                         method: "POST",
                         headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
                         body: JSON.stringify({ id: popped.id })
-                    }).catch(err => console.error("Error deleting stroke:", err));
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data && data.history_event) {
+                            prependHistoryEvent(data.history_event);
+                        }
+                    })
+                    .catch(err => console.error("Error deleting stroke:", err));
                 }
             }
         });
@@ -944,7 +1069,14 @@ document.addEventListener("DOMContentLoaded", function () {
                 fetch(`view.php?action=clear_my_layer&id=${docId}`, {
                     method: "POST",
                     headers: { "X-Requested-With": "XMLHttpRequest" }
-                }).catch(err => console.error("Error clearing annotations:", err));
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.history_event) {
+                        prependHistoryEvent(data.history_event);
+                    }
+                })
+                .catch(err => console.error("Error clearing annotations:", err));
             }
         });
     }
