@@ -21,16 +21,17 @@ $stmt = $pdo->prepare("
     FROM dms_nodes n
     LEFT JOIN users u ON n.created_by = u.id
     LEFT JOIN dms_nodes p ON n.parent_id = p.id
-    WHERE n.id = :id AND n.node_type = 'document' AND n.is_deleted = 0
+    WHERE n.id = :id AND n.node_type = 'document'
 ");
 $stmt->execute(['id' => $docId]);
 $doc = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$doc) {
-    die('Document specimen not found or has been archived.');
+    die('Document specimen not found.');
 }
 
-$backUrl = 'explorer.php?mode=project' . (!empty($doc['parent_id']) ? '&folder=' . (int)$doc['parent_id'] : '');
+$isArchived = ($doc['status'] === 'obsolete' || (int)$doc['is_deleted'] === 1);
+$backUrl = $isArchived ? 'archives.php' : ('explorer.php?mode=project' . (!empty($doc['parent_id']) ? '&folder=' . (int)$doc['parent_id'] : ''));
 $ext = strtolower(trim($doc['file_extension'] ?? '', '.'));
 $streamUrl = 'stream.php?id=' . $doc['id'];
 $downloadUrl = 'download.php?id=' . $doc['id'];
@@ -358,6 +359,9 @@ if ($action) {
                 <span class="workspace-doc-title" title="<?php echo e($doc['name']); ?>">
                     <?php echo e($doc['name']); ?>
                 </span>
+                <?php if ($isArchived): ?>
+                    <span class="workspace-badge" style="background:var(--slate-soft); color:var(--slate-ink); border:1px solid var(--slate-line);">Obsolete</span>
+                <?php endif; ?>
                 <?php if (!empty($doc['doc_type'])): ?>
                     <span class="workspace-badge badge-type"><?php echo e($doc['doc_type']); ?></span>
                 <?php endif; ?>

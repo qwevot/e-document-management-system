@@ -25,9 +25,9 @@ $stmt = $pdo->prepare("
 $stmt->execute(['id' => $nodeId]);
 $doc = $stmt->fetch(PDO::FETCH_ASSOC);
 
-if (!$doc || $doc['node_type'] !== 'document' || (int)$doc['is_deleted'] === 1) {
+if (!$doc || $doc['node_type'] !== 'document') {
     http_response_code(404);
-    die('Document not found or is no longer accessible.');
+    die('Document not found.');
 }
 
 // Check physical file existence

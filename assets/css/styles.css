@@ -1544,6 +1544,23 @@ body.sidebar-collapsed .main {
     color: var(--amber-dark, var(--green));
 }
 
+.popover-item.is-danger {
+    color: var(--red);
+}
+
+.popover-item.is-danger:hover {
+    background: var(--red-soft);
+    color: var(--red-ink);
+}
+
+.popover-item.is-danger svg {
+    color: var(--red);
+}
+
+.popover-item.is-danger:hover svg {
+    color: var(--red-ink);
+}
+
 .popover-divider {
     height: 1px;
     background: var(--border);
@@ -3646,4 +3663,291 @@ input.input-error, select.input-error, textarea.input-error {
     border-color: #ef4444 !important;
     background-color: #fef2f2 !important;
     box-shadow: 0 0 0 1px #ef4444 !important;
+}
+
+/* ============================================================
+   GLOBAL BUTTONS & USER MANAGEMENT TABLE STYLES
+============================================================ */
+
+.btn.primary {
+    background: var(--green);
+    color: #ffffff;
+    border: none;
+}
+
+.btn.primary:hover {
+    background: var(--green-hover);
+}
+
+.btn.secondary {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+
+.btn.secondary:hover {
+    background: var(--surface-light);
+    color: var(--ink);
+}
+
+.btn.cancel {
+    background: var(--surface-muted);
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+
+.btn.cancel:hover {
+    background: var(--border);
+    color: var(--ink);
+}
+
+.btn.danger {
+    background: var(--red);
+    color: #ffffff;
+    border: none;
+}
+
+.btn.danger:hover {
+    background: var(--red-hover);
+}
+
+.btn.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn.icon-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.btn.icon-btn:hover {
+    background: var(--green-soft);
+    color: var(--green-ink);
+}
+
+.btn.icon-btn.edit:hover {
+    background: var(--green-soft);
+    color: var(--green);
+}
+
+.btn.icon-btn.delete:hover {
+    background: var(--red-soft);
+    color: var(--red-ink);
+}
+
+/* Users Page Layout */
+.users-section {
+    background: var(--wrapper-bg);
+    border: 1px solid var(--wrapper-border);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 12px;
+    box-shadow: 0 4px 20px var(--modal-backdrop-bg);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.users-header-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    backdrop-filter: blur(6px);
+    border-radius: 8px;
+    padding: 12px 18px;
+    box-shadow: var(--shadow-subtle);
+}
+
+.users-header-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--ink);
+}
+
+.users-header-title svg {
+    width: 20px;
+    height: 20px;
+    color: var(--green);
+}
+
+.users-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.users-search-input {
+    padding: 8px 14px;
+    font-size: 13px;
+    border: 1px solid var(--glass-tint-input-border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--ink);
+    outline: none;
+    min-width: 220px;
+    transition: border-color 0.15s ease;
+}
+
+.users-search-input:focus {
+    border-color: var(--green);
+}
+
+/* Standard Data Table */
+.data-table-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow-x: auto;
+    box-shadow: var(--shadow-subtle);
+}
+
+.data-table {
+    width: 100%;
+    min-width: 720px;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.data-table thead th {
+    background: var(--surface-light);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.data-table tbody td {
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+    color: var(--ink);
+}
+
+.data-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.data-table tbody tr:hover td {
+    background: var(--green-subtle);
+}
+
+.data-table .no-col {
+    width: 44px;
+    text-align: center;
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.data-table .action-col {
+    width: 90px;
+    text-align: center;
+}
+
+.data-table .row-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.user-cell-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.user-cell-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--green-soft);
+    color: var(--green-ink);
+    border: 1px solid var(--green-line);
+    font-weight: 700;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.user-cell-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.user-cell-name {
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.user-cell-username {
+    font-size: 11.5px;
+    color: var(--muted);
+}
+
+/* Role Badges */
+.role-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.role-badge.super-admin {
+    background: var(--green-soft);
+    color: var(--green-ink);
+    border: 1px solid var(--green-line);
+}
+
+.role-badge.admin {
+    background: var(--info-blue-soft);
+    color: var(--info-blue-dark);
+    border: 1px solid var(--info-blue-line);
+}
+
+.role-badge.engineer {
+    background: #fdf4ff;
+    color: #86198f;
+    border: 1px solid #f5d0fe;
+}
+
+.role-badge.technician {
+    background: var(--amber-soft);
+    color: var(--amber-ink);
+    border: 1px solid var(--amber-line);
+}
+
+.role-badge.viewer {
+    background: var(--slate-soft);
+    color: var(--slate-ink);
+    border: 1px solid var(--slate-line);
 }

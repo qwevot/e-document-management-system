@@ -671,9 +671,9 @@ function render_card_list_html($items, $viewMode, $parentId, $currentNode, $brea
                             <span class="loc-name"><?php echo e($item['parent_name']); ?></span>
                         </a>
                     <?php else: ?>
-                        <span class="location-badge" title="Located at Root">
+                        <span class="location-badge" title="Located at Projects">
                             <?php echo render_icon('folder'); ?>
-                            <span class="loc-name">Root</span>
+                            <span class="loc-name">Projects</span>
                         </span>
                     <?php endif; ?>
                 </div>
