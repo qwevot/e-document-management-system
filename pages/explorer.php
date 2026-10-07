@@ -228,7 +228,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         require_once __DIR__ . '/../includes/metadata.php';
 
         $docName     = trim($_POST['name'] ?? '');
-        $docType     = trim($_POST['doc_type'] ?? 'Specification');
         $status      = in_array($_POST['status'] ?? '', ['active', 'published', 'hold'], true) ? $_POST['status'] : 'active';
         $postParentId = isset($_POST['parent_id']) && is_numeric($_POST['parent_id']) && (int)$_POST['parent_id'] > 0
             ? (int)$_POST['parent_id']
@@ -306,12 +305,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $stmt = $pdo->prepare("
                     INSERT INTO dms_nodes (
-                        parent_id, node_type, name, doc_type, status, version,
+                        parent_id, node_type, name, status, version,
                         file_path, file_original_name, file_size, file_extension,
                         mime_type, file_hash, is_locked, is_deleted, created_by,
                         created_at, updated_at
                     ) VALUES (
-                        :parent_id, 'document', :name, :doc_type, :status, 'v0.1',
+                        :parent_id, 'document', :name, :status, 'v0.1',
                         :file_path, :file_original_name, :file_size, :file_extension,
                         :mime_type, :file_hash, 0, 0, :created_by,
                         NOW(), NOW()
@@ -321,7 +320,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([
                     'parent_id'          => $postParentId,
                     'name'               => $docName,
-                    'doc_type'           => $docType,
                     'status'             => $status,
                     'file_path'          => $relativeStoragePath,
                     'file_original_name' => $originalName,
@@ -365,13 +363,18 @@ $page       = isset($_GET['page']) && is_numeric($_GET['page']) && (int)$_GET['p
 $allowedPerPages = [10, 25, 50, 100];
 $perPage    = isset($_GET['per_page']) && is_numeric($_GET['per_page']) && in_array((int)$_GET['per_page'], $allowedPerPages, true) ? (int)$_GET['per_page'] : 25;
 
-// Fetch distinct document types for the dropdown filter
-$docTypesStmt = $pdo->query("SELECT DISTINCT doc_type FROM dms_nodes WHERE doc_type IS NOT NULL AND doc_type != '' AND is_deleted = 0 ORDER BY doc_type ASC");
-$availableDocTypes = $docTypesStmt->fetchAll(PDO::FETCH_COLUMN);
-
-$standardTypes = ['SOP', 'Specification', 'Drawing', 'Contract', 'Report', 'Manual'];
-$allFilterTypes = array_unique(array_merge($availableDocTypes, $standardTypes));
-sort($allFilterTypes);
+// Fetch distinct file types (extensions) dynamically from existing database records
+$fileTypesStmt = $pdo->query("
+    SELECT DISTINCT LOWER(TRIM(LEADING '.' FROM file_extension)) AS ext
+    FROM dms_nodes
+    WHERE node_type = 'document'
+      AND file_extension IS NOT NULL
+      AND file_extension != ''
+      AND is_deleted = 0
+      AND status != 'obsolete'
+    ORDER BY ext ASC
+");
+$allFilterTypes = array_values(array_filter($fileTypesStmt->fetchAll(PDO::FETCH_COLUMN)));
 
 // 2. Resolve Breadcrumbs (Project tree mode only)
 $breadcrumbs = [];
@@ -430,9 +433,10 @@ if ($searchQ !== '') {
         $countParams['status'] = $statusFilt;
     }
     if ($typeFilt !== null) {
-        $whereClause .= ' AND dms_nodes.doc_type = :doc_type';
-        $params['doc_type'] = $typeFilt;
-        $countParams['doc_type'] = $typeFilt;
+        $cleanExt = ltrim(strtolower($typeFilt), '.');
+        $whereClause .= ' AND (LOWER(TRIM(LEADING "." FROM dms_nodes.file_extension)) = :file_ext)';
+        $params['file_ext'] = $cleanExt;
+        $countParams['file_ext'] = $cleanExt;
     }
 
     $orderBy = ' ORDER BY dms_nodes.node_type = "folder" DESC, dms_nodes.name ASC';
@@ -446,9 +450,10 @@ if ($searchQ !== '') {
         $countParams['status'] = $statusFilt;
     }
     if ($typeFilt !== null) {
-        $whereClause .= ' AND dms_nodes.doc_type = :doc_type';
-        $params['doc_type'] = $typeFilt;
-        $countParams['doc_type'] = $typeFilt;
+        $cleanExt = ltrim(strtolower($typeFilt), '.');
+        $whereClause .= ' AND (LOWER(TRIM(LEADING "." FROM dms_nodes.file_extension)) = :file_ext)';
+        $params['file_ext'] = $cleanExt;
+        $countParams['file_ext'] = $cleanExt;
     }
 
     $orderBy = ' ORDER BY dms_nodes.name ASC';
@@ -462,9 +467,10 @@ if ($searchQ !== '') {
         $countParams['status'] = $statusFilt;
     }
     if ($typeFilt !== null) {
-        $whereClause .= ' AND dms_nodes.doc_type = :doc_type';
-        $params['doc_type'] = $typeFilt;
-        $countParams['doc_type'] = $typeFilt;
+        $cleanExt = ltrim(strtolower($typeFilt), '.');
+        $whereClause .= ' AND (LOWER(TRIM(LEADING "." FROM dms_nodes.file_extension)) = :file_ext)';
+        $params['file_ext'] = $cleanExt;
+        $countParams['file_ext'] = $cleanExt;
     }
 
     $orderBy = ' ORDER BY dms_nodes.node_type = "folder" DESC, dms_nodes.name ASC';
@@ -480,9 +486,10 @@ if ($searchQ !== '') {
         $countParams['status'] = $statusFilt;
     }
     if ($typeFilt !== null) {
-        $whereClause .= ' AND dms_nodes.doc_type = :doc_type';
-        $params['doc_type'] = $typeFilt;
-        $countParams['doc_type'] = $typeFilt;
+        $cleanExt = ltrim(strtolower($typeFilt), '.');
+        $whereClause .= ' AND (LOWER(TRIM(LEADING "." FROM dms_nodes.file_extension)) = :file_ext)';
+        $params['file_ext'] = $cleanExt;
+        $countParams['file_ext'] = $cleanExt;
     }
 
     $orderBy = ' ORDER BY dms_nodes.node_type = "folder" DESC, dms_nodes.name ASC';
@@ -643,8 +650,8 @@ function render_card_list_html($items, $viewMode, $parentId, $currentNode, $brea
                                 <?php echo e($item['name']); ?>
                             </a>
                         <?php endif; ?>
-                        <?php if (!empty($item['doc_type'])): ?>
-                            <span class="item-type-badge"><?php echo e($item['doc_type']); ?></span>
+                        <?php if (!$isFolder && !empty($item['file_extension'])): ?>
+                            <span class="item-type-badge">.<?php echo e(ltrim(strtolower($item['file_extension']), '.')); ?></span>
                         <?php endif; ?>
                         <?php if (!$isFolder && !empty($item['version'])): ?>
                             <span class="version-badge"><?php echo e($item['version']); ?></span>
@@ -846,13 +853,14 @@ require_once __DIR__ . '/../includes/header.php';
                 <input type="hidden" name="folder" id="explorerFilterFolder" value="<?php echo ($parentId !== null && $viewMode === 'project') ? e((string)$parentId) : ''; ?>">
 
                 <div class="filter-dropdown-group">
-                    <!-- Document Type Dropdown -->
+                    <!-- File Type Dropdown -->
                     <div class="select-wrapper">
                         <select name="type" id="filterTypeSelect" class="filter-select">
-                            <option value="">All Document Types</option>
-                            <?php foreach ($allFilterTypes as $dType): ?>
-                                <option value="<?php echo e($dType); ?>" <?php echo $typeFilt === $dType ? 'selected' : ''; ?>>
-                                    <?php echo e($dType); ?>
+                            <option value="">All File Types</option>
+                            <?php foreach ($allFilterTypes as $fExt): ?>
+                                <?php $cleanExt = ltrim(strtolower($fExt), '.'); ?>
+                                <option value="<?php echo e($cleanExt); ?>" <?php echo (ltrim(strtolower($typeFilt ?? ''), '.') === $cleanExt) ? 'selected' : ''; ?>>
+                                    .<?php echo e($cleanExt); ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
@@ -927,33 +935,14 @@ require_once __DIR__ . '/../includes/header.php';
                     <input type="text" id="uploadDocName" name="name" class="form-input" placeholder="e.g. Standard Operating Procedure" required autocomplete="off">
                 </div>
 
-                <div class="upload-form-row">
-                    <div class="form-group" style="flex: 1;">
-                        <label for="uploadDocType" class="form-label">Document Type</label>
-                        <div class="select-wrapper">
-                            <select id="uploadDocType" name="doc_type" class="form-input">
-                                <option value="SOP">SOP</option>
-                                <option value="Specification" selected>Specification</option>
-                                <option value="Drawing">Drawing</option>
-                                <option value="Contract">Contract</option>
-                                <option value="Report">Report</option>
-                                <option value="Manual">Manual</option>
-                                <option value="Architecture">Architecture</option>
-                                <option value="Design">Design</option>
-                                <option value="Other">Other</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="form-group" style="flex: 1;">
-                        <label for="uploadDocStatus" class="form-label">Initial Status</label>
-                        <div class="select-wrapper">
-                            <select id="uploadDocStatus" name="status" class="form-input">
-                                <option value="active" selected>Active (Draft)</option>
-                                <option value="published">Published</option>
-                                <option value="hold">On Hold</option>
-                            </select>
-                        </div>
+                <div class="form-group" style="margin-top: 14px;">
+                    <label for="uploadDocStatus" class="form-label">Initial Status</label>
+                    <div class="select-wrapper">
+                        <select id="uploadDocStatus" name="status" class="form-input">
+                            <option value="active" selected>Active (Draft)</option>
+                            <option value="published">Published</option>
+                            <option value="hold">On Hold</option>
+                        </select>
                     </div>
                 </div>
 
@@ -1144,40 +1133,6 @@ require_once __DIR__ . '/../includes/header.php';
                 </button>
             </div>
         </form>
-    </div>
-</div>
-
-<!-- Modal: Document Viewer (PDF & Inline Viewer) -->
-<div class="edms-modal-backdrop modal-backdrop-viewer" id="modalDocViewer">
-    <div class="edms-modal-dialog modal-dialog-viewer">
-        <div class="edms-modal-header modal-header-viewer">
-            <div class="viewer-meta-info">
-                <span class="viewer-doc-icon" id="viewerDocIcon">
-                    <?php echo render_icon('pdf'); ?>
-                </span>
-                <span class="viewer-doc-title" id="viewerDocTitle">Document Title</span>
-                <span class="viewer-badge badge-ext" id="viewerDocExtBadge">PDF</span>
-                <span class="viewer-badge badge-version" id="viewerDocVersionBadge">v1.0</span>
-            </div>
-            <div class="viewer-header-actions">
-                <a href="#" target="_blank" class="btn btn-secondary btn-sm" id="btnViewerNewTab" title="Open in New Tab">
-                    <?php echo render_icon('external-link'); ?>
-                    <span>New Tab</span>
-                </a>
-                <a href="#" class="btn btn-primary btn-sm" id="btnViewerDownload" title="Download Document" download>
-                    <?php echo render_icon('download'); ?>
-                    <span>Download</span>
-                </a>
-                <button type="button" class="btn-modal-close" id="btnCloseViewerModal" title="Close viewer">&times;</button>
-            </div>
-        </div>
-        <div class="edms-modal-body modal-body-viewer">
-            <div class="viewer-loading-indicator" id="viewerLoadingIndicator">
-                <div class="viewer-spinner"></div>
-                <span>Loading preview...</span>
-            </div>
-            <iframe id="docViewerFrame" class="doc-viewer-iframe" src="about:blank" title="Document Preview"></iframe>
-        </div>
     </div>
 </div>
 

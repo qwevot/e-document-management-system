@@ -537,50 +537,6 @@
         const popoverMove = document.getElementById("popoverActionMove");
         const popoverDelete = document.getElementById("popoverActionDelete");
 
-        // Document Viewer Modal
-        const modalDocViewer = document.getElementById("modalDocViewer");
-        const viewerDocTitle = document.getElementById("viewerDocTitle");
-        const viewerDocExtBadge = document.getElementById("viewerDocExtBadge");
-        const viewerDocVersionBadge = document.getElementById("viewerDocVersionBadge");
-        const btnViewerNewTab = document.getElementById("btnViewerNewTab");
-        const btnViewerDownload = document.getElementById("btnViewerDownload");
-        const btnCloseViewer = document.getElementById("btnCloseViewerModal");
-        const docViewerFrame = document.getElementById("docViewerFrame");
-        const viewerLoadingIndicator = document.getElementById("viewerLoadingIndicator");
-
-        function openDocViewer(id, name, ext, version) {
-            if (!modalDocViewer || !id) return;
-            if (viewerDocTitle) viewerDocTitle.textContent = name || "Document Preview";
-            if (viewerDocExtBadge) viewerDocExtBadge.textContent = (ext || "PDF").toUpperCase();
-            if (viewerDocVersionBadge) {
-                viewerDocVersionBadge.textContent = version || "v1.0";
-                viewerDocVersionBadge.style.display = version ? "inline-block" : "none";
-            }
-            if (btnViewerNewTab) btnViewerNewTab.href = "stream.php?id=" + encodeURIComponent(id);
-            if (btnViewerDownload) btnViewerDownload.href = "download.php?id=" + encodeURIComponent(id);
-
-            if (viewerLoadingIndicator) viewerLoadingIndicator.classList.remove("is-hidden");
-            if (docViewerFrame) {
-                docViewerFrame.onload = function () {
-                    if (viewerLoadingIndicator) viewerLoadingIndicator.classList.add("is-hidden");
-                };
-                docViewerFrame.src = "stream.php?id=" + encodeURIComponent(id);
-            }
-            openModal(modalDocViewer);
-        }
-
-        function closeDocViewer() {
-            if (!modalDocViewer) return;
-            closeModal(modalDocViewer);
-            if (docViewerFrame) docViewerFrame.src = "about:blank";
-        }
-
-        if (btnCloseViewer) btnCloseViewer.addEventListener("click", closeDocViewer);
-        if (modalDocViewer) {
-            modalDocViewer.addEventListener("click", function (e) {
-                if (e.target === modalDocViewer) closeDocViewer();
-            });
-        }
 
         // Modals & Forms
         const modalRename = document.getElementById("modalRenameNode");
@@ -620,22 +576,9 @@
             if (popover) popover.style.display = "none";
         }
 
-        // Delegated Item Click Handler (View Document & 3-Dots Popover)
+        // Delegated Item Click Handler (3-Dots Popover)
         cardListContainer.addEventListener("click", function (e) {
-            // 1. Check if user clicked a view button / title / icon on a document
-            const viewBtn = e.target.closest(".btn-view-doc");
-            if (viewBtn) {
-                e.preventDefault();
-                e.stopPropagation();
-                const docId = viewBtn.dataset.id;
-                const docName = viewBtn.dataset.name;
-                const docExt = viewBtn.dataset.ext || "pdf";
-                const docVersion = viewBtn.dataset.version || "v1.0";
-                openDocViewer(docId, docName, docExt, docVersion);
-                return;
-            }
-
-            // 2. Check 3-Dots button
+            // Check 3-Dots button
             const btn = e.target.closest(".btn-more-actions");
             if (!btn || !popover) return;
             e.preventDefault();
@@ -705,7 +648,6 @@
         document.addEventListener("keydown", function (e) {
             if (e.key === "Escape") {
                 hidePopover();
-                if (modalDocViewer && modalDocViewer.classList.contains("is-open")) closeDocViewer();
                 if (modalNewFolder && modalNewFolder.classList.contains("is-open")) closeModal(modalNewFolder);
                 if (modalUploadDoc && modalUploadDoc.classList.contains("is-open")) closeModal(modalUploadDoc);
                 if (modalRename && modalRename.classList.contains("is-open")) closeModal(modalRename);
@@ -713,15 +655,6 @@
                 if (modalDelete && modalDelete.classList.contains("is-open")) closeModal(modalDelete);
             }
         });
-
-        // --- Action: Preview Document from Popover ---
-        if (popoverView) {
-            popoverView.addEventListener("click", function () {
-                hidePopover();
-                if (!currentActiveItem || currentActiveItem.type !== "document") return;
-                openDocViewer(currentActiveItem.id, currentActiveItem.name, currentActiveItem.ext, currentActiveItem.version);
-            });
-        }
 
         // --- Action: Rename ---
         if (popoverRename) {

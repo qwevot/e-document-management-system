@@ -68,19 +68,24 @@ document.addEventListener("DOMContentLoaded", function () {
     let activeDrawingPage = 1;
     let currentStroke = null;
 
-    // Multi-User Layer Store: Keyed by user ID
-    // { [userId]: { layerId, userId, name, color, visible: true, isSelf: bool, strokes: [] } }
-    let annotationLayers = {
-        [currentUserId]: {
-            layerId: null,
-            userId: currentUserId,
-            name: currentUserName,
-            color: activeColor,
-            visible: true,
-            isSelf: true,
-            strokes: []
+    // Multi-Layer Store: Keyed by layerId
+    // { [layerId]: { layerId, userId, userName, layerName, color, visible: true, isSelf: bool, strokes: [] } }
+    let annotationLayers = {};
+    let activeLayerId = null;
+
+    // Helper: Get currently active layer object for drawing
+    function getActiveSelfLayer() {
+        if (activeLayerId && annotationLayers[activeLayerId]) {
+            return annotationLayers[activeLayerId];
         }
-    };
+        // Fallback: Find the latest layer belonging to current user
+        const selfLayerIds = Object.keys(annotationLayers).filter(lid => annotationLayers[lid].isSelf);
+        if (selfLayerIds.length > 0) {
+            activeLayerId = parseInt(selfLayerIds[selfLayerIds.length - 1], 10);
+            return annotationLayers[activeLayerId];
+        }
+        return null;
+    }
 
     // --- 1. Fetch & Hydrate Saved Database Annotations ---
     function fetchDatabaseAnnotations() {
@@ -89,32 +94,28 @@ document.addEventListener("DOMContentLoaded", function () {
         })
         .then(res => res.json())
         .then(data => {
-            if (data.success && data.layers) {
-                // Merge database layers
-                Object.keys(data.layers).forEach(uid => {
-                    const dbLayer = data.layers[uid];
-                    annotationLayers[uid] = {
-                        layerId: dbLayer.layerId,
-                        userId: dbLayer.userId,
-                        name: dbLayer.name,
-                        color: dbLayer.color || "#16a34a",
-                        visible: dbLayer.visible !== false,
-                        isSelf: parseInt(uid, 10) === parseInt(currentUserId, 10),
-                        strokes: Array.isArray(dbLayer.strokes) ? dbLayer.strokes : []
+            if (data.success && Array.isArray(data.layers)) {
+                annotationLayers = {};
+                data.layers.forEach(layerItem => {
+                    const lid = layerItem.layerId;
+                    annotationLayers[lid] = {
+                        layerId: lid,
+                        userId: layerItem.userId,
+                        userName: layerItem.userName,
+                        layerName: layerItem.layerName || "Layer 1",
+                        color: layerItem.color || "#16a34a",
+                        visible: layerItem.visible !== false,
+                        isSelf: Boolean(layerItem.isSelf),
+                        strokes: Array.isArray(layerItem.strokes) ? layerItem.strokes : []
                     };
                 });
 
-                // Ensure current user layer exists
-                if (!annotationLayers[currentUserId]) {
-                    annotationLayers[currentUserId] = {
-                        layerId: null,
-                        userId: currentUserId,
-                        name: currentUserName,
-                        color: activeColor,
-                        visible: true,
-                        isSelf: true,
-                        strokes: []
-                    };
+                // Set initial activeLayerId to the most recent personal layer if not already set
+                if (!activeLayerId || !annotationLayers[activeLayerId] || !annotationLayers[activeLayerId].isSelf) {
+                    const selfLayers = Object.values(annotationLayers).filter(l => l.isSelf);
+                    if (selfLayers.length > 0) {
+                        activeLayerId = selfLayers[selfLayers.length - 1].layerId;
+                    }
                 }
 
                 // Load annotation history logs
@@ -351,7 +352,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // Hit-Testing: Check if an annotation on pageNum is under cursor
     function hitTestAnnotation(pageNum, xRel, yRel, canvasWidth, canvasHeight) {
-        const selfLayer = annotationLayers[currentUserId];
+        const selfLayer = getActiveSelfLayer();
         if (!selfLayer || !selfLayer.visible || !Array.isArray(selfLayer.strokes)) return null;
 
         const pixelX = xRel * canvasWidth;
@@ -396,7 +397,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function handleStartDrawing(e, canvas, pageNum) {
-        const selfLayer = annotationLayers[currentUserId];
+        const selfLayer = getActiveSelfLayer();
         if (!selfLayer || !selfLayer.visible) return;
 
         const rect = canvas.getBoundingClientRect();
@@ -440,6 +441,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
         currentStroke = {
             id: null,
+            layerId: selfLayer.layerId,
             page: pageNum,
             tool: activeTool,
             color: activeColor,
@@ -521,7 +523,7 @@ document.addEventListener("DOMContentLoaded", function () {
             if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
 
             e.preventDefault();
-            const selfLayer = annotationLayers[currentUserId];
+            const selfLayer = getActiveSelfLayer();
             if (!selfLayer) return;
 
             const idx = selfLayer.strokes.indexOf(selectedAnnotation);
@@ -633,8 +635,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
         if (text === "") return;
 
+        const selfLayer = getActiveSelfLayer();
         const textAnnotation = {
             id: null,
+            layerId: selfLayer ? selfLayer.layerId : null,
             page: pageNum,
             tool: "text",
             content: text,
@@ -643,7 +647,6 @@ document.addEventListener("DOMContentLoaded", function () {
             yRel: yRel
         };
 
-        const selfLayer = annotationLayers[currentUserId];
         if (selfLayer) {
             selfLayer.strokes.push(textAnnotation);
             updateStrokeStats();
@@ -674,9 +677,10 @@ document.addEventListener("DOMContentLoaded", function () {
         .then(data => {
             if (data.success && data.annotation_id) {
                 strokeObj.id = data.annotation_id;
-                if (data.layer_id && annotationLayers[currentUserId]) {
-                    annotationLayers[currentUserId].layerId = data.layer_id;
+                if (data.layer_id && strokeObj.layerId && annotationLayers[strokeObj.layerId]) {
+                    annotationLayers[strokeObj.layerId].layerId = data.layer_id;
                 }
+                updateStrokeStats();
                 if (data.history_event) {
                     prependHistoryEvent(data.history_event);
                 }
@@ -936,50 +940,278 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
-    // --- 7. Collaborators UI in Right Drawer ---
+    // Track collapsed user cards in the sidebar (key: userId, value: boolean)
+    const collapsedUserGroups = {};
+
+    // --- 7. Collaborators & Annotation Groups UI in Right Drawer ---
     function updateCollaboratorLayersUI() {
         if (!layersList) return;
         layersList.innerHTML = "";
 
-        Object.keys(annotationLayers).forEach(uid => {
-            const layer = annotationLayers[uid];
-            const isSelf = layer.isSelf;
-            const strokeCount = layer.strokes ? layer.strokes.length : 0;
+        const layerKeys = Object.keys(annotationLayers);
+        if (layerKeys.length === 0) {
+            layersList.innerHTML = `
+                <div style="font-size:12px; color:var(--muted); padding:10px 4px; text-align:center;">
+                    No annotation groups found.
+                </div>
+            `;
+            return;
+        }
 
-            const row = document.createElement("div");
-            row.className = "layer-item" + (isSelf ? " is-active-user" : "");
-            row.id = `layerRow_${uid}`;
+        // Group layers by userId
+        const groupsByUser = {};
+        layerKeys.forEach(lid => {
+            const layer = annotationLayers[lid];
+            const uid = parseInt(layer.userId, 10) || 0;
+            if (!groupsByUser[uid]) {
+                groupsByUser[uid] = {
+                    userId: uid,
+                    userName: layer.userName || (layer.isSelf ? (config.currentUserName || 'You') : 'Collaborator'),
+                    userAvatar: layer.userAvatar || (layer.isSelf ? (config.currentUserAvatar || null) : null),
+                    isSelf: !!layer.isSelf,
+                    layers: []
+                };
+            }
+            if (!groupsByUser[uid].userAvatar && layer.userAvatar) {
+                groupsByUser[uid].userAvatar = layer.userAvatar;
+            }
+            groupsByUser[uid].layers.push(layer);
+        });
 
-            const eyeIconSvg = layer.visible
+        // Sort users so current user is always pinned on top, then alphabetical
+        const userGroupsList = Object.values(groupsByUser).sort((a, b) => {
+            if (a.isSelf && !b.isSelf) return -1;
+            if (!a.isSelf && b.isSelf) return 1;
+            return (a.userName || "").localeCompare(b.userName || "");
+        });
+
+        userGroupsList.forEach(uGroup => {
+            const isSelf = uGroup.isSelf;
+            const uid = uGroup.userId;
+
+            // Default behavior: self is expanded (false), other collaborators are collapsed (true) unless explicitly toggled
+            const isCollapsed = (collapsedUserGroups[uid] !== undefined)
+                ? !!collapsedUserGroups[uid]
+                : !isSelf;
+
+            const groupCard = document.createElement("div");
+            groupCard.className = "user-layers-group" + 
+                (isSelf ? " is-self-group" : "") + 
+                (isCollapsed ? " is-collapsed" : "");
+
+            // Calculate overall visibility across this user's layers
+            const anyVisible = uGroup.layers.some(l => l.visible);
+            const totalLayersCount = uGroup.layers.length;
+
+            const eyeIconSvg = (visible) => visible
                 ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>'
                 : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
 
-            row.innerHTML = `
-                <div class="layer-meta">
-                    <span class="layer-color-indicator" style="background-color: ${layer.color || '#16a34a'};"></span>
-                    <div class="layer-name-info">
-                        <span class="layer-author">${escapeHtml(layer.name)} ${isSelf ? '<small>(You)</small>' : ''}</span>
-                        <span class="layer-stroke-stat" id="statCount_${uid}">${strokeCount} ${strokeCount === 1 ? 'annotation' : 'annotations'}</span>
-                    </div>
+            // Header for this user's group
+            const headerDiv = document.createElement("div");
+            headerDiv.className = "user-layers-group-header";
+
+            // User avatar or initials
+            const userAvatarSrc = uGroup.userAvatar ? `../${uGroup.userAvatar}` : null;
+            const userInitials = (uGroup.userName || "U")
+                .split(/\s+/)
+                .filter(Boolean)
+                .map(p => p[0].toUpperCase())
+                .slice(0, 2)
+                .join("") || "U";
+
+            const avatarMarkup = userAvatarSrc
+                ? `<div class="user-avatar-badge" title="${escapeHtml(uGroup.userName)}"><img src="${escapeHtml(userAvatarSrc)}" alt="${escapeHtml(uGroup.userName)}" onerror="this.onerror=null; this.parentNode.innerHTML='${escapeHtml(userInitials)}';"></div>`
+                : `<div class="user-avatar-badge" title="${escapeHtml(uGroup.userName)}">${escapeHtml(userInitials)}</div>`;
+
+            headerDiv.innerHTML = `
+                <div class="user-group-info">
+                    <span class="user-group-chevron">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </span>
+                    ${avatarMarkup}
+                    <span class="user-group-name">${escapeHtml(uGroup.userName)}${isSelf ? ' (You)' : ''}</span>
                 </div>
-                <div class="layer-actions">
-                    <button type="button" class="btn-layer-toggle ${layer.visible ? 'is-visible' : ''}" data-uid="${uid}" title="Toggle Layer Visibility">
-                        ${eyeIconSvg}
+                <div class="user-group-actions">
+                    <button type="button" class="btn-user-group-toggle ${anyVisible ? 'is-visible' : ''}" title="Toggle All">
+                        ${eyeIconSvg(anyVisible)}
                     </button>
                 </div>
             `;
 
-            const toggleBtn = row.querySelector(".btn-layer-toggle");
-            toggleBtn.addEventListener("click", () => {
-                layer.visible = !layer.visible;
-                toggleBtn.classList.toggle("is-visible", layer.visible);
-                toggleBtn.innerHTML = layer.visible
-                    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>'
-                    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
+            // Clicking header (excluding action button) expands/collapses the dropdown
+            headerDiv.addEventListener("click", (e) => {
+                if (e.target.closest(".btn-user-group-toggle")) return;
+                const nextState = !groupCard.classList.contains("is-collapsed");
+                collapsedUserGroups[uid] = nextState;
+                groupCard.classList.toggle("is-collapsed", nextState);
+            });
+
+            // Toggle visibility for all layers belonging to this user
+            const groupEyeBtn = headerDiv.querySelector(".btn-user-group-toggle");
+            groupEyeBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const willBeVisible = !uGroup.layers.some(l => l.visible);
+                uGroup.layers.forEach(l => {
+                    l.visible = willBeVisible;
+                });
+                updateCollaboratorLayersUI();
                 renderAllPagesAnnotations();
             });
 
-            layersList.appendChild(row);
+            // Content container holding all layer items for this user
+            const contentDiv = document.createElement("div");
+            contentDiv.className = "user-layers-content";
+
+            uGroup.layers.forEach(layer => {
+                const lid = layer.layerId;
+                const isSelected = isSelf && (parseInt(lid, 10) === parseInt(activeLayerId, 10));
+                const strokeCount = layer.strokes ? layer.strokes.length : 0;
+
+                const row = document.createElement("div");
+                row.className = "layer-item" + 
+                    (isSelf ? " is-self" : "") + 
+                    (isSelected ? " is-selected-target" : "");
+                row.id = `layerRow_${lid}`;
+
+                row.innerHTML = `
+                    <div class="layer-meta">
+                        <span class="layer-color-indicator" style="background-color: ${layer.color || '#16a34a'};"></span>
+                        <div class="layer-name-info">
+                            <div class="layer-group-title-row">
+                                <span class="layer-author" title="${isSelf ? 'Click or double-click to rename' : ''}">${escapeHtml(layer.layerName || 'Layer')}</span>
+                                ${isSelf ? `
+                                <button type="button" class="layer-rename-btn" title="Rename group">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M12 20h9"></path>
+                                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                                    </svg>
+                                </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="layer-actions">
+                        <button type="button" class="btn-layer-toggle ${layer.visible ? 'is-visible' : ''}" data-lid="${lid}" title="Toggle Group Visibility">
+                            ${eyeIconSvg(layer.visible)}
+                        </button>
+                        ${isSelf ? `
+                        <button type="button" class="btn-layer-delete" data-lid="${lid}" title="Delete Group">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            </svg>
+                        </button>
+                        ` : ''}
+                    </div>
+                `;
+
+                // Clicking personal row switches active drawing target to this group
+                if (isSelf) {
+                    const authorSpan = row.querySelector(".layer-author");
+                    const renameBtn = row.querySelector(".layer-rename-btn");
+                    const titleRow = row.querySelector(".layer-group-title-row");
+
+                    const startInlineRename = (e) => {
+                        if (e) e.stopPropagation();
+                        if (titleRow.querySelector(".layer-title-input")) return;
+
+                        const currentName = layer.layerName || "Layer";
+                        const input = document.createElement("input");
+                        input.type = "text";
+                        input.className = "layer-title-input";
+                        input.value = currentName;
+                        input.maxLength = 50;
+
+                        authorSpan.style.display = "none";
+                        if (renameBtn) renameBtn.style.display = "none";
+                        titleRow.appendChild(input);
+                        input.focus();
+                        input.select();
+
+                        let isCommitting = false;
+                        const commitRename = () => {
+                            if (isCommitting) return;
+                            isCommitting = true;
+
+                            const val = input.value.trim() || currentName;
+                            if (val !== currentName) {
+                                layer.layerName = val;
+                                authorSpan.textContent = val;
+                                fetch(`view.php?action=rename_layer&id=${docId}`, {
+                                    method: "POST",
+                                    headers: {
+                                        "Content-Type": "application/json",
+                                        "X-Requested-With": "XMLHttpRequest"
+                                    },
+                                    body: JSON.stringify({ layer_id: parseInt(lid, 10), name: val })
+                                }).catch(err => console.error("Error renaming layer:", err));
+                            }
+
+                            if (input.parentNode) {
+                                input.parentNode.removeChild(input);
+                            }
+                            authorSpan.style.display = "";
+                            if (renameBtn) renameBtn.style.display = "";
+                        };
+
+                        input.addEventListener("keydown", (evt) => {
+                            if (evt.key === "Enter") {
+                                evt.preventDefault();
+                                commitRename();
+                            } else if (evt.key === "Escape") {
+                                evt.preventDefault();
+                                isCommitting = true;
+                                if (input.parentNode) input.parentNode.removeChild(input);
+                                authorSpan.style.display = "";
+                                if (renameBtn) renameBtn.style.display = "";
+                            }
+                        });
+
+                        input.addEventListener("blur", commitRename);
+                    };
+
+                    if (renameBtn) {
+                        renameBtn.addEventListener("click", startInlineRename);
+                    }
+                    authorSpan.addEventListener("dblclick", startInlineRename);
+
+                    // Trash button click on this specific layer (instant delete)
+                    const deleteBtn = row.querySelector(".btn-layer-delete");
+                    if (deleteBtn) {
+                        deleteBtn.addEventListener("click", (e) => {
+                            e.stopPropagation();
+                            executeDeleteLayerGroup(layer.layerId);
+                        });
+                    }
+
+                    row.querySelector(".layer-meta").addEventListener("click", (e) => {
+                        if (e.target.closest(".layer-title-input") || e.target.closest(".layer-rename-btn")) return;
+                        activeLayerId = parseInt(lid, 10);
+                        if (layer.color) {
+                            activeColor = layer.color;
+                        }
+                        updateCollaboratorLayersUI();
+                    });
+                }
+
+                // Eye visibility toggle for individual layer
+                const toggleBtn = row.querySelector(".btn-layer-toggle");
+                toggleBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    layer.visible = !layer.visible;
+                    updateCollaboratorLayersUI();
+                    renderAllPagesAnnotations();
+                });
+
+                contentDiv.appendChild(row);
+            });
+
+            groupCard.appendChild(headerDiv);
+            groupCard.appendChild(contentDiv);
+            layersList.appendChild(groupCard);
         });
     }
 
@@ -1196,7 +1428,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // --- 11. Undo & Clear Actions ---
     if (btnUndoStroke) {
         btnUndoStroke.addEventListener("click", function () {
-            const selfLayer = annotationLayers[currentUserId];
+            const selfLayer = getActiveSelfLayer();
             if (selfLayer && selfLayer.strokes.length > 0) {
                 const popped = selfLayer.strokes.pop();
                 updateStrokeStats();
@@ -1225,38 +1457,123 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    if (btnClearMyLayer) {
-        btnClearMyLayer.addEventListener("click", function () {
-            const selfLayer = annotationLayers[currentUserId];
-            if (!selfLayer || selfLayer.strokes.length === 0) return;
+    // Instant Deletion of Annotation Group (No confirmation modal required)
+    function executeDeleteLayerGroup(targetLid) {
+        if (!targetLid) return;
 
-            if (confirm("Clear all your annotations on this document?")) {
-                selfLayer.strokes = [];
-                updateStrokeStats();
+        fetch(`view.php?action=delete_layer_group&id=${docId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+            body: JSON.stringify({ layer_id: targetLid })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                if (data.reset_layer) {
+                    // Reset to clean Layer 1
+                    annotationLayers[data.reset_layer.layerId] = data.reset_layer;
+                    activeLayerId = data.reset_layer.layerId;
+                } else {
+                    // Removed this layer; choose another personal layer if available
+                    delete annotationLayers[targetLid];
+                    const remainingSelf = Object.values(annotationLayers).filter(l => l.isSelf);
+                    if (remainingSelf.length > 0) {
+                        activeLayerId = remainingSelf[remainingSelf.length - 1].layerId;
+                    } else {
+                        activeLayerId = null;
+                    }
+                }
+
+                updateCollaboratorLayersUI();
                 renderAllPagesAnnotations();
 
-                fetch(`view.php?action=clear_my_layer&id=${docId}`, {
-                    method: "POST",
-                    headers: { "X-Requested-With": "XMLHttpRequest" }
-                })
-                .then(res => res.json())
-                .then(data => {
-                    if (data && data.history_event) {
-                        prependHistoryEvent(data.history_event);
-                    }
-                })
-                .catch(err => console.error("Error clearing annotations:", err));
+                if (data.history_event) {
+                    prependHistoryEvent(data.history_event);
+                }
+            } else {
+                console.error("Failed to delete annotation group:", data.message);
             }
+        })
+        .catch(err => {
+            console.error("Error deleting layer group:", err);
+        });
+    }
+
+    if (btnClearMyLayer) {
+        btnClearMyLayer.addEventListener("click", function () {
+            const selfLayer = getActiveSelfLayer();
+            if (!selfLayer) return;
+            executeDeleteLayerGroup(selfLayer.layerId);
         });
     }
 
     function updateStrokeStats() {
-        const selfLayer = annotationLayers[currentUserId];
-        const count = selfLayer && selfLayer.strokes ? selfLayer.strokes.length : 0;
-        const countSpan = document.getElementById(`statCount_${currentUserId}`);
-        if (countSpan) {
-            countSpan.textContent = count + (count === 1 ? " annotation" : " annotations");
-        }
+        Object.keys(annotationLayers).forEach(lid => {
+            const layer = annotationLayers[lid];
+            const count = layer && layer.strokes ? layer.strokes.length : 0;
+            const countSpan = document.getElementById(`statCount_${lid}`);
+            if (countSpan) {
+                countSpan.textContent = `${layer.userName || 'User'} \u2022 ${count} ${count === 1 ? 'annotation' : 'annotations'}`;
+            }
+        });
+    }
+
+    // --- 11b. '+ Add Layer Group' Button Handler (Instant auto-iteration Layer X without native prompt) ---
+    const btnAddLayerGroup = document.getElementById("btnAddLayerGroup");
+    if (btnAddLayerGroup) {
+        btnAddLayerGroup.addEventListener("click", function () {
+            // Compute highest existing Layer N to iterate sequentially
+            let highestNum = 0;
+            Object.values(annotationLayers).forEach(l => {
+                if (l.isSelf) {
+                    const match = (l.layerName || "").match(/^Layer\s+(\d+)$/i);
+                    if (match) {
+                        const n = parseInt(match[1], 10);
+                        if (n > highestNum) highestNum = n;
+                    }
+                }
+            });
+
+            const selfCount = Object.values(annotationLayers).filter(l => l.isSelf).length;
+            const nextLayerNum = Math.max(highestNum + 1, selfCount + 1);
+            const groupName = `Layer ${nextLayerNum}`;
+
+            fetch(`view.php?action=create_layer&id=${docId}`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Requested-With": "XMLHttpRequest"
+                },
+                body: JSON.stringify({
+                    name: groupName,
+                    color: activeColor
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success && data.layer) {
+                    const newLayer = data.layer;
+                    annotationLayers[newLayer.layerId] = {
+                        layerId: newLayer.layerId,
+                        userId: newLayer.userId,
+                        userName: newLayer.userName,
+                        layerName: newLayer.layerName,
+                        color: newLayer.color,
+                        visible: true,
+                        isSelf: true,
+                        strokes: []
+                    };
+                    activeLayerId = newLayer.layerId;
+                    updateCollaboratorLayersUI();
+                    renderAllPagesAnnotations();
+                } else {
+                    console.error("Failed to create annotation group:", data.message);
+                }
+            })
+            .catch(err => {
+                console.error("Error creating layer group:", err);
+            });
+        });
     }
 
     // --- 12. Layer Drawer & Visibility Controls ---

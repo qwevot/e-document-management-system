@@ -131,12 +131,17 @@ $page            = isset($_GET['page']) && is_numeric($_GET['page']) && (int)$_G
 $allowedPerPages = [10, 25, 50, 100];
 $perPage         = isset($_GET['per_page']) && is_numeric($_GET['per_page']) && in_array((int)$_GET['per_page'], $allowedPerPages, true) ? (int)$_GET['per_page'] : 25;
 
-// Fetch distinct document types among obsolete documents for filter dropdown
-$docTypesStmt = $pdo->query("SELECT DISTINCT doc_type FROM dms_nodes WHERE (status = 'obsolete' OR is_deleted = 1) AND doc_type IS NOT NULL AND doc_type != '' ORDER BY doc_type ASC");
-$availableDocTypes = $docTypesStmt->fetchAll(PDO::FETCH_COLUMN);
-$standardTypes = ['SOP', 'Specification', 'Drawing', 'Contract', 'Report', 'Manual'];
-$allFilterTypes = array_unique(array_merge($availableDocTypes, $standardTypes));
-sort($allFilterTypes);
+// Fetch distinct file types among obsolete documents dynamically from database records
+$fileTypesStmt = $pdo->query("
+    SELECT DISTINCT LOWER(TRIM(LEADING '.' FROM file_extension)) AS ext
+    FROM dms_nodes
+    WHERE node_type = 'document'
+      AND (status = 'obsolete' OR is_deleted = 1)
+      AND file_extension IS NOT NULL
+      AND file_extension != ''
+    ORDER BY ext ASC
+");
+$allFilterTypes = array_values(array_filter($fileTypesStmt->fetchAll(PDO::FETCH_COLUMN)));
 
 // 2. Query Obsolete Items (Both Folders and Documents)
 $baseSelect = 'SELECT dms_nodes.*, 
@@ -172,9 +177,10 @@ if ($searchQ !== '') {
 }
 
 if ($typeFilt !== null) {
-    $whereClause .= ' AND dms_nodes.doc_type = :doc_type';
-    $params['doc_type'] = $typeFilt;
-    $countParams['doc_type'] = $typeFilt;
+    $cleanExt = ltrim(strtolower($typeFilt), '.');
+    $whereClause .= ' AND (LOWER(TRIM(LEADING "." FROM dms_nodes.file_extension)) = :file_ext)';
+    $params['file_ext'] = $cleanExt;
+    $countParams['file_ext'] = $cleanExt;
 }
 
 $orderBy = ' ORDER BY dms_nodes.node_type = "folder" DESC, dms_nodes.updated_at DESC, dms_nodes.name ASC';
@@ -300,8 +306,8 @@ function render_archives_card_list($items, $searchQ, $folderId = null, $currentF
                             <a href="<?php echo e($itemLink); ?>" class="item-title" title="<?php echo e($item['name']); ?>">
                                 <?php echo e($item['name']); ?>
                             </a>
-                            <?php if (!empty($item['doc_type'])): ?>
-                                <span class="item-type-badge"><?php echo e($item['doc_type']); ?></span>
+                            <?php if (!empty($item['file_extension'])): ?>
+                                <span class="item-type-badge">.<?php echo e(ltrim(strtolower($item['file_extension']), '.')); ?></span>
                             <?php endif; ?>
                             <?php if (!empty($item['version'])): ?>
                                 <span class="version-badge"><?php echo e($item['version']); ?></span>
@@ -463,10 +469,11 @@ include __DIR__ . '/../includes/header.php';
             <div class="filter-dropdown-group">
                 <div class="select-wrapper">
                     <select name="type" id="archivesFilterType" class="filter-select" onchange="handleArchivesTypeFilter(this.value)">
-                        <option value="">All Document Types</option>
-                        <?php foreach ($allFilterTypes as $dType): ?>
-                            <option value="<?php echo e($dType); ?>" <?php echo $typeFilt === $dType ? 'selected' : ''; ?>>
-                                <?php echo e($dType); ?>
+                        <option value="">All File Types</option>
+                        <?php foreach ($allFilterTypes as $fExt): ?>
+                            <?php $cleanExt = ltrim(strtolower($fExt), '.'); ?>
+                            <option value="<?php echo e($cleanExt); ?>" <?php echo (ltrim(strtolower($typeFilt ?? ''), '.') === $cleanExt) ? 'selected' : ''; ?>>
+                                .<?php echo e($cleanExt); ?>
                             </option>
                         <?php endforeach; ?>
                     </select>

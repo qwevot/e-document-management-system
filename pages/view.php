@@ -39,6 +39,10 @@ $currentUser = current_user() ?? ['id' => 1, 'full_name' => 'Dr. Ruan Mei'];
 $userId = (int)($currentUser['id'] ?? 1);
 $userName = $currentUser['full_name'] ?? 'Collaborator';
 
+// Check if file type can be rendered in the canvas/preview engine (PDF and DOCX)
+$supportedViewerExts = ['pdf', 'docx', 'doc'];
+$isSupportedViewer = in_array($ext, $supportedViewerExts, true);
+
 // --- AJAX Annotation Persistence API ---
 $action = $_REQUEST['action'] ?? null;
 $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
@@ -48,11 +52,12 @@ $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTT
 if ($action) {
     header('Content-Type: application/json');
 
-    // 1. Fetch all annotations & layers for this document
+    // 1. Fetch all annotations & layers for this document (grouped by user and layer)
     if ($action === 'get_annotations') {
         $layersStmt = $pdo->prepare("
             SELECT l.id, l.user_id, l.layer_name, l.color, l.is_visible,
-                   COALESCE(u.full_name, u.username, l.layer_name) AS author_name
+                   COALESCE(u.full_name, u.username, 'Collaborator') AS author_name,
+                   u.avatar AS user_avatar
             FROM dms_annotation_layers l
             LEFT JOIN users u ON l.user_id = u.id
             WHERE l.document_id = :doc_id
@@ -60,6 +65,34 @@ if ($action) {
         ");
         $layersStmt->execute(['doc_id' => $docId]);
         $dbLayers = $layersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // If current user has zero layers for this document, automatically seed their first layer (e.g. "Layer 1")
+        $hasSelfLayer = false;
+        foreach ($dbLayers as $dl) {
+            if ((int)$dl['user_id'] === $userId) {
+                $hasSelfLayer = true;
+                break;
+            }
+        }
+        if (!$hasSelfLayer) {
+            $insertSeed = $pdo->prepare("
+                INSERT INTO dms_annotation_layers (document_id, user_id, layer_name, color, is_visible)
+                VALUES (:doc_id, :user_id, 'Layer 1', '#16a34a', 1)
+            ");
+            $insertSeed->execute([
+                'doc_id'  => $docId,
+                'user_id' => $userId
+            ]);
+            $seedLayerId = (int)$pdo->lastInsertId();
+            $dbLayers[] = [
+                'id'          => $seedLayerId,
+                'user_id'     => $userId,
+                'layer_name'  => 'Layer 1',
+                'color'       => '#16a34a',
+                'is_visible'  => 1,
+                'author_name' => $userName
+            ];
+        }
 
         $annosStmt = $pdo->prepare("
             SELECT id, layer_id, page_number, tool_type, payload_json, created_at
@@ -74,10 +107,12 @@ if ($action) {
         foreach ($dbLayers as $l) {
             $lid = (int)$l['id'];
             $uid = (int)$l['user_id'];
-            $layersMap[$uid] = [
+            $layersMap[$lid] = [
                 'layerId'    => $lid,
                 'userId'     => $uid,
-                'name'       => $l['author_name'],
+                'userName'   => $l['author_name'],
+                'userAvatar' => $l['user_avatar'] ?? null,
+                'layerName'  => $l['layer_name'],
                 'color'      => $l['color'],
                 'visible'    => (bool)$l['is_visible'],
                 'isSelf'     => ($uid === $userId),
@@ -85,22 +120,18 @@ if ($action) {
             ];
         }
 
-        // Map annotations into respective user layer
+        // Map annotations into respective layer
         foreach ($dbAnnos as $a) {
             $lid = (int)$a['layer_id'];
-            // Find corresponding layer
-            foreach ($layersMap as $uid => &$layerData) {
-                if ($layerData['layerId'] === $lid) {
-                    $payload = json_decode($a['payload_json'], true);
-                    if ($payload) {
-                        $payload['id'] = (int)$a['id'];
-                        $payload['page'] = (int)$a['page_number'];
-                        $layerData['strokes'][] = $payload;
-                    }
-                    break;
+            if (isset($layersMap[$lid])) {
+                $payload = json_decode($a['payload_json'], true);
+                if ($payload) {
+                    $payload['id'] = (int)$a['id'];
+                    $payload['page'] = (int)$a['page_number'];
+                    $payload['layerId'] = $lid;
+                    $layersMap[$lid]['strokes'][] = $payload;
                 }
             }
-            unset($layerData);
         }
 
         // Fetch recent annotation history
@@ -119,8 +150,52 @@ if ($action) {
 
         echo json_encode([
             'success' => true,
-            'layers'  => $layersMap,
+            'layers'  => array_values($layersMap),
             'history' => $historyLogs
+        ]);
+        exit;
+    }
+
+    // 1b. Create New Layer Group (+ Add Annotation Group)
+    if ($action === 'create_layer') {
+        $rawInput = file_get_contents('php://input');
+        $data = json_decode($rawInput, true);
+        $customName = trim($data['name'] ?? '');
+        $layerColor = trim($data['color'] ?? '#16a34a');
+
+        // Determine layer number if name is default
+        if ($customName === '') {
+            $cntStmt = $pdo->prepare("SELECT COUNT(*) FROM dms_annotation_layers WHERE document_id = :doc_id AND user_id = :user_id");
+            $cntStmt->execute(['doc_id' => $docId, 'user_id' => $userId]);
+            $count = (int)$cntStmt->fetchColumn();
+            $customName = 'Layer ' . ($count + 1);
+        }
+
+        $ins = $pdo->prepare("
+            INSERT INTO dms_annotation_layers (document_id, user_id, layer_name, color, is_visible)
+            VALUES (:doc_id, :user_id, :name, :color, 1)
+        ");
+        $ins->execute([
+            'doc_id'  => $docId,
+            'user_id' => $userId,
+            'name'    => $customName,
+            'color'   => $layerColor
+        ]);
+
+        $newLayerId = (int)$pdo->lastInsertId();
+
+        echo json_encode([
+            'success' => true,
+            'layer'   => [
+                'layerId'   => $newLayerId,
+                'userId'    => $userId,
+                'userName'  => $userName,
+                'layerName' => $customName,
+                'color'     => $layerColor,
+                'visible'   => true,
+                'isSelf'    => true,
+                'strokes'   => []
+            ]
         ]);
         exit;
     }
@@ -138,6 +213,7 @@ if ($action) {
         $page = isset($data['page']) ? (int)$data['page'] : 1;
         $tool = in_array($data['tool'], ['pen', 'highlighter', 'text'], true) ? $data['tool'] : 'pen';
         $color = trim($data['color'] ?? '#16a34a');
+        $targetLayerId = isset($data['layerId']) && is_numeric($data['layerId']) ? (int)$data['layerId'] : 0;
 
         // If updating an existing stroke/note (e.g. dragged or moved)
         if (!empty($data['id']) && (int)$data['id'] > 0) {
@@ -163,22 +239,33 @@ if ($action) {
             exit;
         }
 
-        // Find or create user layer
-        $layerStmt = $pdo->prepare("SELECT id FROM dms_annotation_layers WHERE document_id = :doc_id AND user_id = :user_id");
-        $layerStmt->execute(['doc_id' => $docId, 'user_id' => $userId]);
-        $existingLayer = $layerStmt->fetch(PDO::FETCH_ASSOC);
+        // Verify target layer belongs to current user and matches this document
+        $layerId = 0;
+        if ($targetLayerId > 0) {
+            $checkLayer = $pdo->prepare("SELECT id FROM dms_annotation_layers WHERE id = :lid AND document_id = :doc_id AND user_id = :uid");
+            $checkLayer->execute(['lid' => $targetLayerId, 'doc_id' => $docId, 'uid' => $userId]);
+            if ($chk = $checkLayer->fetch(PDO::FETCH_ASSOC)) {
+                $layerId = (int)$chk['id'];
+            }
+        }
 
-        if (!$existingLayer) {
-            $insertLayer = $pdo->prepare("INSERT INTO dms_annotation_layers (document_id, user_id, layer_name, color, is_visible) VALUES (:doc_id, :user_id, :name, :color, 1)");
-            $insertLayer->execute([
-                'doc_id'  => $docId,
-                'user_id' => $userId,
-                'name'    => $userName,
-                'color'   => $color
-            ]);
-            $layerId = (int)$pdo->lastInsertId();
-        } else {
-            $layerId = (int)$existingLayer['id'];
+        // Fallback: Use latest active layer of user or create Layer 1
+        if ($layerId === 0) {
+            $layerStmt = $pdo->prepare("SELECT id FROM dms_annotation_layers WHERE document_id = :doc_id AND user_id = :user_id ORDER BY id DESC LIMIT 1");
+            $layerStmt->execute(['doc_id' => $docId, 'user_id' => $userId]);
+            $existingLayer = $layerStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$existingLayer) {
+                $insertLayer = $pdo->prepare("INSERT INTO dms_annotation_layers (document_id, user_id, layer_name, color, is_visible) VALUES (:doc_id, :user_id, 'Layer 1', :color, 1)");
+                $insertLayer->execute([
+                    'doc_id'  => $docId,
+                    'user_id' => $userId,
+                    'color'   => $color
+                ]);
+                $layerId = (int)$pdo->lastInsertId();
+            } else {
+                $layerId = (int)$existingLayer['id'];
+            }
         }
 
         $insertAnno = $pdo->prepare("
@@ -293,36 +380,141 @@ if ($action) {
         exit;
     }
 
-    // 4. Clear all my annotations on this document
-    if ($action === 'clear_my_layer') {
-        $delStmt = $pdo->prepare("
-            DELETE a FROM dms_annotations a
-            JOIN dms_annotation_layers l ON a.layer_id = l.id
-            WHERE a.document_id = :doc_id AND l.user_id = :user_id
-        ");
-        $delStmt->execute(['doc_id' => $docId, 'user_id' => $userId]);
+    // 4. Delete current annotation group (removes annotations and layer record)
+    if ($action === 'delete_layer_group') {
+        $rawInput = file_get_contents('php://input');
+        $data = json_decode($rawInput, true);
+        $reqLayerId = isset($data['layer_id']) && is_numeric($data['layer_id']) ? (int)$data['layer_id'] : 0;
+
+        if ($reqLayerId <= 0) {
+            echo json_encode(['success' => false, 'message' => 'Invalid layer ID.']);
+            exit;
+        }
+
+        // Verify layer belongs to current user
+        $findL = $pdo->prepare("SELECT layer_name FROM dms_annotation_layers WHERE id = :id AND document_id = :doc_id AND user_id = :uid");
+        $findL->execute(['id' => $reqLayerId, 'doc_id' => $docId, 'uid' => $userId]);
+        $targetLayer = $findL->fetch(PDO::FETCH_ASSOC);
+
+        if (!$targetLayer) {
+            echo json_encode(['success' => false, 'message' => 'Layer group not found or unauthorized.']);
+            exit;
+        }
+
+        $groupName = $targetLayer['layer_name'];
+
+        // Delete all annotations within this layer
+        $delAnno = $pdo->prepare("DELETE FROM dms_annotations WHERE layer_id = :lid AND document_id = :doc_id");
+        $delAnno->execute(['lid' => $reqLayerId, 'doc_id' => $docId]);
+
+        // Check how many layers user has on this document
+        $cntStmt = $pdo->prepare("SELECT COUNT(*) FROM dms_annotation_layers WHERE document_id = :doc_id AND user_id = :uid");
+        $cntStmt->execute(['doc_id' => $docId, 'uid' => $userId]);
+        $userLayerCount = (int)$cntStmt->fetchColumn();
+
+        $seededNewLayer = null;
+        if ($userLayerCount <= 1) {
+            // If this is the only layer, rename/reset it to "Layer 1" rather than leaving 0 layers
+            $updStmt = $pdo->prepare("UPDATE dms_annotation_layers SET layer_name = 'Layer 1', updated_at = NOW() WHERE id = :lid");
+            $updStmt->execute(['lid' => $reqLayerId]);
+            $seededNewLayer = [
+                'layerId'   => $reqLayerId,
+                'userId'    => $userId,
+                'userName'  => $userName,
+                'layerName' => 'Layer 1',
+                'color'     => '#16a34a',
+                'visible'   => true,
+                'isSelf'    => true,
+                'strokes'   => []
+            ];
+        } else {
+            // Delete the layer entry itself
+            $delLayer = $pdo->prepare("DELETE FROM dms_annotation_layers WHERE id = :lid AND document_id = :doc_id AND user_id = :uid");
+            $delLayer->execute(['lid' => $reqLayerId, 'doc_id' => $docId, 'uid' => $userId]);
+        }
 
         $logStmt = $pdo->prepare("
             INSERT INTO dms_annotation_history (document_id, user_id, action_type, tool_type, page_number, details)
-            VALUES (:doc_id, :user_id, 'clear', NULL, 1, 'Cleared personal annotations')
+            VALUES (:doc_id, :user_id, 'clear', NULL, 1, :details)
         ");
         $logStmt->execute([
             'doc_id'  => $docId,
-            'user_id' => $userId
+            'user_id' => $userId,
+            'details' => 'Deleted annotation group: "' . $groupName . '"'
         ]);
 
         echo json_encode([
-            'success'       => true,
-            'history_event' => [
+            'success'          => true,
+            'deleted_layer_id' => $reqLayerId,
+            'reset_layer'      => $seededNewLayer,
+            'history_event'    => [
                 'id'             => (int)$pdo->lastInsertId(),
                 'user_id'        => $userId,
                 'author_name'    => $userName,
                 'action_type'    => 'clear',
                 'tool_type'      => null,
                 'page_number'    => 1,
-                'details'        => 'Cleared personal annotations',
+                'details'        => 'Deleted annotation group: "' . $groupName . '"',
                 'formatted_time' => date('M d, H:i')
             ]
+        ]);
+        exit;
+    }
+
+    // 5. Rename annotation group
+    if ($action === 'rename_layer') {
+        $rawInput = file_get_contents('php://input');
+        $data = json_decode($rawInput, true);
+        $reqLayerId = isset($data['layer_id']) && is_numeric($data['layer_id']) ? (int)$data['layer_id'] : 0;
+        $newName = trim($data['name'] ?? '');
+
+        if ($reqLayerId <= 0) {
+            echo json_encode(['success' => false, 'message' => 'Invalid layer ID.']);
+            exit;
+        }
+
+        if ($newName === '') {
+            echo json_encode(['success' => false, 'message' => 'Layer name cannot be empty.']);
+            exit;
+        }
+
+        // Limit name length to 60 characters
+        if (mb_strlen($newName) > 60) {
+            $newName = mb_substr($newName, 0, 60);
+        }
+
+        // Verify layer belongs to current user
+        $findL = $pdo->prepare("SELECT layer_name FROM dms_annotation_layers WHERE id = :id AND document_id = :doc_id AND user_id = :uid");
+        $findL->execute(['id' => $reqLayerId, 'doc_id' => $docId, 'uid' => $userId]);
+        $targetLayer = $findL->fetch(PDO::FETCH_ASSOC);
+
+        if (!$targetLayer) {
+            echo json_encode(['success' => false, 'message' => 'Layer group not found or unauthorized.']);
+            exit;
+        }
+
+        $oldName = $targetLayer['layer_name'];
+
+        $upd = $pdo->prepare("UPDATE dms_annotation_layers SET layer_name = :name, updated_at = NOW() WHERE id = :id AND user_id = :uid");
+        $upd->execute(['name' => $newName, 'id' => $reqLayerId, 'uid' => $userId]);
+
+        // History record if name changed
+        if ($oldName !== $newName) {
+            $logStmt = $pdo->prepare("
+                INSERT INTO dms_annotation_history (document_id, user_id, action_type, tool_type, page_number, details)
+                VALUES (:doc_id, :user_id, 'edit', NULL, 1, :details)
+            ");
+            $logStmt->execute([
+                'doc_id'  => $docId,
+                'user_id' => $userId,
+                'details' => 'Renamed group "' . $oldName . '" to "' . $newName . '"'
+            ]);
+        }
+
+        echo json_encode([
+            'success'    => true,
+            'layer_id'   => $reqLayerId,
+            'layer_name' => $newName
         ]);
         exit;
     }
@@ -362,232 +554,256 @@ if ($action) {
                 <?php if ($isArchived): ?>
                     <span class="workspace-badge" style="background:var(--slate-soft); color:var(--slate-ink); border:1px solid var(--slate-line);">Obsolete</span>
                 <?php endif; ?>
-                <?php if (!empty($doc['doc_type'])): ?>
-                    <span class="workspace-badge badge-type"><?php echo e($doc['doc_type']); ?></span>
+                <?php if (!empty($ext)): ?>
+                    <span class="workspace-badge badge-type">.<?php echo e($ext); ?></span>
                 <?php endif; ?>
                 <span class="workspace-badge badge-version"><?php echo e($doc['version'] ?? 'v1.0'); ?></span>
             </div>
         </div>
 
-        <!-- Center Controls: Zoom & Page Info -->
+        <!-- Center Controls: Zoom & Page Info (Only for supported viewable formats) -->
         <div class="workspace-nav-center">
-            <div class="workspace-control-pill">
-                <button type="button" class="btn-ctrl" id="btnPrevPage" title="Previous Page">
-                    <?php echo render_icon('arrow-left'); ?>
-                </button>
-                <span class="page-indicator-text" id="pageIndicatorDisplay">Page 1 / 1</span>
-                <button type="button" class="btn-ctrl" id="btnNextPage" title="Next Page">
-                    <?php echo render_icon('chevron-right'); ?>
-                </button>
-                <div class="ctrl-sep"></div>
-                <button type="button" class="btn-ctrl" id="btnZoomOut" title="Zoom Out">
-                    <?php echo render_icon('zoom-out'); ?>
-                </button>
-                <span class="zoom-level-text" id="zoomLevelDisplay">100%</span>
-                <button type="button" class="btn-ctrl" id="btnZoomIn" title="Zoom In">
-                    <?php echo render_icon('zoom-in'); ?>
-                </button>
-                <div class="ctrl-sep"></div>
-                <button type="button" class="btn-ctrl" id="btnZoomFit" title="Fit to Width">
-                    <span>Fit</span>
-                </button>
-                <button type="button" class="btn-ctrl" id="btnZoomReset" title="Reset Zoom (100%)">
-                    <span>100%</span>
-                </button>
-            </div>
+            <?php if ($isSupportedViewer): ?>
+                <div class="workspace-control-pill">
+                    <button type="button" class="btn-ctrl" id="btnPrevPage" title="Previous Page">
+                        <?php echo render_icon('arrow-left'); ?>
+                    </button>
+                    <span class="page-indicator-text" id="pageIndicatorDisplay">Page 1 / 1</span>
+                    <button type="button" class="btn-ctrl" id="btnNextPage" title="Next Page">
+                        <?php echo render_icon('chevron-right'); ?>
+                    </button>
+                    <div class="ctrl-sep"></div>
+                    <button type="button" class="btn-ctrl" id="btnZoomOut" title="Zoom Out">
+                        <?php echo render_icon('zoom-out'); ?>
+                    </button>
+                    <span class="zoom-level-text" id="zoomLevelDisplay">100%</span>
+                    <button type="button" class="btn-ctrl" id="btnZoomIn" title="Zoom In">
+                        <?php echo render_icon('zoom-in'); ?>
+                    </button>
+                    <div class="ctrl-sep"></div>
+                    <button type="button" class="btn-ctrl" id="btnZoomFit" title="Fit to Width">
+                        <span>Fit</span>
+                    </button>
+                    <button type="button" class="btn-ctrl" id="btnZoomReset" title="Reset Zoom (100%)">
+                        <span>100%</span>
+                    </button>
+                </div>
+            <?php endif; ?>
         </div>
 
         <!-- Right Controls: Active Collaborators, Layer Drawer Toggle, Download -->
         <div class="workspace-nav-right">
-            <!-- Active Collaborator Presence Indicator -->
-            <div class="collaborator-presence-strip" title="Active Collaborators">
-                <div class="presence-avatar is-self" title="<?php echo e($currentUser['full_name']); ?> (You)">
-                    <?php echo e(get_initials($currentUser['full_name'])); ?>
+            <?php if ($isSupportedViewer): ?>
+                <!-- Active Collaborator Presence Indicator -->
+                <div class="collaborator-presence-strip" title="Active Collaborators">
+                    <div class="presence-avatar is-self" title="<?php echo e($currentUser['full_name']); ?> (You)">
+                        <?php echo e(get_initials($currentUser['full_name'])); ?>
+                    </div>
                 </div>
-            </div>
 
-            <!-- Layer Panel Toggle -->
-            <button type="button" class="btn-workspace-action is-active" id="btnToggleLayerDrawer" title="Toggle Annotation Layers">
-                <?php echo render_icon('layers'); ?>
-                <span>Annotation Layers</span>
-            </button>
-
-            <!-- Download Dropdown Menu -->
-            <div class="workspace-download-dropdown" id="workspaceDownloadDropdown">
-                <button type="button" class="btn-workspace-action" id="btnDownloadDropdownToggle" title="Download Options">
-                    <?php echo render_icon('download'); ?>
-                    <span>Download</span>
-                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left:2px; transition: transform 0.2s;" id="downloadDropdownArrow">
-                        <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
+                <!-- Layer Panel Toggle -->
+                <button type="button" class="btn-workspace-action is-active" id="btnToggleLayerDrawer" title="Toggle Annotation Layers">
+                    <?php echo render_icon('layers'); ?>
+                    <span>Annotation Layers</span>
                 </button>
-                <div class="workspace-download-menu" id="workspaceDownloadMenu">
-                    <a href="<?php echo e($downloadUrl); ?>" class="download-menu-item" download>
-                        <?php echo render_icon('files'); ?>
-                        <div class="menu-item-text">
-                            <span class="menu-item-title"><?php echo ($ext === 'docx' || $ext === 'doc') ? 'Original (.docx)' : 'Original Document'; ?></span>
-                            <span class="menu-item-sub">Download source file</span>
-                        </div>
-                    </a>
-                    <?php if ($ext === 'docx' || $ext === 'doc'): ?>
-                        <button type="button" class="download-menu-item" id="btnDownloadAsPdf">
-                            <?php echo render_icon('pdf'); ?>
+
+                <!-- Download Dropdown Menu -->
+                <div class="workspace-download-dropdown" id="workspaceDownloadDropdown">
+                    <button type="button" class="btn-workspace-action" id="btnDownloadDropdownToggle" title="Download Options">
+                        <?php echo render_icon('download'); ?>
+                        <span>Download</span>
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left:2px; transition: transform 0.2s;" id="downloadDropdownArrow">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                    <div class="workspace-download-menu" id="workspaceDownloadMenu">
+                        <a href="<?php echo e($downloadUrl); ?>" class="download-menu-item" download>
+                            <?php echo render_icon('files'); ?>
                             <div class="menu-item-text">
-                                <span class="menu-item-title">Download As PDF</span>
-                                <span class="menu-item-sub">Convert pages to clean PDF</span>
+                                <span class="menu-item-title"><?php echo ($ext === 'docx' || $ext === 'doc') ? 'Original (.docx)' : 'Original Document'; ?></span>
+                                <span class="menu-item-sub">Download source file</span>
+                            </div>
+                        </a>
+                        <?php if ($ext === 'docx' || $ext === 'doc'): ?>
+                            <button type="button" class="download-menu-item" id="btnDownloadAsPdf">
+                                <?php echo render_icon('pdf'); ?>
+                                <div class="menu-item-text">
+                                    <span class="menu-item-title">Download As PDF</span>
+                                    <span class="menu-item-sub">Convert pages to clean PDF</span>
+                                </div>
+                            </button>
+                        <?php endif; ?>
+                        <button type="button" class="download-menu-item" id="btnDownloadWithAnnotations">
+                            <?php echo render_icon('edit'); ?>
+                            <div class="menu-item-text">
+                                <span class="menu-item-title"><?php echo ($ext === 'docx' || $ext === 'doc') ? 'With Annotations (PDF)' : 'With Annotations'; ?></span>
+                                <span class="menu-item-sub">Flatten visible drawings &amp; notes</span>
                             </div>
                         </button>
-                    <?php endif; ?>
-                    <button type="button" class="download-menu-item" id="btnDownloadWithAnnotations">
-                        <?php echo render_icon('edit'); ?>
-                        <div class="menu-item-text">
-                            <span class="menu-item-title"><?php echo ($ext === 'docx' || $ext === 'doc') ? 'With Annotations (PDF)' : 'With Annotations'; ?></span>
-                            <span class="menu-item-sub">Flatten visible drawings &amp; notes</span>
-                        </div>
-                    </button>
+                    </div>
                 </div>
-            </div>
+            <?php else: ?>
+                <!-- Clean direct download button when viewer is not applicable -->
+                <a href="<?php echo e($downloadUrl); ?>" class="btn-workspace-action is-active" download title="Download File">
+                    <?php echo render_icon('download'); ?>
+                    <span>Download</span>
+                </a>
+            <?php endif; ?>
         </div>
     </header>
 
-    <!-- 2. Main Workspace Layout Area -->
-    <div class="workspace-stage-wrapper">
-        
-        <!-- Floating Left Tool Palette -->
-        <aside class="floating-tool-dock" id="floatingToolDock">
-            <div class="tool-dock-section">
-                <button type="button" class="dock-btn" data-tool="pan" id="toolPan" title="Pan / Navigate (Hand)">
-                    <?php echo render_icon('hand'); ?>
-                </button>
-                <button type="button" class="dock-btn is-active" data-tool="pen" id="toolPen" title="Freehand Brush">
-                    <?php echo render_icon('pen'); ?>
-                </button>
-                <button type="button" class="dock-btn" data-tool="highlighter" id="toolHighlighter" title="Highlight">
-                    <?php echo render_icon('highlighter'); ?>
-                </button>
-                <button type="button" class="dock-btn" data-tool="text" id="toolText" title="Text Note / Callout">
-                    <?php echo render_icon('type'); ?>
-                </button>
-            </div>
-
-            <div class="tool-dock-divider"></div>
-
-            <!-- Color Palette Swatches -->
-            <div class="tool-color-palette" id="toolColorPalette">
-                <button type="button" class="color-swatch is-selected" data-color="#16a34a" style="--swatch-color: #16a34a;" title="Emerald Green"></button>
-                <button type="button" class="color-swatch" data-color="#f59e0b" style="--swatch-color: #f59e0b;" title="Amber Warning"></button>
-                <button type="button" class="color-swatch" data-color="#dc2626" style="--swatch-color: #dc2626;" title="Crimson Red"></button>
-                <button type="button" class="color-swatch" data-color="#2563eb" style="--swatch-color: #2563eb;" title="Sky Blue"></button>
-                <button type="button" class="color-swatch" data-color="#7c3aed" style="--swatch-color: #7c3aed;" title="Purple"></button>
-                <button type="button" class="color-swatch" data-color="#0f172a" style="--swatch-color: #0f172a;" title="Ink Dark"></button>
-            </div>
-
-            <!-- Stroke Width Options -->
-            <div class="tool-dock-divider"></div>
-            <div class="tool-stroke-group">
-                <button type="button" class="stroke-btn is-active" data-stroke="2" title="Fine Stroke (2px)">
-                    <span style="height: 2px; width: 14px; background: currentColor; border-radius: 1px;"></span>
-                </button>
-                <button type="button" class="stroke-btn" data-stroke="4" title="Medium Stroke (4px)">
-                    <span style="height: 4px; width: 14px; background: currentColor; border-radius: 2px;"></span>
-                </button>
-                <button type="button" class="stroke-btn" data-stroke="8" title="Thick Stroke (8px)">
-                    <span style="height: 8px; width: 14px; background: currentColor; border-radius: 3px;"></span>
-                </button>
-            </div>
-
-            <div class="tool-dock-divider"></div>
-
-            <!-- History Actions: Undo / Clear Layer -->
-            <div class="tool-dock-section">
-                <button type="button" class="dock-btn" id="btnUndoStroke" title="Undo Last Stroke">
-                    <?php echo render_icon('undo'); ?>
-                </button>
-                <button type="button" class="dock-btn" id="btnClearMyLayer" title="Clear My Annotations">
-                    <?php echo render_icon('trash'); ?>
-                </button>
-            </div>
-        </aside>
-
-        <!-- Center Stage: Scrollable Document & Multi-Layer Canvas Stage -->
-        <main class="workspace-center-stage" id="workspaceCenterStage">
+    <?php if ($isSupportedViewer): ?>
+        <!-- 2. Main Workspace Layout Area (Supported Viewer) -->
+        <div class="workspace-stage-wrapper">
             
-            <div class="workspace-document-container" id="workspaceDocContainer">
+            <!-- Floating Left Tool Palette -->
+            <aside class="floating-tool-dock" id="floatingToolDock">
+                <div class="tool-dock-section">
+                    <button type="button" class="dock-btn" data-tool="pan" id="toolPan" title="Pan / Navigate (Hand)">
+                        <?php echo render_icon('hand'); ?>
+                    </button>
+                    <button type="button" class="dock-btn is-active" data-tool="pen" id="toolPen" title="Freehand Brush">
+                        <?php echo render_icon('pen'); ?>
+                    </button>
+                    <button type="button" class="dock-btn" data-tool="highlighter" id="toolHighlighter" title="Highlight">
+                        <?php echo render_icon('highlighter'); ?>
+                    </button>
+                    <button type="button" class="dock-btn" data-tool="text" id="toolText" title="Text Note / Callout">
+                        <?php echo render_icon('type'); ?>
+                    </button>
+                </div>
+
+                <div class="tool-dock-divider"></div>
+
+                <!-- Color Palette Swatches -->
+                <div class="tool-color-palette" id="toolColorPalette">
+                    <button type="button" class="color-swatch is-selected" data-color="#16a34a" style="--swatch-color: #16a34a;" title="Emerald Green"></button>
+                    <button type="button" class="color-swatch" data-color="#f59e0b" style="--swatch-color: #f59e0b;" title="Amber Warning"></button>
+                    <button type="button" class="color-swatch" data-color="#dc2626" style="--swatch-color: #dc2626;" title="Crimson Red"></button>
+                    <button type="button" class="color-swatch" data-color="#2563eb" style="--swatch-color: #2563eb;" title="Sky Blue"></button>
+                    <button type="button" class="color-swatch" data-color="#7c3aed" style="--swatch-color: #7c3aed;" title="Purple"></button>
+                    <button type="button" class="color-swatch" data-color="#0f172a" style="--swatch-color: #0f172a;" title="Ink Dark"></button>
+                </div>
+
+                <!-- Stroke Width Options -->
+                <div class="tool-dock-divider"></div>
+                <div class="tool-stroke-group">
+                    <button type="button" class="stroke-btn is-active" data-stroke="2" title="Fine Stroke (2px)">
+                        <span style="height: 2px; width: 14px; background: currentColor; border-radius: 1px;"></span>
+                    </button>
+                    <button type="button" class="stroke-btn" data-stroke="4" title="Medium Stroke (4px)">
+                        <span style="height: 4px; width: 14px; background: currentColor; border-radius: 2px;"></span>
+                    </button>
+                    <button type="button" class="stroke-btn" data-stroke="8" title="Thick Stroke (8px)">
+                        <span style="height: 8px; width: 14px; background: currentColor; border-radius: 3px;"></span>
+                    </button>
+                </div>
+
+                <div class="tool-dock-divider"></div>
+
+                <!-- History Actions: Undo / Clear Layer -->
+                <div class="tool-dock-section">
+                    <button type="button" class="dock-btn" id="btnUndoStroke" title="Undo Last Stroke">
+                        <?php echo render_icon('undo'); ?>
+                    </button>
+                    <button type="button" class="dock-btn" id="btnClearMyLayer" title="Delete Current Group">
+                        <?php echo render_icon('trash'); ?>
+                    </button>
+                </div>
+            </aside>
+
+            <!-- Center Stage: Scrollable Document & Multi-Layer Canvas Stage -->
+            <main class="workspace-center-stage" id="workspaceCenterStage">
                 
-                <!-- Loading State Overlay -->
-                <div class="workspace-doc-loading" id="workspaceDocLoading">
-                    <div class="viewer-spinner"></div>
-                    <span id="loadingStatusText">Rendering pages...</span>
-                </div>
-
-                <!-- Continuous Multi-Page PDF Container -->
-                <div class="pdf-pages-feed" id="pdfPagesFeed">
-                    <!-- Dynamic page wrappers injected by PDF.js engine -->
-                </div>
-
-            </div>
-
-        </main>
-
-        <!-- Right Side Drawer: Layer Management & Activity -->
-        <aside class="workspace-right-drawer is-open" id="workspaceRightDrawer">
-            <div class="drawer-header">
-                <div class="drawer-title">
-                    <span>Annotation Layers</span>
-                </div>
-                <button type="button" class="btn-drawer-close" id="btnCloseRightDrawer" title="Collapse Drawer">&times;</button>
-            </div>
-
-            <div class="drawer-body">
-                
-                <div class="layer-section-title">Active Collaborators</div>
-                <div class="layers-list" id="layersList">
+                <div class="workspace-document-container" id="workspaceDocContainer">
                     
-                    <!-- My Personal Layer -->
-                    <div class="layer-item is-active-user" id="layerRowSelf">
-                        <div class="layer-meta">
-                            <span class="layer-color-indicator" style="background-color: #16a34a;"></span>
-                            <div class="layer-name-info">
-                                <span class="layer-author"><?php echo e($currentUser['full_name']); ?> <small>(You)</small></span>
-                                <span class="layer-stroke-stat" id="selfStrokeCount">0 annotations</span>
-                            </div>
+                    <!-- Loading State Overlay -->
+                    <div class="workspace-doc-loading" id="workspaceDocLoading">
+                        <div class="viewer-spinner"></div>
+                        <span id="loadingStatusText">Rendering pages...</span>
+                    </div>
+
+                    <!-- Continuous Multi-Page PDF Container -->
+                    <div class="pdf-pages-feed" id="pdfPagesFeed">
+                        <!-- Dynamic page wrappers injected by PDF.js engine -->
+                    </div>
+
+                </div>
+
+            </main>
+
+            <!-- Right Side Drawer: Layer Management & Activity -->
+            <aside class="workspace-right-drawer is-open" id="workspaceRightDrawer">
+                <div class="drawer-header">
+                    <div class="drawer-title">
+                        <span>Annotation</span>
+                    </div>
+                    <button type="button" class="btn-drawer-close" id="btnCloseRightDrawer" title="Collapse Drawer">&times;</button>
+                </div>
+
+                <div class="drawer-body">
+                    
+                    <div class="layer-section-header-row">
+                        <div class="layer-section-title" style="margin-bottom: 0;">Annotation Layers</div>
+                        <button type="button" class="btn-add-layer" id="btnAddLayerGroup" title="Add New Annotation Group">
+                            <?php echo render_icon('plus'); ?>
+                            <span>New Layer</span>
+                        </button>
+                    </div>
+                    <div class="layers-list" id="layersList">
+                        <!-- Dynamic Layer Items rendered by JS -->
+                    </div>
+
+                    <div class="layer-section-title" style="margin-top: 24px;">Layer Transparency</div>
+                    <div class="layer-opacity-box">
+                        <div class="opacity-label-row">
+                            <span>Overlay Opacity</span>
+                            <span id="opacityDisplayVal">100%</span>
                         </div>
-                        <div class="layer-actions">
-                            <button type="button" class="btn-layer-toggle is-visible" data-user="self" id="btnToggleSelfLayer" title="Toggle My Layer Visibility">
-                                <?php echo render_icon('view'); ?>
-                            </button>
+                        <input type="range" id="layerOpacitySlider" min="0" max="100" value="100" class="layer-opacity-slider">
+                    </div>
+
+                    <div class="history-accordion-header" id="btnToggleHistoryAccordion" title="Toggle Annotation History">
+                        <div class="history-accordion-title">
+                            <span class="history-accordion-arrow" id="historyAccordionArrow">
+                                <?php echo render_icon('chevron-right'); ?>
+                            </span>
+                            <span>Annotation History</span>
+                        </div>
+                    </div>
+                    <div class="annotation-history-feed is-collapsed" id="annotationHistoryFeed">
+                        <div class="history-empty-state" id="historyEmptyState">
+                            <span>No annotation events recorded yet.</span>
                         </div>
                     </div>
 
                 </div>
+            </aside>
 
-                <div class="layer-section-title" style="margin-top: 24px;">Layer Transparency</div>
-                <div class="layer-opacity-box">
-                    <div class="opacity-label-row">
-                        <span>Overlay Opacity</span>
-                        <span id="opacityDisplayVal">100%</span>
-                    </div>
-                    <input type="range" id="layerOpacitySlider" min="0" max="100" value="100" class="layer-opacity-slider">
+        </div>
+    <?php else: ?>
+        <!-- Simple Unsupported Filetype Screen -->
+        <main class="workspace-center-stage workspace-unsupported-stage">
+            <div class="workspace-unsupported-card">
+                <div class="unsupported-icon-circle">
+                    <?php echo render_icon(!empty($ext) ? $ext : 'files'); ?>
                 </div>
-
-                <div class="history-accordion-header" id="btnToggleHistoryAccordion" title="Toggle Annotation History">
-                    <div class="history-accordion-title">
-                        <span class="history-accordion-arrow" id="historyAccordionArrow">
-                            <?php echo render_icon('chevron-right'); ?>
-                        </span>
-                        <span>Annotation History</span>
-                    </div>
+                <h2 class="unsupported-title">No preview available</h2>
+                <p class="unsupported-desc">
+                    The viewer does not support <strong><?php echo !empty($ext) ? '.' . e($ext) : 'this'; ?></strong> files. You can download the file to view it on your device.
+                </p>
+                <div class="unsupported-actions">
+                    <a href="<?php echo e($downloadUrl); ?>" class="btn-unsupported-download" download>
+                        <?php echo render_icon('download'); ?>
+                        <span>Download <?php echo !empty($ext) ? '.' . strtoupper(e($ext)) : 'File'; ?></span>
+                    </a>
+                    <a href="<?php echo e($backUrl); ?>" class="btn-unsupported-back">
+                        <span>Back</span>
+                    </a>
                 </div>
-                <div class="annotation-history-feed is-collapsed" id="annotationHistoryFeed">
-                    <div class="history-empty-state" id="historyEmptyState">
-                        <span>No annotation events recorded yet.</span>
-                    </div>
-                </div>
-
             </div>
-        </aside>
-
-    </div>
+        </main>
+    <?php endif; ?>
 
 </div>
 
@@ -597,16 +813,21 @@ window.EDMS_WORKSPACE_CONFIG = {
     docId: <?php echo (int)$doc['id']; ?>,
     docName: <?php echo json_encode($doc['name']); ?>,
     fileExt: <?php echo json_encode($ext); ?>,
+    isSupportedViewer: <?php echo $isSupportedViewer ? 'true' : 'false'; ?>,
     streamUrl: <?php echo json_encode($streamUrl); ?>,
+    downloadUrl: <?php echo json_encode($downloadUrl); ?>,
     currentUserId: <?php echo (int)$currentUser['id']; ?>,
-    currentUserName: <?php echo json_encode($currentUser['full_name']); ?>
+    currentUserName: <?php echo json_encode($currentUser['full_name']); ?>,
+    currentUserAvatar: <?php echo json_encode($currentUser['avatar'] ?? null); ?>
 };
 </script>
+<?php if ($isSupportedViewer): ?>
 <script src="../assets/vendor/pdfjs/pdf.min.js"></script>
 <script src="../assets/vendor/pdf-lib.min.js"></script>
 <script src="../assets/vendor/jszip.min.js"></script>
 <script src="../assets/vendor/docx-preview.min.js"></script>
 <script src="../assets/vendor/html2canvas.min.js"></script>
 <script src="../assets/js/viewer.js" defer></script>
+<?php endif; ?>
 </body>
 </html>
