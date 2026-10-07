@@ -4,6 +4,8 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/icons.php';
 
+require_login();
+
 $pdo = db();
 
 $docId = isset($_GET['id']) && is_numeric($_GET['id']) ? (int)$_GET['id'] : 0;
@@ -403,14 +405,35 @@ if ($action) {
             <!-- Layer Panel Toggle -->
             <button type="button" class="btn-workspace-action is-active" id="btnToggleLayerDrawer" title="Toggle Annotation Layers">
                 <?php echo render_icon('layers'); ?>
-                <span>Layers</span>
+                <span>Annotation Layers</span>
             </button>
 
-            <!-- Direct Download Button -->
-            <a href="<?php echo e($downloadUrl); ?>" class="btn-workspace-action" title="Download Document" download>
-                <?php echo render_icon('download'); ?>
-                <span>Download</span>
-            </a>
+            <!-- Download Dropdown Menu -->
+            <div class="workspace-download-dropdown" id="workspaceDownloadDropdown">
+                <button type="button" class="btn-workspace-action" id="btnDownloadDropdownToggle" title="Download Options">
+                    <?php echo render_icon('download'); ?>
+                    <span>Download</span>
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left:2px; transition: transform 0.2s;" id="downloadDropdownArrow">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </button>
+                <div class="workspace-download-menu" id="workspaceDownloadMenu">
+                    <a href="<?php echo e($downloadUrl); ?>" class="download-menu-item" download>
+                        <?php echo render_icon('file'); ?>
+                        <div class="menu-item-text">
+                            <span class="menu-item-title">Original Document</span>
+                            <span class="menu-item-sub">Download clean source file</span>
+                        </div>
+                    </a>
+                    <button type="button" class="download-menu-item" id="btnDownloadWithAnnotations">
+                        <?php echo render_icon('edit'); ?>
+                        <div class="menu-item-text">
+                            <span class="menu-item-title">With Annotations</span>
+                            <span class="menu-item-sub">Flatten visible drawings & notes</span>
+                        </div>
+                    </button>
+                </div>
+            </div>
         </div>
     </header>
 
@@ -481,7 +504,7 @@ if ($action) {
                 <!-- Loading State Overlay -->
                 <div class="workspace-doc-loading" id="workspaceDocLoading">
                     <div class="viewer-spinner"></div>
-                    <span id="loadingStatusText">Rendering specimen pages...</span>
+                    <span id="loadingStatusText">Rendering pages...</span>
                 </div>
 
                 <!-- Continuous Multi-Page PDF Container -->
@@ -497,7 +520,6 @@ if ($action) {
         <aside class="workspace-right-drawer is-open" id="workspaceRightDrawer">
             <div class="drawer-header">
                 <div class="drawer-title">
-                    <?php echo render_icon('layers'); ?>
                     <span>Annotation Layers</span>
                 </div>
                 <button type="button" class="btn-drawer-close" id="btnCloseRightDrawer" title="Collapse Drawer">&times;</button>
@@ -542,7 +564,6 @@ if ($action) {
                         </span>
                         <span>Annotation History</span>
                     </div>
-                    <span class="history-count-badge" id="historyCountBadge">0 events</span>
                 </div>
                 <div class="annotation-history-feed is-collapsed" id="annotationHistoryFeed">
                     <div class="history-empty-state" id="historyEmptyState">
@@ -569,6 +590,7 @@ window.EDMS_WORKSPACE_CONFIG = {
 };
 </script>
 <script src="../assets/vendor/pdfjs/pdf.min.js"></script>
+<script src="../assets/vendor/pdf-lib.min.js"></script>
 <script src="../assets/js/viewer.js" defer></script>
 </body>
 </html>

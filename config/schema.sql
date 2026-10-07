@@ -6,7 +6,6 @@
 CREATE TABLE IF NOT EXISTS `users` (
     `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     `username` VARCHAR(50) NOT NULL UNIQUE,
-    `email` VARCHAR(100) NOT NULL UNIQUE,
     `password_hash` VARCHAR(255) NOT NULL,
     `full_name` VARCHAR(100) NOT NULL,
     `role` ENUM('super admin', 'admin', 'engineer', 'technician', 'viewer') NOT NULL DEFAULT 'viewer',
@@ -50,8 +49,8 @@ CREATE TABLE IF NOT EXISTS `dms_nodes` (
 -- ============================================================
 
 -- 1. Default Super Admin User
-INSERT INTO `users` (`id`, `username`, `email`, `password_hash`, `full_name`, `role`, `department`)
-VALUES (1, 'admin', 'admin@nec.com', '$2y$10$e8k8R7i31i7qC0Z1QvYqE.M7yK2E07g3eZ2K7Z1Y1Z1Y1Z1Y1Z1Y1', 'System Administrator', 'super admin', 'Engineering')
+INSERT INTO `users` (`id`, `username`, `password_hash`, `full_name`, `role`, `department`)
+VALUES (1, 'admin', '$2y$10$e8k8R7i31i7qC0Z1QvYqE.M7yK2E07g3eZ2K7Z1Y1Z1Y1Z1Y1Z1Y1', 'Super Admin', 'super admin', 'Engineering')
 ON DUPLICATE KEY UPDATE `username` = VALUES(`username`);
 
 -- 2. Sample Project Roots & DocType Roots

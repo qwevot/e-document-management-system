@@ -5,6 +5,8 @@
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
 
+require_login();
+
 $pdo = db();
 
 $nodeId = isset($_GET['id']) && is_numeric($_GET['id']) ? (int)$_GET['id'] : 0;

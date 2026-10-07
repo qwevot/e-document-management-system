@@ -757,9 +757,91 @@ document.addEventListener("DOMContentLoaded", function () {
                 });
             }
 
-            ctx.restore();
         }
     }
+
+    // Helper to generate a clean offscreen canvas containing only the annotations for a specific page (no selection boxes)
+    function generateCleanPageAnnotationsCanvas(pageNum, targetWidth, targetHeight) {
+        const offscreen = document.createElement("canvas");
+        offscreen.width = targetWidth;
+        offscreen.height = targetHeight;
+        const ctx = offscreen.getContext("2d");
+        if (!ctx) return offscreen;
+
+        Object.keys(annotationLayers).forEach(uid => {
+            const layer = annotationLayers[uid];
+            if (!layer.visible || !layer.strokes) return;
+
+            layer.strokes.forEach(stroke => {
+                if (stroke.page !== pageNum) return;
+
+                if (stroke.tool === "text") {
+                    const posX = stroke.xRel * targetWidth;
+                    const posY = stroke.yRel * targetHeight;
+                    const lines = (stroke.content || "").split("\n");
+
+                    ctx.save();
+                    ctx.font = "bold 13px 'Plus Jakarta Sans', sans-serif";
+                    const lineHeight = 18;
+                    const padding = 8;
+
+                    let maxLineWidth = 0;
+                    lines.forEach(l => {
+                        const w = ctx.measureText(l).width;
+                        if (w > maxLineWidth) maxLineWidth = w;
+                    });
+
+                    const boxWidth = Math.max(30, maxLineWidth + padding * 2);
+                    const boxHeight = lines.length * lineHeight + padding * 2 - 4;
+
+                    ctx.fillStyle = "#ffffff";
+                    ctx.shadowColor = "rgba(0, 0, 0, 0.12)";
+                    ctx.shadowBlur = 5;
+                    ctx.shadowOffsetY = 2;
+                    ctx.beginPath();
+                    ctx.roundRect(posX, posY, boxWidth, boxHeight, 5);
+                    ctx.fill();
+
+                    ctx.shadowColor = "transparent";
+                    ctx.strokeStyle = stroke.color;
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+
+                    ctx.fillStyle = stroke.color;
+                    lines.forEach((lineText, idx) => {
+                        ctx.fillText(lineText, posX + padding, posY + padding + 13 + (idx * lineHeight));
+                    });
+
+                    ctx.restore();
+                    return;
+                }
+
+                const points = stroke.points;
+                if (!points || points.length < 2) return;
+
+                ctx.save();
+                ctx.strokeStyle = stroke.color;
+                ctx.lineWidth = stroke.width;
+                ctx.lineCap = "round";
+                ctx.lineJoin = "round";
+                ctx.globalAlpha = (stroke.alpha || 1.0) * layerOpacity;
+
+                ctx.beginPath();
+                ctx.moveTo(points[0].xRel * targetWidth, points[0].yRel * targetHeight);
+
+                for (let i = 1; i < points.length; i++) {
+                    const pt = points[i];
+                    ctx.lineTo(pt.xRel * targetWidth, pt.yRel * targetHeight);
+                }
+
+                ctx.stroke();
+                ctx.restore();
+            });
+        });
+
+        return offscreen;
+    }
+
 
     function renderAllPagesAnnotations() {
         for (let p = 1; p <= totalPages; p++) {
@@ -1114,6 +1196,122 @@ document.addEventListener("DOMContentLoaded", function () {
             document.querySelectorAll(".pdf-annotation-canvas").forEach(canvas => {
                 canvas.style.opacity = layerOpacity.toString();
             });
+        });
+    }
+
+    // --- 13. Download Dropdown & Annotated PDF Export Engine ---
+    const workspaceDownloadDropdown = document.getElementById("workspaceDownloadDropdown");
+    const btnDownloadDropdownToggle = document.getElementById("btnDownloadDropdownToggle");
+    const btnDownloadWithAnnotations = document.getElementById("btnDownloadWithAnnotations");
+
+    if (btnDownloadDropdownToggle && workspaceDownloadDropdown) {
+        btnDownloadDropdownToggle.addEventListener("click", function (e) {
+            e.stopPropagation();
+            workspaceDownloadDropdown.classList.toggle("is-open");
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener("click", function (e) {
+            if (!workspaceDownloadDropdown.contains(e.target)) {
+                workspaceDownloadDropdown.classList.remove("is-open");
+            }
+        });
+    }
+
+    if (btnDownloadWithAnnotations) {
+        btnDownloadWithAnnotations.addEventListener("click", async function (e) {
+            e.preventDefault();
+            if (workspaceDownloadDropdown) {
+                workspaceDownloadDropdown.classList.remove("is-open");
+            }
+
+            // Verify pdf-lib availability
+            if (typeof PDFLib === "undefined" || !PDFLib.PDFDocument) {
+                alert("PDF export engine is still loading. Please try again shortly.");
+                return;
+            }
+
+            // Visual loading state
+            const origButtonHtml = btnDownloadDropdownToggle.innerHTML;
+            btnDownloadDropdownToggle.disabled = true;
+            btnDownloadDropdownToggle.innerHTML = `
+                <div class="viewer-spinner" style="width:14px; height:14px; border-width:2px; margin-right:4px;"></div>
+                <span>Exporting...</span>
+            `;
+
+            try {
+                // Fetch the original PDF bytes directly
+                const streamUrl = config.streamUrl || `stream.php?id=${config.docId}`;
+                const existingPdfBytes = await fetch(streamUrl).then(res => res.arrayBuffer());
+
+                // Load via PDF-Lib
+                const pdfDoc = await PDFLib.PDFDocument.load(existingPdfBytes);
+                const pages = pdfDoc.getPages();
+
+                // Loop through all pages and composite canvas overlays
+                for (let i = 0; i < pages.length; i++) {
+                    const pageNum = i + 1;
+                    const pdfPage = pages[i];
+                    const { width: pageWidth, height: pageHeight } = pdfPage.getSize();
+
+                    // Generate clean annotations canvas scaled to the target PDF page dimensions
+                    // Use 2x pixel ratio for high DPI crispness
+                    const exportScale = 2;
+                    const canvasW = Math.round(pageWidth * exportScale);
+                    const canvasH = Math.round(pageHeight * exportScale);
+
+                    const offscreenCanvas = generateCleanPageAnnotationsCanvas(pageNum, canvasW, canvasH);
+
+                    // Check if this page has any visible strokes/notes
+                    let hasAnnotations = false;
+                    Object.keys(annotationLayers).forEach(uid => {
+                        const layer = annotationLayers[uid];
+                        if (layer.visible && layer.strokes && layer.strokes.some(s => s.page === pageNum)) {
+                            hasAnnotations = true;
+                        }
+                    });
+
+                    if (!hasAnnotations) continue;
+
+                    // Convert offscreen canvas to PNG blob/bytes
+                    const pngDataUrl = offscreenCanvas.toDataURL("image/png");
+                    const pngImageBytes = await fetch(pngDataUrl).then(res => res.arrayBuffer());
+
+                    // Embed PNG into the PDF page
+                    const embeddedImage = await pdfDoc.embedPng(pngImageBytes);
+                    pdfPage.drawImage(embeddedImage, {
+                        x: 0,
+                        y: 0,
+                        width: pageWidth,
+                        height: pageHeight,
+                    });
+                }
+
+                // Save flattened PDF bytes
+                const modifiedPdfBytes = await pdfDoc.save();
+
+                // Generate clean filename
+                let baseDocName = (config.docName || "document").replace(/\.pdf$/i, "");
+                const downloadFileName = `${baseDocName}_annotated.pdf`;
+
+                // Trigger browser file download
+                const blob = new Blob([modifiedPdfBytes], { type: "application/pdf" });
+                const blobUrl = URL.createObjectURL(blob);
+                const downloadLink = document.createElement("a");
+                downloadLink.href = blobUrl;
+                downloadLink.download = downloadFileName;
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
+            } catch (err) {
+                console.error("Error generating annotated PDF:", err);
+                alert("Failed to export annotated document: " + (err.message || err));
+            } finally {
+                btnDownloadDropdownToggle.disabled = false;
+                btnDownloadDropdownToggle.innerHTML = origButtonHtml;
+            }
         });
     }
 
