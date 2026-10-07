@@ -50,6 +50,8 @@ $mimeType = !empty($doc['mime_type']) ? $doc['mime_type'] : null;
 if (!$mimeType || $mimeType === 'application/octet-stream') {
     $mimeType = match ($ext) {
         'pdf'               => 'application/pdf',
+        'docx'              => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'doc'               => 'application/msword',
         'png'               => 'image/png',
         'jpg', 'jpeg'       => 'image/jpeg',
         'gif'               => 'image/gif',
@@ -57,7 +59,7 @@ if (!$mimeType || $mimeType === 'application/octet-stream') {
         'svg'               => 'image/svg+xml',
         'txt', 'log', 'md'  => 'text/plain; charset=utf-8',
         'html', 'htm'       => 'text/plain; charset=utf-8', // Plain text for security
-        default             => 'application/pdf',
+        default             => 'application/octet-stream',
     };
 }
 

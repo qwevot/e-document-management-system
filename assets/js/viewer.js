@@ -130,10 +130,14 @@ document.addEventListener("DOMContentLoaded", function () {
         .catch(err => console.error("Error loading saved annotations:", err));
     }
 
-    // --- 2. Load Document via PDF.js ---
+    // --- 2. Load Document (PDF via PDF.js vs DOCX via docx-preview) ---
     const streamUrl = config.streamUrl || `stream.php?id=${config.docId}`;
+    const fileExt = (config.fileExt || "pdf").toLowerCase().replace(/^\./, "");
+    const isDocx = fileExt === "docx" || fileExt === "doc";
 
-    if (window.pdfjsLib) {
+    if (isDocx) {
+        loadDocxDocument();
+    } else if (window.pdfjsLib) {
         pdfjsLib.getDocument({
             url: streamUrl,
             cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/",
@@ -155,6 +159,89 @@ document.addEventListener("DOMContentLoaded", function () {
             if (workspaceDocLoading) workspaceDocLoading.classList.add("is-hidden");
         });
     }
+
+    // --- 2b. DOCX Client-Side Rendering Engine ---
+    async function loadDocxDocument() {
+        if (!pdfPagesFeed) return;
+        if (workspaceDocLoading) workspaceDocLoading.classList.remove("is-hidden");
+        if (loadingStatusText) loadingStatusText.textContent = "Rendering Word document...";
+
+        try {
+            const response = await fetch(streamUrl);
+            const docxBlob = await response.blob();
+
+            // Clear container
+            pdfPagesFeed.innerHTML = "";
+
+            // Create temporary container for docx-preview to render into
+            const docxWrapper = document.createElement("div");
+            docxWrapper.className = "docx-render-host";
+            pdfPagesFeed.appendChild(docxWrapper);
+
+            // Render DOCX with docx-preview
+            if (typeof docx !== "undefined" && docx.renderAsync) {
+                await docx.renderAsync(docxBlob, docxWrapper, null, {
+                    className: "docx",
+                    inWrapper: true,
+                    ignoreWidth: false,
+                    ignoreHeight: false,
+                    breakPages: true,
+                    experimental: true
+                });
+            } else {
+                throw new Error("docx-preview library is unavailable.");
+            }
+
+            // docx-preview generates article/section elements representing pages
+            let docxSections = docxWrapper.querySelectorAll("section, .docx-wrapper > section, article");
+            if (!docxSections || docxSections.length === 0) {
+                docxSections = [docxWrapper];
+            }
+
+            totalPages = docxSections.length;
+            updatePageIndicator(1, totalPages);
+
+            const dpr = window.devicePixelRatio || 1;
+
+            // Transform each DOCX section into an annotatable page wrapper
+            docxSections.forEach((sec, idx) => {
+                const pageNum = idx + 1;
+                sec.style.position = "relative";
+                sec.classList.add("pdf-page-wrapper");
+                sec.id = `pageWrapper_${pageNum}`;
+                sec.dataset.page = pageNum;
+
+                const secRect = sec.getBoundingClientRect();
+                const secW = Math.max(sec.offsetWidth || 816, 600);
+                const secH = Math.max(sec.offsetHeight || 1056, 800);
+
+                // Transparent Annotation Overlay Canvas
+                const annoCanvas = document.createElement("canvas");
+                annoCanvas.className = "pdf-annotation-canvas";
+                annoCanvas.id = `annoCanvas_${pageNum}`;
+                annoCanvas.dataset.page = pageNum;
+                annoCanvas.width = Math.round(secW * dpr);
+                annoCanvas.height = Math.round(secH * dpr);
+                annoCanvas.style.width = secW + "px";
+                annoCanvas.style.height = secH + "px";
+                annoCanvas.style.opacity = layerOpacity.toString();
+
+                attachDrawingListeners(annoCanvas, pageNum);
+                sec.appendChild(annoCanvas);
+            });
+
+            if (workspaceDocLoading) workspaceDocLoading.classList.add("is-hidden");
+            setupScrollObserver();
+            fetchDatabaseAnnotations();
+        } catch (err) {
+            console.error("DOCX rendering error:", err);
+            if (loadingStatusText) {
+                loadingStatusText.textContent = "Failed to render Word document: " + (err.message || err);
+            }
+            if (workspaceDocLoading) workspaceDocLoading.classList.remove("is-hidden");
+        }
+    }
+
 
     // --- 3. Render All Pages Sequentially in Continuous Scroll ---
     async function renderAllPdfPages() {
@@ -1218,6 +1305,111 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
+    // Helper: Export DOCX pages as PDF using html2canvas & pdf-lib
+    async function exportDocxToPdf(withAnnotations = false) {
+        let docxSections = document.querySelectorAll(
+            ".docx-render-host .pdf-page-wrapper, " +
+            ".pdf-pages-feed .pdf-page-wrapper, " +
+            ".docx-render-host section, " +
+            ".docx-render-host .docx-wrapper > section, " +
+            "section.docx-document, " +
+            "section.docx"
+        );
+
+        if (!docxSections || docxSections.length === 0) {
+            // Fallback: look for the host wrapper itself if rendered as single article
+            const hostWrapper = document.querySelector(".docx-render-host");
+            if (hostWrapper) {
+                docxSections = [hostWrapper];
+            } else {
+                throw new Error("No rendered Word pages found to export.");
+            }
+        }
+
+        // Create fresh empty PDF document
+        const pdfDoc = await PDFLib.PDFDocument.create();
+
+        for (let i = 0; i < docxSections.length; i++) {
+            const sec = docxSections[i];
+            const pageNum = i + 1;
+            const annoCanvas = document.getElementById(`annoCanvas_${pageNum}`);
+
+            // Temporarily hide or ensure canvas visibility based on parameter
+            const originalCanvasDisplay = annoCanvas ? annoCanvas.style.display : "";
+            if (annoCanvas) {
+                annoCanvas.style.display = withAnnotations ? "block" : "none";
+            }
+
+            // Capture rendered Word page section
+            const canvasShot = await html2canvas(sec, {
+                scale: 1.5,
+                useCORS: true,
+                logging: false,
+                backgroundColor: "#ffffff"
+            });
+
+            if (annoCanvas) {
+                annoCanvas.style.display = originalCanvasDisplay;
+            }
+
+            const imgData = canvasShot.toDataURL("image/jpeg", 0.92);
+            const imgBytes = await fetch(imgData).then(res => res.arrayBuffer());
+            const embeddedImg = await pdfDoc.embedJpg(imgBytes);
+
+            // Add page with standard points dimensions
+            const pdfPage = pdfDoc.addPage([canvasShot.width / 1.5, canvasShot.height / 1.5]);
+            pdfPage.drawImage(embeddedImg, {
+                x: 0,
+                y: 0,
+                width: pdfPage.getWidth(),
+                height: pdfPage.getHeight(),
+            });
+        }
+
+        return await pdfDoc.save();
+    }
+
+    // Export As PDF button (for DOCX)
+    const btnDownloadAsPdf = document.getElementById("btnDownloadAsPdf");
+    if (btnDownloadAsPdf) {
+        btnDownloadAsPdf.addEventListener("click", async function (e) {
+            e.preventDefault();
+            if (workspaceDownloadDropdown) {
+                workspaceDownloadDropdown.classList.remove("is-open");
+            }
+
+            const origButtonHtml = btnDownloadDropdownToggle.innerHTML;
+            btnDownloadDropdownToggle.disabled = true;
+            btnDownloadDropdownToggle.innerHTML = `
+                <div class="viewer-spinner" style="width:14px; height:14px; border-width:2px; margin-right:4px;"></div>
+                <span>Converting PDF...</span>
+            `;
+
+            try {
+                const pdfBytes = await exportDocxToPdf(false);
+                let baseDocName = (config.docName || "document").replace(/\.(docx|doc)$/i, "");
+                const downloadFileName = `${baseDocName}.pdf`;
+
+                const blob = new Blob([pdfBytes], { type: "application/pdf" });
+                const blobUrl = URL.createObjectURL(blob);
+                const downloadLink = document.createElement("a");
+                downloadLink.href = blobUrl;
+                downloadLink.download = downloadFileName;
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
+            } catch (err) {
+                console.error("Error converting DOCX to PDF:", err);
+                alert("Failed to export PDF: " + (err.message || err));
+            } finally {
+                btnDownloadDropdownToggle.disabled = false;
+                btnDownloadDropdownToggle.innerHTML = origButtonHtml;
+            }
+        });
+    }
+
     if (btnDownloadWithAnnotations) {
         btnDownloadWithAnnotations.addEventListener("click", async function (e) {
             e.preventDefault();
@@ -1240,71 +1432,81 @@ document.addEventListener("DOMContentLoaded", function () {
             `;
 
             try {
-                // Fetch the original PDF bytes directly
-                const streamUrl = config.streamUrl || `stream.php?id=${config.docId}`;
-                const existingPdfBytes = await fetch(streamUrl).then(res => res.arrayBuffer());
+                if (isDocx) {
+                    // Export DOCX with annotations
+                    const pdfBytes = await exportDocxToPdf(true);
+                    let baseDocName = (config.docName || "document").replace(/\.(docx|doc)$/i, "");
+                    const downloadFileName = `${baseDocName}_annotated.pdf`;
 
-                // Load via PDF-Lib
-                const pdfDoc = await PDFLib.PDFDocument.load(existingPdfBytes);
-                const pages = pdfDoc.getPages();
+                    const blob = new Blob([pdfBytes], { type: "application/pdf" });
+                    const blobUrl = URL.createObjectURL(blob);
+                    const downloadLink = document.createElement("a");
+                    downloadLink.href = blobUrl;
+                    downloadLink.download = downloadFileName;
+                    document.body.appendChild(downloadLink);
+                    downloadLink.click();
+                    document.body.removeChild(downloadLink);
 
-                // Loop through all pages and composite canvas overlays
-                for (let i = 0; i < pages.length; i++) {
-                    const pageNum = i + 1;
-                    const pdfPage = pages[i];
-                    const { width: pageWidth, height: pageHeight } = pdfPage.getSize();
+                    setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
+                } else {
+                    // Export Native PDF with annotations
+                    const streamUrl = config.streamUrl || `stream.php?id=${config.docId}`;
+                    const existingPdfBytes = await fetch(streamUrl).then(res => res.arrayBuffer());
 
-                    // Generate clean annotations canvas scaled to the target PDF page dimensions
-                    // Use 2x pixel ratio for high DPI crispness
-                    const exportScale = 2;
-                    const canvasW = Math.round(pageWidth * exportScale);
-                    const canvasH = Math.round(pageHeight * exportScale);
+                    // Load via PDF-Lib
+                    const pdfDoc = await PDFLib.PDFDocument.load(existingPdfBytes);
+                    const pages = pdfDoc.getPages();
 
-                    const offscreenCanvas = generateCleanPageAnnotationsCanvas(pageNum, canvasW, canvasH);
+                    // Loop through all pages and composite canvas overlays
+                    for (let i = 0; i < pages.length; i++) {
+                        const pageNum = i + 1;
+                        const pdfPage = pages[i];
+                        const { width: pageWidth, height: pageHeight } = pdfPage.getSize();
 
-                    // Check if this page has any visible strokes/notes
-                    let hasAnnotations = false;
-                    Object.keys(annotationLayers).forEach(uid => {
-                        const layer = annotationLayers[uid];
-                        if (layer.visible && layer.strokes && layer.strokes.some(s => s.page === pageNum)) {
-                            hasAnnotations = true;
-                        }
-                    });
+                        const exportScale = 2;
+                        const canvasW = Math.round(pageWidth * exportScale);
+                        const canvasH = Math.round(pageHeight * exportScale);
 
-                    if (!hasAnnotations) continue;
+                        const offscreenCanvas = generateCleanPageAnnotationsCanvas(pageNum, canvasW, canvasH);
 
-                    // Convert offscreen canvas to PNG blob/bytes
-                    const pngDataUrl = offscreenCanvas.toDataURL("image/png");
-                    const pngImageBytes = await fetch(pngDataUrl).then(res => res.arrayBuffer());
+                        let hasAnnotations = false;
+                        Object.keys(annotationLayers).forEach(uid => {
+                            const layer = annotationLayers[uid];
+                            if (layer.visible && layer.strokes && layer.strokes.some(s => s.page === pageNum)) {
+                                hasAnnotations = true;
+                            }
+                        });
 
-                    // Embed PNG into the PDF page
-                    const embeddedImage = await pdfDoc.embedPng(pngImageBytes);
-                    pdfPage.drawImage(embeddedImage, {
-                        x: 0,
-                        y: 0,
-                        width: pageWidth,
-                        height: pageHeight,
-                    });
+                        if (!hasAnnotations) continue;
+
+                        const pngDataUrl = offscreenCanvas.toDataURL("image/png");
+                        const pngImageBytes = await fetch(pngDataUrl).then(res => res.arrayBuffer());
+
+                        const embeddedImage = await pdfDoc.embedPng(pngImageBytes);
+                        pdfPage.drawImage(embeddedImage, {
+                            x: 0,
+                            y: 0,
+                            width: pageWidth,
+                            height: pageHeight,
+                        });
+                    }
+
+                    const modifiedPdfBytes = await pdfDoc.save();
+
+                    let baseDocName = (config.docName || "document").replace(/\.pdf$/i, "");
+                    const downloadFileName = `${baseDocName}_annotated.pdf`;
+
+                    const blob = new Blob([modifiedPdfBytes], { type: "application/pdf" });
+                    const blobUrl = URL.createObjectURL(blob);
+                    const downloadLink = document.createElement("a");
+                    downloadLink.href = blobUrl;
+                    downloadLink.download = downloadFileName;
+                    document.body.appendChild(downloadLink);
+                    downloadLink.click();
+                    document.body.removeChild(downloadLink);
+
+                    setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
                 }
-
-                // Save flattened PDF bytes
-                const modifiedPdfBytes = await pdfDoc.save();
-
-                // Generate clean filename
-                let baseDocName = (config.docName || "document").replace(/\.pdf$/i, "");
-                const downloadFileName = `${baseDocName}_annotated.pdf`;
-
-                // Trigger browser file download
-                const blob = new Blob([modifiedPdfBytes], { type: "application/pdf" });
-                const blobUrl = URL.createObjectURL(blob);
-                const downloadLink = document.createElement("a");
-                downloadLink.href = blobUrl;
-                downloadLink.download = downloadFileName;
-                document.body.appendChild(downloadLink);
-                downloadLink.click();
-                document.body.removeChild(downloadLink);
-
-                setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
             } catch (err) {
                 console.error("Error generating annotated PDF:", err);
                 alert("Failed to export annotated document: " + (err.message || err));

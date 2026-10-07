@@ -423,17 +423,26 @@ if ($action) {
                 </button>
                 <div class="workspace-download-menu" id="workspaceDownloadMenu">
                     <a href="<?php echo e($downloadUrl); ?>" class="download-menu-item" download>
-                        <?php echo render_icon('file'); ?>
+                        <?php echo render_icon('files'); ?>
                         <div class="menu-item-text">
-                            <span class="menu-item-title">Original Document</span>
-                            <span class="menu-item-sub">Download clean source file</span>
+                            <span class="menu-item-title"><?php echo ($ext === 'docx' || $ext === 'doc') ? 'Original (.docx)' : 'Original Document'; ?></span>
+                            <span class="menu-item-sub">Download source file</span>
                         </div>
                     </a>
+                    <?php if ($ext === 'docx' || $ext === 'doc'): ?>
+                        <button type="button" class="download-menu-item" id="btnDownloadAsPdf">
+                            <?php echo render_icon('pdf'); ?>
+                            <div class="menu-item-text">
+                                <span class="menu-item-title">Download As PDF</span>
+                                <span class="menu-item-sub">Convert pages to clean PDF</span>
+                            </div>
+                        </button>
+                    <?php endif; ?>
                     <button type="button" class="download-menu-item" id="btnDownloadWithAnnotations">
                         <?php echo render_icon('edit'); ?>
                         <div class="menu-item-text">
-                            <span class="menu-item-title">With Annotations</span>
-                            <span class="menu-item-sub">Flatten visible drawings & notes</span>
+                            <span class="menu-item-title"><?php echo ($ext === 'docx' || $ext === 'doc') ? 'With Annotations (PDF)' : 'With Annotations'; ?></span>
+                            <span class="menu-item-sub">Flatten visible drawings &amp; notes</span>
                         </div>
                     </button>
                 </div>
@@ -595,6 +604,9 @@ window.EDMS_WORKSPACE_CONFIG = {
 </script>
 <script src="../assets/vendor/pdfjs/pdf.min.js"></script>
 <script src="../assets/vendor/pdf-lib.min.js"></script>
+<script src="../assets/vendor/jszip.min.js"></script>
+<script src="../assets/vendor/docx-preview.min.js"></script>
+<script src="../assets/vendor/html2canvas.min.js"></script>
 <script src="../assets/js/viewer.js" defer></script>
 </body>
 </html>

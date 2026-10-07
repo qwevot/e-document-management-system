@@ -2706,6 +2706,27 @@ body.sidebar-collapsed .main {
     overflow: hidden;
 }
 
+/* Client-Side DOCX Preview Wrapper & Page Section Overrides */
+.docx-render-host {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+}
+
+.docx-render-host .docx-wrapper {
+    background: transparent !important;
+    padding: 0 !important;
+}
+
+.docx-render-host section.docx {
+    background: #ffffff !important;
+    box-shadow: var(--shadow-lg) !important;
+    margin-bottom: 24px !important;
+    position: relative !important;
+}
+
 .pdf-base-canvas {
     display: block;
     width: 100%;
