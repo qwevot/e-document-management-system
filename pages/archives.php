@@ -17,71 +17,114 @@ $isAjax = (isset($_GET['ajax']) && $_GET['ajax'] === '1') ||
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
-    // 1. Restore Document to Active Workspace
+    // 1. Restore Item (Folder / Document) to Active Workspace
     if ($action === 'restore_node') {
         $nodeId = isset($_POST['id']) && is_numeric($_POST['id']) ? (int)$_POST['id'] : 0;
         if ($nodeId <= 0) {
             if ($isAjax) {
                 header('Content-Type: application/json');
-                echo json_encode(['success' => false, 'message' => 'Invalid document ID.']);
+                echo json_encode(['success' => false, 'message' => 'Invalid item ID.']);
                 exit;
             }
         } else {
+            // Restore node: set is_deleted = 0, status = 'active'
             $stmt = $pdo->prepare("UPDATE dms_nodes SET is_deleted = 0, status = 'active', updated_at = NOW() WHERE id = :id");
             $stmt->execute(['id' => $nodeId]);
 
             if ($isAjax) {
                 header('Content-Type: application/json');
-                echo json_encode(['success' => true, 'message' => 'Document restored to active workspace.']);
+                echo json_encode(['success' => true, 'message' => 'Item restored to active workspace.']);
                 exit;
             }
-            redirect_to('archives', 'success', 'Document restored successfully.');
+            redirect_to('archives', 'success', 'Item restored successfully.');
         }
     }
 
-    // 2. Permanently Delete Document (Hard delete from database & disk)
+    // 2. Permanently Delete Item (Hard delete from database & disk)
     if ($action === 'purge_node') {
         $nodeId = isset($_POST['id']) && is_numeric($_POST['id']) ? (int)$_POST['id'] : 0;
         if ($nodeId <= 0) {
             if ($isAjax) {
                 header('Content-Type: application/json');
-                echo json_encode(['success' => false, 'message' => 'Invalid document ID.']);
+                echo json_encode(['success' => false, 'message' => 'Invalid item ID.']);
                 exit;
             }
         } else {
-            // Find file path to unlink physical file if exists
-            $st = $pdo->prepare("SELECT file_path FROM dms_nodes WHERE id = :id");
-            $st->execute(['id' => $nodeId]);
-            $found = $st->fetch(PDO::FETCH_ASSOC);
-
-            if ($found && !empty($found['file_path'])) {
-                $physicalPath = __DIR__ . '/../' . ltrim($found['file_path'], '/\\');
-                if (file_exists($physicalPath)) {
-                    @unlink($physicalPath);
+            // Gather all nodes to purge (the node itself plus any descendants if it is a folder)
+            $nodesToPurge = [$nodeId];
+            $queue = [$nodeId];
+            while (!empty($queue)) {
+                $currId = array_shift($queue);
+                $cStmt = $pdo->prepare("SELECT id FROM dms_nodes WHERE parent_id = :parent_id");
+                $cStmt->execute(['parent_id' => $currId]);
+                $cIds = $cStmt->fetchAll(PDO::FETCH_COLUMN);
+                foreach ($cIds as $cid) {
+                    $cidInt = (int)$cid;
+                    $nodesToPurge[] = $cidInt;
+                    $queue[] = $cidInt;
                 }
             }
 
-            // Delete annotations and layers associated with this document
-            $pdo->prepare("DELETE FROM dms_annotations WHERE document_id = :id")->execute(['id' => $nodeId]);
-            $pdo->prepare("DELETE FROM dms_annotation_layers WHERE document_id = :id")->execute(['id' => $nodeId]);
-            $pdo->prepare("DELETE FROM dms_annotation_history WHERE document_id = :id")->execute(['id' => $nodeId]);
+            foreach ($nodesToPurge as $pid) {
+                // Find file path to unlink physical file if exists
+                $st = $pdo->prepare("SELECT file_path FROM dms_nodes WHERE id = :id");
+                $st->execute(['id' => $pid]);
+                $found = $st->fetch(PDO::FETCH_ASSOC);
 
-            // Delete node
-            $pdo->prepare("DELETE FROM dms_nodes WHERE id = :id")->execute(['id' => $nodeId]);
+                if ($found && !empty($found['file_path'])) {
+                    $physicalPath = __DIR__ . '/../' . ltrim($found['file_path'], '/\\');
+                    if (file_exists($physicalPath)) {
+                        @unlink($physicalPath);
+                    }
+                }
+
+                // Delete annotations and layers associated with this node
+                $pdo->prepare("DELETE FROM dms_annotations WHERE document_id = :id")->execute(['id' => $pid]);
+                $pdo->prepare("DELETE FROM dms_annotation_layers WHERE document_id = :id")->execute(['id' => $pid]);
+                $pdo->prepare("DELETE FROM dms_annotation_history WHERE document_id = :id")->execute(['id' => $pid]);
+                $pdo->prepare("DELETE FROM dms_nodes WHERE id = :id")->execute(['id' => $pid]);
+            }
 
             if ($isAjax) {
                 header('Content-Type: application/json');
-                echo json_encode(['success' => true, 'message' => 'Document permanently deleted.']);
+                echo json_encode(['success' => true, 'message' => 'Item permanently deleted.']);
                 exit;
             }
-            redirect_to('archives', 'success', 'Document permanently purged from database.');
+            redirect_to('archives', 'success', 'Item permanently purged from database.');
         }
     }
 }
 
 // 1. Capture request parameters
+$folderId = isset($_GET['folder']) && is_numeric($_GET['folder']) ? (int)$_GET['folder'] : null;
 $typeFilt = isset($_GET['type']) && trim($_GET['type']) !== '' ? trim($_GET['type']) : null;
 $searchQ  = isset($_GET['q']) ? trim($_GET['q']) : '';
+
+// Resolve Breadcrumbs & Current Folder if inside an archived folder
+$breadcrumbs = [];
+$currentFolder = null;
+
+if ($folderId !== null) {
+    $stmt = $pdo->prepare('SELECT * FROM dms_nodes WHERE id = :id AND node_type = "folder"');
+    $stmt->execute(['id' => $folderId]);
+    $currentFolder = $stmt->fetch();
+
+    if ($currentFolder) {
+        $temp = $currentFolder;
+        while ($temp) {
+            array_unshift($breadcrumbs, $temp);
+            if ($temp['parent_id'] !== null) {
+                $pStmt = $pdo->prepare('SELECT * FROM dms_nodes WHERE id = :id');
+                $pStmt->execute(['id' => $temp['parent_id']]);
+                $temp = $pStmt->fetch();
+            } else {
+                $temp = null;
+            }
+        }
+    } else {
+        $folderId = null;
+    }
+}
 
 // Pagination parameters
 $page            = isset($_GET['page']) && is_numeric($_GET['page']) && (int)$_GET['page'] > 0 ? (int)$_GET['page'] : 1;
@@ -89,13 +132,13 @@ $allowedPerPages = [10, 25, 50, 100];
 $perPage         = isset($_GET['per_page']) && is_numeric($_GET['per_page']) && in_array((int)$_GET['per_page'], $allowedPerPages, true) ? (int)$_GET['per_page'] : 25;
 
 // Fetch distinct document types among obsolete documents for filter dropdown
-$docTypesStmt = $pdo->query("SELECT DISTINCT doc_type FROM dms_nodes WHERE node_type = 'document' AND (status = 'obsolete' OR is_deleted = 1) AND doc_type IS NOT NULL AND doc_type != '' ORDER BY doc_type ASC");
+$docTypesStmt = $pdo->query("SELECT DISTINCT doc_type FROM dms_nodes WHERE (status = 'obsolete' OR is_deleted = 1) AND doc_type IS NOT NULL AND doc_type != '' ORDER BY doc_type ASC");
 $availableDocTypes = $docTypesStmt->fetchAll(PDO::FETCH_COLUMN);
 $standardTypes = ['SOP', 'Specification', 'Drawing', 'Contract', 'Report', 'Manual'];
 $allFilterTypes = array_unique(array_merge($availableDocTypes, $standardTypes));
 sort($allFilterTypes);
 
-// 2. Query Obsolete Documents
+// 2. Query Obsolete Items (Both Folders and Documents)
 $baseSelect = 'SELECT dms_nodes.*, 
                       COALESCE(u.full_name, u.username, "System") AS creator_name,
                       p.name AS parent_name
@@ -105,15 +148,27 @@ $baseSelect = 'SELECT dms_nodes.*,
 
 $baseCount = 'SELECT COUNT(*) FROM dms_nodes';
 
-// Obsolete condition: node_type is document AND (status = "obsolete" OR is_deleted = 1)
-$whereClause = ' WHERE dms_nodes.node_type = "document" AND (dms_nodes.status = "obsolete" OR dms_nodes.is_deleted = 1)';
+// Obsolete condition: status = "obsolete" OR is_deleted = 1
+$whereClause = ' WHERE (dms_nodes.status = "obsolete" OR dms_nodes.is_deleted = 1)';
 $params = [];
 $countParams = [];
 
 if ($searchQ !== '') {
+    // Global search across archives
     $whereClause .= ' AND dms_nodes.name LIKE :q';
     $params['q'] = '%' . $searchQ . '%';
     $countParams['q'] = '%' . $searchQ . '%';
+} elseif ($folderId !== null) {
+    // Inside a specific archived folder
+    $whereClause .= ' AND dms_nodes.parent_id = :parent_id';
+    $params['parent_id'] = $folderId;
+    $countParams['parent_id'] = $folderId;
+} else {
+    // Root level view of archives:
+    // Show root items OR items whose parent is not obsolete (so they surface at archives root)
+    $whereClause .= ' AND (dms_nodes.parent_id IS NULL OR dms_nodes.parent_id NOT IN (
+        SELECT id FROM dms_nodes WHERE node_type = "folder" AND (status = "obsolete" OR is_deleted = 1)
+    ))';
 }
 
 if ($typeFilt !== null) {
@@ -122,7 +177,7 @@ if ($typeFilt !== null) {
     $countParams['doc_type'] = $typeFilt;
 }
 
-$orderBy = ' ORDER BY dms_nodes.updated_at DESC, dms_nodes.name ASC';
+$orderBy = ' ORDER BY dms_nodes.node_type = "folder" DESC, dms_nodes.updated_at DESC, dms_nodes.name ASC';
 
 // 3. Count & Pagination Math
 $countStmt = $pdo->prepare($baseCount . $whereClause);
@@ -146,19 +201,39 @@ $stmt->execute();
 $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Helper function to render cards HTML (identical markup and pagination to explorer.php)
-function render_archives_card_list($items, $searchQ, $page = 1, $perPage = 25, $totalCount = 0, $totalPages = 1): void {
+function render_archives_card_list($items, $searchQ, $folderId = null, $currentFolder = null, $breadcrumbs = [], $page = 1, $perPage = 25, $totalCount = 0, $totalPages = 1): void {
     ?>
     <!-- Permanent Top File Directory Navigation Bar (Blended Background) -->
     <div class="explorer-directory-bar">
-        <span class="dir-nav-btn root-btn" title="Archives Repository" style="color:var(--amber);">
-            <?php echo render_icon('archive'); ?>
-        </span>
+        <?php if ($folderId !== null && $currentFolder): ?>
+            <?php
+            $backUrl = $currentFolder['parent_id'] !== null ? '?folder=' . $currentFolder['parent_id'] : 'archives.php';
+            ?>
+            <a href="<?php echo e($backUrl); ?>" class="dir-nav-btn back-btn" title="Go up to parent directory">
+                <?php echo render_icon('arrow-left'); ?>
+            </a>
+        <?php else: ?>
+            <span class="dir-nav-btn root-btn" title="Archives Repository" style="color:var(--amber);">
+                <?php echo render_icon('archive'); ?>
+            </span>
+        <?php endif; ?>
 
         <!-- Breadcrumbs Navigation -->
         <nav class="explorer-breadcrumbs" aria-label="Archive Breadcrumbs">
-            <span class="breadcrumb-item current">
+            <a href="archives.php" class="breadcrumb-item root-link <?php echo ($folderId === null && $searchQ === '') ? 'current' : ''; ?>">
                 <span>Archives</span>
-            </span>
+            </a>
+            <?php foreach ($breadcrumbs as $idx => $crumb): ?>
+                <span class="breadcrumb-sep"><?php echo render_icon('chevron-right'); ?></span>
+                <?php if ($idx === count($breadcrumbs) - 1 && $searchQ === ''): ?>
+                    <span class="breadcrumb-item current"><?php echo e($crumb['name']); ?></span>
+                <?php else: ?>
+                    <a href="archives.php?folder=<?php echo e((string)$crumb['id']); ?>" class="breadcrumb-item">
+                        <?php echo e($crumb['name']); ?>
+                    </a>
+                <?php endif; ?>
+            <?php endforeach; ?>
+
             <?php if ($searchQ !== ''): ?>
                 <span class="breadcrumb-sep"><?php echo render_icon('chevron-right'); ?></span>
                 <span class="breadcrumb-item current">
@@ -172,16 +247,16 @@ function render_archives_card_list($items, $searchQ, $page = 1, $perPage = 25, $
         <!-- Empty State Card -->
         <div class="explorer-empty-card">
             <div class="empty-icon" style="color:var(--amber);"><?php echo render_icon('archive'); ?></div>
-            <h3 class="empty-title">No archived documents found</h3>
+            <h3 class="empty-title"><?php echo $folderId !== null ? 'This archived folder is empty' : 'No archived items found'; ?></h3>
             <p class="empty-subtitle">
-                <?php echo $searchQ !== '' ? 'No obsolete documents matched your query.' : 'There are currently no obsolete or archived document specimens in the repository.'; ?>
+                <?php echo $searchQ !== '' ? 'No obsolete documents or folders matched your query.' : ($folderId !== null ? 'There are no items inside this archived folder.' : 'There are currently no obsolete or archived specimens in the repository.'); ?>
             </p>
         </div>
     <?php else: ?>
         <!-- Google Drive-Style Table Header -->
         <div class="explorer-table-header">
             <div class="col-hdr-checkbox-icon"></div>
-            <div class="col-hdr-name">Document Name</div>
+            <div class="col-hdr-name">Name</div>
             <div class="col-hdr-owner">Owner</div>
             <div class="col-hdr-modified">Date Archived</div>
             <div class="col-hdr-location">Original Location</div>
@@ -191,31 +266,46 @@ function render_archives_card_list($items, $searchQ, $page = 1, $perPage = 25, $
 
         <?php foreach ($items as $item): ?>
             <?php
-            $extIcon = $item['file_extension'] ?? 'files';
+            $isFolder = ($item['node_type'] === 'folder');
+            $itemLink = $isFolder ? 'archives.php?folder=' . $item['id'] : 'view.php?id=' . $item['id'];
+            $extIcon = $isFolder ? 'folder' : ($item['file_extension'] ?? 'files');
             $archivedDate = $item['updated_at'] ?? $item['created_at'];
             ?>
-            <div class="explorer-item-card is-document" id="node-<?php echo e((string)$item['id']); ?>">
+            <div class="explorer-item-card <?php echo $isFolder ? 'is-folder' : 'is-document'; ?>" id="node-<?php echo e((string)$item['id']); ?>">
                 <!-- Selection Checkbox -->
                 <div class="item-checkbox-col">
                     <input type="checkbox" class="item-checkbox" aria-label="Select item">
                 </div>
 
                 <!-- Type Icon -->
-                <a href="view.php?id=<?php echo e((string)$item['id']); ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open Workspace: <?php echo e($item['name']); ?>">
-                    <?php echo render_icon($extIcon); ?>
-                </a>
+                <?php if ($isFolder): ?>
+                    <a href="<?php echo e($itemLink); ?>" class="item-icon-col icon-folder" title="Open Archived Folder: <?php echo e($item['name']); ?>">
+                        <?php echo render_icon('folder'); ?>
+                    </a>
+                <?php else: ?>
+                    <a href="<?php echo e($itemLink); ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open Workspace: <?php echo e($item['name']); ?>">
+                        <?php echo render_icon($extIcon); ?>
+                    </a>
+                <?php endif; ?>
 
                 <!-- 1. Name Column -->
                 <div class="item-main-col">
                     <div class="item-title-row">
-                        <a href="view.php?id=<?php echo e((string)$item['id']); ?>" class="item-title" title="<?php echo e($item['name']); ?>">
-                            <?php echo e($item['name']); ?>
-                        </a>
-                        <?php if (!empty($item['doc_type'])): ?>
-                            <span class="item-type-badge"><?php echo e($item['doc_type']); ?></span>
-                        <?php endif; ?>
-                        <?php if (!empty($item['version'])): ?>
-                            <span class="version-badge"><?php echo e($item['version']); ?></span>
+                        <?php if ($isFolder): ?>
+                            <a href="<?php echo e($itemLink); ?>" class="item-title" title="<?php echo e($item['name']); ?>">
+                                <?php echo e($item['name']); ?>
+                            </a>
+                            <span class="item-type-badge">Folder</span>
+                        <?php else: ?>
+                            <a href="<?php echo e($itemLink); ?>" class="item-title" title="<?php echo e($item['name']); ?>">
+                                <?php echo e($item['name']); ?>
+                            </a>
+                            <?php if (!empty($item['doc_type'])): ?>
+                                <span class="item-type-badge"><?php echo e($item['doc_type']); ?></span>
+                            <?php endif; ?>
+                            <?php if (!empty($item['version'])): ?>
+                                <span class="version-badge"><?php echo e($item['version']); ?></span>
+                            <?php endif; ?>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -253,16 +343,18 @@ function render_archives_card_list($items, $searchQ, $page = 1, $perPage = 25, $
 
                 <!-- 6. Quick Action Tools (View, Download, 3-Dots Context Menu) -->
                 <div class="item-actions-col">
-                    <a href="view.php?id=<?php echo e((string)$item['id']); ?>" class="btn-action" title="Open Workspace">
-                        <?php echo render_icon('view'); ?>
-                    </a>
-                    <a href="download.php?id=<?php echo e((string)$item['id']); ?>" class="btn-action" title="Download: <?php echo e($item['file_original_name'] ?: $item['name']); ?>" download>
-                        <?php echo render_icon('download'); ?>
-                    </a>
+                    <?php if (!$isFolder): ?>
+                        <a href="view.php?id=<?php echo e((string)$item['id']); ?>" class="btn-action" title="Open Workspace">
+                            <?php echo render_icon('view'); ?>
+                        </a>
+                        <a href="download.php?id=<?php echo e((string)$item['id']); ?>" class="btn-action" title="Download: <?php echo e($item['file_original_name'] ?: $item['name']); ?>" download>
+                            <?php echo render_icon('download'); ?>
+                        </a>
+                    <?php endif; ?>
                     <button type="button" class="btn-action btn-archive-actions" title="More Actions" 
                             data-id="<?php echo e((string)$item['id']); ?>" 
                             data-name="<?php echo e($item['name']); ?>" 
-                            data-type="document" 
+                            data-type="<?php echo e($item['node_type']); ?>" 
                             data-ext="<?php echo e($extIcon); ?>" 
                             data-version="<?php echo e($item['version'] ?? 'v1.0'); ?>" 
                             data-location="<?php echo e($item['parent_name'] ?: 'Projects'); ?>">
@@ -338,7 +430,7 @@ function render_archives_card_list($items, $searchQ, $page = 1, $perPage = 25, $
 
 // Handle AJAX partial reload
 if ($isAjax) {
-    render_archives_card_list($items, $searchQ, $page, $perPage, $totalCount, $totalPages);
+    render_archives_card_list($items, $searchQ, $folderId, $currentFolder, $breadcrumbs, $page, $perPage, $totalCount, $totalPages);
     exit;
 }
 
@@ -353,6 +445,9 @@ include __DIR__ . '/../includes/header.php';
     <!-- Top Action & Search Bar -->
     <div class="explorer-toolbar-card">
         <form method="GET" action="" class="explorer-search-form" id="archivesSearchForm">
+            <?php if ($folderId !== null): ?>
+                <input type="hidden" name="folder" value="<?php echo (int)$folderId; ?>" id="archivesCurrentFolderId">
+            <?php endif; ?>
             <?php if ($typeFilt !== null): ?>
                 <input type="hidden" name="type" value="<?php echo e($typeFilt); ?>">
             <?php endif; ?>
@@ -383,7 +478,7 @@ include __DIR__ . '/../includes/header.php';
 
     <!-- Main Card-by-Card Document List Container -->
     <div class="explorer-card-list" id="archivesCardList">
-        <?php render_archives_card_list($items, $searchQ, $page, $perPage, $totalCount, $totalPages); ?>
+        <?php render_archives_card_list($items, $searchQ, $folderId, $currentFolder, $breadcrumbs, $page, $perPage, $totalCount, $totalPages); ?>
     </div>
 
 </div>
@@ -401,13 +496,13 @@ include __DIR__ . '/../includes/header.php';
     </button>
 </div>
 
-<!-- Modal: Restore Document Confirmation (Identical Modal Style to explorer.php) -->
+<!-- Modal: Restore Confirmation (Identical Modal Style to explorer.php) -->
 <div class="edms-modal-backdrop" id="modalRestoreDoc">
     <div class="edms-modal-dialog">
         <div class="edms-modal-header">
             <div class="edms-modal-title" style="color:var(--green);">
                 <?php echo render_icon('refresh'); ?>
-                <span>Restore Document</span>
+                <span>Restore to Workspace</span>
             </div>
             <button type="button" class="btn-modal-close" onclick="closeRestoreModal()">&times;</button>
         </div>
@@ -419,7 +514,7 @@ include __DIR__ . '/../includes/header.php';
                     Restore <strong id="restoreDocNameDisplay"></strong> to the active workspace?
                 </p>
                 <p class="form-help" style="color: var(--muted); line-height: 1.5; font-size:12.5px; margin:0;">
-                    Its status will transition from <strong>OBSOLETE</strong> to <strong>ACTIVE</strong>, returning it to the active project tree.
+                    Its status will transition from <strong>OBSOLETE</strong> to <strong>ACTIVE</strong>, returning it to the active project tree in its original location.
                 </p>
             </div>
             <div class="edms-modal-footer">
@@ -439,7 +534,7 @@ include __DIR__ . '/../includes/header.php';
         <div class="edms-modal-header">
             <div class="edms-modal-title" style="color:var(--red);">
                 <?php echo render_icon('trash'); ?>
-                <span>Permanently Delete Document</span>
+                <span>Permanently Delete</span>
             </div>
             <button type="button" class="btn-modal-close" onclick="closePurgeModal()">&times;</button>
         </div>
@@ -451,7 +546,7 @@ include __DIR__ . '/../includes/header.php';
                     Permanently delete <strong id="purgeDocNameDisplay"></strong>?
                 </p>
                 <p class="form-help" style="color: var(--red-ink); background: var(--red-soft); padding: 8px 12px; border-radius: 6px; font-size: 12px; margin:0; line-height: 1.5;">
-                    <strong>Caution:</strong> This operation completely purges the document binary, annotations, and database records. This cannot be undone.
+                    <strong>Caution:</strong> This operation completely purges the specimen binary, annotations, and database records. If this is a folder, all enclosed contents will also be removed. This cannot be undone.
                 </p>
             </div>
             <div class="edms-modal-footer">
@@ -615,10 +710,12 @@ function navigateArchivesPage(page) {
 function submitArchivesAjax(page = 1, perPage = null) {
     const q = document.getElementById('archivesSearchInput')?.value || '';
     const type = document.getElementById('archivesFilterType')?.value || '';
+    const folder = document.getElementById('archivesCurrentFolderId')?.value || '';
     const selectedPerPage = perPage || document.getElementById('archivesPerPageSelect')?.value || 25;
 
     const params = new URLSearchParams();
     params.set('ajax', '1');
+    if (folder) params.set('folder', folder);
     if (q) params.set('q', q);
     if (type) params.set('type', type);
     params.set('page', page);

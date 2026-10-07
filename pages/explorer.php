@@ -416,7 +416,7 @@ $countParams = [];
 
 if ($searchQ !== '') {
     // Global search mode
-    $whereClause = ' WHERE dms_nodes.is_deleted = 0 AND dms_nodes.name LIKE :q';
+    $whereClause = ' WHERE dms_nodes.is_deleted = 0 AND dms_nodes.status != "obsolete" AND dms_nodes.name LIKE :q';
     $params['q'] = '%' . $searchQ . '%';
     $countParams['q'] = '%' . $searchQ . '%';
 
@@ -438,7 +438,7 @@ if ($searchQ !== '') {
     $orderBy = ' ORDER BY dms_nodes.node_type = "folder" DESC, dms_nodes.name ASC';
 } elseif ($viewMode === 'document') {
     // Flat All Documents View
-    $whereClause = ' WHERE dms_nodes.node_type = "document" AND dms_nodes.is_deleted = 0';
+    $whereClause = ' WHERE dms_nodes.node_type = "document" AND dms_nodes.is_deleted = 0 AND dms_nodes.status != "obsolete"';
 
     if ($statusFilt !== null) {
         $whereClause .= ' AND dms_nodes.status = :status';
@@ -454,7 +454,7 @@ if ($searchQ !== '') {
     $orderBy = ' ORDER BY dms_nodes.name ASC';
 } elseif ($parentId === null) {
     // Root level view (ALL Root Folders and Root Documents)
-    $whereClause = ' WHERE dms_nodes.parent_id IS NULL AND dms_nodes.is_deleted = 0';
+    $whereClause = ' WHERE dms_nodes.parent_id IS NULL AND dms_nodes.is_deleted = 0 AND dms_nodes.status != "obsolete"';
 
     if ($statusFilt !== null) {
         $whereClause .= ' AND dms_nodes.status = :status';
@@ -470,7 +470,7 @@ if ($searchQ !== '') {
     $orderBy = ' ORDER BY dms_nodes.node_type = "folder" DESC, dms_nodes.name ASC';
 } else {
     // Inside a specific folder
-    $whereClause = ' WHERE dms_nodes.parent_id = :parent_id AND dms_nodes.is_deleted = 0';
+    $whereClause = ' WHERE dms_nodes.parent_id = :parent_id AND dms_nodes.is_deleted = 0 AND dms_nodes.status != "obsolete"';
     $params['parent_id'] = $parentId;
     $countParams['parent_id'] = $parentId;
 
