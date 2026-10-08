@@ -1,6 +1,6 @@
 <?php
 // Dedicated Secure File Download Endpoint
-// Streams the physical specimen to the client with clean original filename headers
+// Streams the physical file to the client with clean original filename headers
 
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';

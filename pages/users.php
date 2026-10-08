@@ -34,9 +34,6 @@ include __DIR__ . '/../includes/header.php';
         <div class="users-header-title">
             <?php echo render_icon('users'); ?>
             <span>User Management</span>
-            <span style="font-size:12px; font-weight:600; color:var(--muted); background:var(--surface); border:1px solid var(--border); padding:2px 8px; border-radius:12px;">
-                <?php echo count($users); ?> Accounts
-            </span>
         </div>
 
         <div class="users-header-actions">
@@ -142,7 +139,7 @@ include __DIR__ . '/../includes/header.php';
             <div class="edms-modal-header">
                 <div class="edms-modal-title">
                     <?php echo render_icon('plus'); ?>
-                    <span>Create User Specimen</span>
+                    <span>Create User</span>
                 </div>
                 <button type="button" class="btn-modal-close" onclick="closeAddUserModal()">&times;</button>
             </div>
