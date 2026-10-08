@@ -52,7 +52,7 @@ function is_libreoffice_available(): bool
 }
 
 /**
- * Convert a document file (.docx, .doc, .rtf, .odt, .xlsx, .pptx) to vector PDF.
+ * Convert a document file (.docx, .doc, .rtf, .odt, .xlsx, .xls, .csv, .pptx) to vector PDF.
  * Returns the absolute path to the generated PDF file, or null on failure.
  */
 function convert_document_to_pdf(string $sourceFilePath): ?string
@@ -72,7 +72,12 @@ function convert_document_to_pdf(string $sourceFilePath): ?string
         @mkdir($cacheDir, 0777, true);
     }
 
-    $fileHash = md5($sourceFilePath . filemtime($sourceFilePath) . filesize($sourceFilePath));
+    $fileExt = strtolower(pathinfo($sourceFilePath, PATHINFO_EXTENSION));
+    $isSpreadsheet = in_array($fileExt, ['xlsx', 'xls', 'csv', 'ods'], true);
+
+    // Hash includes conversion mode flag so spreadsheet improvements invalidate older sliced PDF caches
+    $hashPrefix = $isSpreadsheet ? 'calc_v2_' : 'doc_v1_';
+    $fileHash = md5($hashPrefix . $sourceFilePath . filemtime($sourceFilePath) . filesize($sourceFilePath));
     $cachedPdfPath = $cacheDir . '/' . $fileHash . '.pdf';
 
     // If cached version already exists, return it immediately
@@ -91,8 +96,15 @@ function convert_document_to_pdf(string $sourceFilePath): ?string
     $escapedTempDir = escapeshellarg($tempDir);
     $escapedSource  = escapeshellarg($sourceFilePath);
 
-    // Run command
-    $cmd = "{$escapedSoffice} --headless --convert-to pdf --outdir {$escapedTempDir} {$escapedSource} 2>&1";
+    // For spreadsheets, use LibreOffice Calc PDF Export filter with SinglePageSheets=true
+    // This auto-fits each worksheet dynamically onto a continuous vector page without slicing columns across pages.
+    if ($isSpreadsheet) {
+        $pdfFilter = 'pdf:calc_pdf_Export:{\"SinglePageSheets\":{\"type\":\"boolean\",\"value\":\"true\"}}';
+        $cmd = "{$escapedSoffice} --headless --convert-to \"{$pdfFilter}\" --outdir {$escapedTempDir} {$escapedSource} 2>&1";
+    } else {
+        $cmd = "{$escapedSoffice} --headless --convert-to pdf --outdir {$escapedTempDir} {$escapedSource} 2>&1";
+    }
+
     exec($cmd, $output, $returnCode);
 
     // Look for the output .pdf in $tempDir
@@ -102,6 +114,18 @@ function convert_document_to_pdf(string $sourceFilePath): ?string
         rename($files[0], $cachedPdfPath);
         @rmdir($tempDir);
         return $cachedPdfPath;
+    }
+
+    // Fallback attempt for spreadsheets with standard pdf converter if custom filter failed
+    if ($isSpreadsheet) {
+        $fallbackCmd = "{$escapedSoffice} --headless --convert-to pdf --outdir {$escapedTempDir} {$escapedSource} 2>&1";
+        exec($fallbackCmd, $fbOutput, $fbCode);
+        $files = glob($tempDir . '/*.pdf');
+        if (!empty($files) && file_exists($files[0]) && filesize($files[0]) > 0) {
+            rename($files[0], $cachedPdfPath);
+            @rmdir($tempDir);
+            return $cachedPdfPath;
+        }
     }
 
     // Clean up temporary directory on failure

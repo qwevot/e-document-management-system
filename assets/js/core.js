@@ -1575,6 +1575,30 @@
             updateSelectionUI();
         });
 
+        // Double-click row card to open Workspace (Documents) or navigate inside (Folders)
+        cardListContainer.addEventListener("dblclick", function (e) {
+            if (e.target.closest("input, button, a, .item-checkbox, .btn-action, .btn-more-actions, .edms-action-popover, .edms-modal-backdrop")) {
+                return;
+            }
+            const card = e.target.closest(".explorer-item-card");
+            if (!card) return;
+
+            const id = card.dataset.id;
+            const type = card.dataset.type || "document";
+
+            if (type === "folder") {
+                if (folderInput) {
+                    folderInput.value = id;
+                    performAjaxUpdate(1);
+                } else {
+                    const currentMode = modeInput ? modeInput.value : "project";
+                    window.location.href = `explorer.php?mode=${encodeURIComponent(currentMode)}&folder=${encodeURIComponent(id)}`;
+                }
+            } else {
+                window.location.href = `view.php?id=${encodeURIComponent(id)}`;
+            }
+        });
+
         // ============================================================
         // 8D. Marquee Drag-to-Select & Contextual Right-Click Engine
         // ============================================================

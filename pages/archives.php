@@ -862,6 +862,26 @@ archivesCardList.addEventListener('change', function(e) {
     updateArchiveSelectionUI();
 });
 
+// Double-click row card to open Workspace (Documents) or navigate inside (Folders)
+archivesCardList.addEventListener('dblclick', function(e) {
+    if (e.target.closest('input, button, a, .item-checkbox, .btn-action, .btn-archive-actions, .edms-action-popover, .edms-modal-backdrop')) {
+        return;
+    }
+    const card = e.target.closest('.explorer-item-card');
+    if (!card) return;
+
+    const id = card.dataset.id;
+    const type = card.dataset.type || 'document';
+
+    if (type === 'folder') {
+        const folderHidden = document.getElementById('archivesCurrentFolderId') || document.getElementById('archivesFilterFolder');
+        if (folderHidden) folderHidden.value = id;
+        submitArchivesAjax(1, null, 'project', id);
+    } else {
+        window.location.href = 'view.php?id=' + encodeURIComponent(id);
+    }
+});
+
 // Marquee Drag Selection Engine
 archivesCardList.addEventListener('mousedown', function(e) {
     if (e.button !== 0) return; // Left click only
@@ -1185,11 +1205,11 @@ function navigateArchivesPage(page) {
     submitArchivesAjax(page);
 }
 
-function submitArchivesAjax(page = 1, perPage = null, overrideMode = null) {
+function submitArchivesAjax(page = 1, perPage = null, overrideMode = null, targetFolder = null) {
     const q = document.getElementById('archivesSearchInput')?.value || '';
     const type = document.getElementById('archivesFilterType')?.value || '';
     const mode = overrideMode || document.getElementById('archivesFilterMode')?.value || document.getElementById('archivesSearchMode')?.value || 'project';
-    const folder = (mode === 'project') ? (document.getElementById('archivesCurrentFolderId')?.value || '') : '';
+    const folder = (mode === 'project') ? (targetFolder !== null ? targetFolder : (document.getElementById('archivesCurrentFolderId')?.value || '')) : '';
     const selectedPerPage = perPage || document.getElementById('archivesPerPageSelect')?.value || 25;
 
     const params = new URLSearchParams();
