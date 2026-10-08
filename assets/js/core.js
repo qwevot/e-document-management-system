@@ -5,6 +5,55 @@
 (function () {
     "use strict";
 
+    // Global Floating Toast Notification at bottom of screen
+    window.showBottomToast = function (message, type = "error") {
+        let container = document.getElementById("edmsBottomToastContainer");
+        if (!container) {
+            container = document.createElement("div");
+            container.id = "edmsBottomToastContainer";
+            container.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;flex-direction:column;gap:8px;pointer-events:none;align-items:center;max-width:90vw;";
+            document.body.appendChild(container);
+        }
+
+        const toast = document.createElement("div");
+        toast.className = "edms-bottom-toast";
+
+        let bg = "#1e293b";
+        let border = "#334155";
+        let text = "#f8fafc";
+        let iconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" width="18" height="18" style="flex-shrink:0"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
+
+        if (type === "success") {
+            iconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" width="18" height="18" style="flex-shrink:0"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+        } else if (type === "warning") {
+            iconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" width="18" height="18" style="flex-shrink:0"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>';
+        }
+
+        toast.style.cssText = `background:${bg};border:1px solid ${border};color:${text};padding:11px 18px;border-radius:8px;font-size:0.875rem;font-weight:500;box-shadow:0 12px 30px rgba(0,0,0,0.35);display:flex;align-items:center;gap:10px;pointer-events:auto;cursor:pointer;opacity:0;transform:translateY(16px);transition:all 0.25s cubic-bezier(0.16, 1, 0.3, 1);user-select:none;line-height:1.4;`;
+        toast.innerHTML = `${iconSvg}<span>${message}</span>`;
+        container.appendChild(toast);
+
+        requestAnimationFrame(() => {
+            toast.style.opacity = "1";
+            toast.style.transform = "translateY(0)";
+        });
+
+        const removeTimer = setTimeout(() => {
+            dismissToast();
+        }, 4500);
+
+        function dismissToast() {
+            clearTimeout(removeTimer);
+            toast.style.opacity = "0";
+            toast.style.transform = "translateY(16px)";
+            setTimeout(() => {
+                if (toast.parentNode) toast.parentNode.removeChild(toast);
+            }, 300);
+        }
+
+        toast.addEventListener("click", dismissToast);
+    };
+
     // Toggle nav groups in sidebar
     window.toggleNavGroup = function (btn) {
         btn.classList.toggle("open");
@@ -171,6 +220,7 @@
             })
             .then(html => {
                 cardListContainer.innerHTML = html;
+                if (typeof clearBatchSelection === "function") clearBatchSelection();
                 cardListContainer.style.opacity = "1";
                 cardListContainer.style.pointerEvents = "";
                 // Silently update browser address bar without reload
@@ -306,7 +356,7 @@
                 if (currentFolder && activeCrumb) {
                     helpFolderContext.innerHTML = "Target location: Inside <strong>" + activeCrumb.textContent.trim() + "</strong>";
                 } else if (!currentFolder) {
-                    helpFolderContext.innerHTML = "Target location: <strong>Root Level</strong>";
+                    helpFolderContext.innerHTML = "Target location: <strong>Projects</strong>";
                 }
             }
             if (inputFolderName) inputFolderName.value = "";
@@ -350,7 +400,7 @@
                         closeModal(modalNewFolder);
                         performAjaxUpdate();
                     } else {
-                        alert(data.message || "Failed to create folder.");
+                        showBottomToast(data.message || "Failed to create folder.", "error");
                     }
                 })
                 .catch(err => {
@@ -359,7 +409,7 @@
                         btnSubmitFolder.style.opacity = "1";
                     }
                     console.error("Create folder error:", err);
-                    alert("An error occurred while creating folder.");
+                    showBottomToast("An error occurred while creating folder.", "error");
                 });
             });
         }
@@ -422,7 +472,7 @@
                 if (currentFolder && activeCrumb) {
                     uploadLocationHelp.innerHTML = "Target location: Inside <strong>" + activeCrumb.textContent.trim() + "</strong>";
                 } else {
-                    uploadLocationHelp.innerHTML = "Target location: <strong>Root Level</strong>";
+                    uploadLocationHelp.innerHTML = "Target location: <strong>Projects</strong>";
                 }
             }
 
@@ -481,7 +531,7 @@
             formUploadDoc.addEventListener("submit", function (e) {
                 e.preventDefault();
                 if (!uploadFileInput || !uploadFileInput.files || !uploadFileInput.files[0]) {
-                    alert("Please select a file to upload.");
+                    showBottomToast("Please select a file to upload.", "warning");
                     return;
                 }
 
@@ -510,7 +560,7 @@
                         closeModal(modalUploadDoc);
                         performAjaxUpdate();
                     } else {
-                        alert(data.message || "Failed to upload document.");
+                        showBottomToast(data.message || "Failed to upload document.", "error");
                     }
                 })
                 .catch(err => {
@@ -520,13 +570,436 @@
                         btnSubmitUpload.style.opacity = "1";
                     }
                     console.error("Upload error:", err);
-                    alert("An error occurred during file upload.");
+                    showBottomToast("An error occurred during file upload.", "error");
                 });
             });
         }
 
         // ============================================================
-        // 8. Action Popover Menu & Item Operations (Rename, Move, Delete)
+        // 8B. Drag-and-Drop Batch Ingestion & Confirmation Modal & Dock
+        // ============================================================
+        const dragOverlay = document.getElementById("explorerDragOverlay");
+        const dragOverlayTargetLabel = document.getElementById("dragOverlayTargetLabel");
+        const modalBatchUpload = document.getElementById("modalBatchUploadConfirm");
+        const formBatchUpload = document.getElementById("formBatchUploadConfirm");
+        const btnCloseBatchUpload = document.getElementById("btnCloseBatchUploadModal");
+        const btnCancelBatchUpload = document.getElementById("btnCancelBatchUpload");
+        const batchUploadCountText = document.getElementById("batchUploadCountText");
+        const batchUploadTotalSize = document.getElementById("batchUploadTotalSize");
+        const batchUploadFileList = document.getElementById("batchUploadFileList");
+        const batchUploadStatusSelect = document.getElementById("batchUploadStatusSelect");
+        const batchUploadLocationHelp = document.getElementById("batchUploadLocationHelp");
+        const btnConfirmBatchUpload = document.getElementById("btnConfirmBatchUpload");
+        const btnConfirmBatchUploadText = document.getElementById("btnConfirmBatchUploadText");
+
+        // Floating Upload Dock Elements
+        const edmsUploadDock = document.getElementById("edmsUploadDock");
+        const uploadDockHeader = document.getElementById("uploadDockHeader");
+        const uploadDockTitleText = document.getElementById("uploadDockTitleText");
+        const uploadDockSpinner = document.getElementById("uploadDockSpinner");
+        const btnToggleUploadDock = document.getElementById("btnToggleUploadDock");
+        const btnCloseUploadDock = document.getElementById("btnCloseUploadDock");
+        const uploadDockOverallBar = document.getElementById("uploadDockOverallBar");
+        const uploadDockItemList = document.getElementById("uploadDockItemList");
+
+        let batchWorkingFiles = [];
+        let batchTarget = { id: "", name: "Projects" };
+        let dragCounter = 0;
+        let hoveredFolderRow = null;
+
+        function escapeBatchHtml(str) {
+            return String(str ?? "")
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function getFileIconSvg(filename) {
+            const ext = (filename.split(".").pop() || "").toLowerCase();
+            if (["pdf"].includes(ext)) {
+                return '<svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M9 15h2a2 2 0 0 0 0-4H9v6"></path><path d="M9 13h2"></path></svg>';
+            }
+            if (["doc", "docx"].includes(ext)) {
+                return '<svg viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="15" y2="17"></line></svg>';
+            }
+            if (["xlsx", "xls", "csv"].includes(ext)) {
+                return '<svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M8 13l4 4m0-4l-4 4"></path></svg>';
+            }
+            if (["png", "jpg", "jpeg", "webp", "gif"].includes(ext)) {
+                return '<svg viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
+            }
+            if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) {
+                return '<svg viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><circle cx="12" cy="14" r="2"></circle></svg>';
+            }
+            return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>';
+        }
+
+        function getCurrentTargetFolderInfo() {
+            const currentFolderId = folderInput ? folderInput.value : "";
+            const activeCrumb = document.querySelector(".breadcrumb-item.current");
+            const currentFolderName = (currentFolderId && activeCrumb) ? activeCrumb.textContent.trim() : "Projects";
+            return { id: currentFolderId, name: currentFolderName };
+        }
+
+        function renderBatchModalList() {
+            if (!batchUploadFileList) return;
+            batchUploadFileList.innerHTML = "";
+
+            let totalBytes = 0;
+            batchWorkingFiles.forEach((file, index) => {
+                totalBytes += file.size;
+                const row = document.createElement("div");
+                row.className = "batch-file-item";
+                row.innerHTML = `
+                    <div class="batch-file-icon">${getFileIconSvg(file.name)}</div>
+                    <div class="batch-file-details">
+                        <span class="batch-file-name" title="${escapeBatchHtml(file.name)}">${escapeBatchHtml(file.name)}</span>
+                        <span class="batch-file-size">${formatBytes(file.size)}</span>
+                    </div>
+                    <button type="button" class="batch-file-remove-btn" data-index="${index}" title="Remove file">&times;</button>
+                `;
+                batchUploadFileList.appendChild(row);
+            });
+
+            // Update summary
+            const count = batchWorkingFiles.length;
+            if (batchUploadCountText) {
+                batchUploadCountText.innerHTML = `Are you sure you want to upload <strong>${count} document${count === 1 ? "" : "s"}</strong>?`;
+            }
+            if (batchUploadTotalSize) {
+                batchUploadTotalSize.textContent = formatBytes(totalBytes) + " total";
+            }
+            if (btnConfirmBatchUploadText) {
+                btnConfirmBatchUploadText.textContent = `Upload ${count} Document${count === 1 ? "" : "s"}`;
+            }
+            if (btnConfirmBatchUpload) {
+                btnConfirmBatchUpload.disabled = count === 0;
+            }
+
+            // Bind remove button handlers
+            batchUploadFileList.querySelectorAll(".batch-file-remove-btn").forEach((btn) => {
+                btn.addEventListener("click", function (e) {
+                    e.stopPropagation();
+                    const removeIdx = parseInt(this.dataset.index, 10);
+                    batchWorkingFiles.splice(removeIdx, 1);
+                    if (batchWorkingFiles.length === 0) {
+                        closeModal(modalBatchUpload);
+                    } else {
+                        renderBatchModalList();
+                    }
+                });
+            });
+        }
+
+        function openBatchModal(files, targetFolder) {
+            if (!files || files.length === 0 || !modalBatchUpload) return;
+            batchWorkingFiles = Array.from(files);
+            batchTarget = targetFolder || getCurrentTargetFolderInfo();
+
+            if (batchUploadLocationHelp) {
+                batchUploadLocationHelp.innerHTML = `Target location: Inside <strong>${escapeBatchHtml(batchTarget.name)}</strong>`;
+            }
+            if (batchUploadStatusSelect) {
+                batchUploadStatusSelect.value = "active";
+            }
+
+            renderBatchModalList();
+            openModal(modalBatchUpload, btnConfirmBatchUpload);
+        }
+
+        // Window & Explorer Drag Listeners
+        window.addEventListener("dragenter", function (e) {
+            if (e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes("Files")) {
+                dragCounter++;
+                if (dragOverlay) {
+                    dragOverlay.classList.add("is-active");
+                    const target = getCurrentTargetFolderInfo();
+                    if (dragOverlayTargetLabel) dragOverlayTargetLabel.textContent = target.name;
+                }
+            }
+        });
+
+        window.addEventListener("dragleave", function (e) {
+            dragCounter--;
+            if (dragCounter <= 0) {
+                dragCounter = 0;
+                if (dragOverlay) dragOverlay.classList.remove("is-active");
+                if (hoveredFolderRow) {
+                    hoveredFolderRow.classList.remove("is-drop-target");
+                    hoveredFolderRow = null;
+                }
+            }
+        });
+
+        window.addEventListener("dragover", function (e) {
+            e.preventDefault();
+            // Highlight individual folder cards under mouse cursor
+            const cardRow = e.target.closest('.item-card-row[data-type="folder"]');
+            if (cardRow && cardRow !== hoveredFolderRow) {
+                if (hoveredFolderRow) hoveredFolderRow.classList.remove("is-drop-target");
+                hoveredFolderRow = cardRow;
+                hoveredFolderRow.classList.add("is-drop-target");
+                if (dragOverlayTargetLabel) {
+                    dragOverlayTargetLabel.textContent = "Folder: " + (hoveredFolderRow.dataset.name || "Folder");
+                }
+            } else if (!cardRow && hoveredFolderRow) {
+                hoveredFolderRow.classList.remove("is-drop-target");
+                hoveredFolderRow = null;
+                const defTarget = getCurrentTargetFolderInfo();
+                if (dragOverlayTargetLabel) dragOverlayTargetLabel.textContent = defTarget.name;
+            }
+        });
+
+        window.addEventListener("drop", function (e) {
+            e.preventDefault();
+            dragCounter = 0;
+            if (dragOverlay) dragOverlay.classList.remove("is-active");
+
+            // Ignore drops inside single upload dropzone (it handles itself)
+            if (e.target.closest("#uploadDropzone")) return;
+
+            let targetFolder = getCurrentTargetFolderInfo();
+            if (hoveredFolderRow) {
+                targetFolder = {
+                    id: hoveredFolderRow.dataset.id || "",
+                    name: hoveredFolderRow.dataset.name || "Folder"
+                };
+                hoveredFolderRow.classList.remove("is-drop-target");
+                hoveredFolderRow = null;
+            }
+
+            if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                // If any existing modal is open, avoid opening another
+                const anyOpenModal = document.querySelector(".edms-modal-backdrop.is-open");
+                if (anyOpenModal) return;
+
+                openBatchModal(e.dataTransfer.files, targetFolder);
+            }
+        });
+
+        // Batch Modal Actions
+        if (btnCloseBatchUpload) btnCloseBatchUpload.addEventListener("click", () => closeModal(modalBatchUpload));
+        if (btnCancelBatchUpload) btnCancelBatchUpload.addEventListener("click", () => closeModal(modalBatchUpload));
+        if (modalBatchUpload) {
+            modalBatchUpload.addEventListener("click", (e) => {
+                if (e.target === modalBatchUpload) closeModal(modalBatchUpload);
+            });
+        }
+
+        if (formBatchUpload) {
+            formBatchUpload.addEventListener("submit", function (e) {
+                e.preventDefault();
+                if (batchWorkingFiles.length === 0) return;
+
+                const selectedStatus = batchUploadStatusSelect ? batchUploadStatusSelect.value : "active";
+                const filesToUpload = batchWorkingFiles.slice();
+                const targetId = batchTarget.id;
+
+                closeModal(modalBatchUpload);
+                startBatchUploadQueue(filesToUpload, targetId, selectedStatus);
+            });
+        }
+
+        // ============================================================
+        // Asynchronous Sequential Upload Queue & Floating Dock Engine
+        // ============================================================
+        function startBatchUploadQueue(files, targetFolderId, initialStatus) {
+            if (!edmsUploadDock || !files || files.length === 0) return;
+
+            // Make dock visible and expanded
+            edmsUploadDock.style.display = "block";
+            edmsUploadDock.classList.remove("is-minimized");
+            if (btnCloseUploadDock) btnCloseUploadDock.style.display = "none";
+            if (uploadDockSpinner) uploadDockSpinner.style.display = "inline-block";
+            if (uploadDockOverallBar) uploadDockOverallBar.style.width = "0%";
+
+            // Prepare Queue Model
+            const queue = files.map((file, idx) => ({
+                id: idx,
+                file: file,
+                name: file.name,
+                size: file.size,
+                status: "waiting", // waiting | uploading | success | error
+                progress: 0,
+                errorMessage: ""
+            }));
+
+            // Populate dock items
+            if (uploadDockItemList) {
+                uploadDockItemList.innerHTML = "";
+                queue.forEach((item) => {
+                    const row = document.createElement("div");
+                    row.className = "dock-item-row";
+                    row.id = `dockItem_${item.id}`;
+                    row.innerHTML = `
+                        <div class="dock-item-icon">${getFileIconSvg(item.name)}</div>
+                        <div class="dock-item-details">
+                            <span class="dock-item-name" title="${escapeBatchHtml(item.name)}">${escapeBatchHtml(item.name)}</span>
+                            <span class="dock-item-status-text" id="dockItemStatusText_${item.id}">Waiting...</span>
+                        </div>
+                        <div class="dock-item-state is-waiting" id="dockItemState_${item.id}">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+                        </div>
+                    `;
+                    uploadDockItemList.appendChild(row);
+                });
+            }
+
+            processUploadQueueSequentially(queue, targetFolderId, initialStatus);
+        }
+
+        async function processUploadQueueSequentially(queue, targetFolderId, initialStatus) {
+            let successCount = 0;
+            let errorCount = 0;
+            const total = queue.length;
+
+            for (let i = 0; i < total; i++) {
+                const item = queue[i];
+                if (uploadDockTitleText) {
+                    uploadDockTitleText.textContent = `Uploading ${i + 1} of ${total} file${total === 1 ? "" : "s"}...`;
+                }
+
+                // Upload single file
+                const success = await uploadSingleItem(item, targetFolderId, initialStatus);
+                if (success) {
+                    successCount++;
+                } else {
+                    errorCount++;
+                }
+
+                // Update overall progress bar
+                const overallPct = Math.round(((i + 1) / total) * 100);
+                if (uploadDockOverallBar) uploadDockOverallBar.style.width = overallPct + "%";
+            }
+
+            // All finished
+            if (uploadDockSpinner) uploadDockSpinner.style.display = "none";
+            if (btnCloseUploadDock) btnCloseUploadDock.style.display = "flex";
+
+            if (uploadDockTitleText) {
+                if (errorCount === 0) {
+                    uploadDockTitleText.innerHTML = `All ${total} document${total === 1 ? "" : "s"} uploaded`;
+                } else {
+                    uploadDockTitleText.innerHTML = `${successCount} uploaded, ${errorCount} failed`;
+                }
+            }
+
+            // Refresh Explorer folder view asynchronously so new items appear immediately!
+            if (successCount > 0) {
+                performAjaxUpdate();
+            }
+        }
+
+        function uploadSingleItem(item, targetFolderId, initialStatus) {
+            return new Promise((resolve) => {
+                const stateEl = document.getElementById(`dockItemState_${item.id}`);
+                const statusTextEl = document.getElementById(`dockItemStatusText_${item.id}`);
+
+                if (stateEl) {
+                    stateEl.className = "dock-item-state is-uploading";
+                    stateEl.innerHTML = '<span class="dock-spinner-sm"></span>';
+                }
+                if (statusTextEl) {
+                    statusTextEl.textContent = "Uploading (0%)...";
+                }
+
+                const fd = new FormData();
+                fd.append("action", "upload_document");
+                if (targetFolderId) {
+                    fd.append("parent_id", targetFolderId);
+                }
+                fd.append("status", initialStatus);
+                const baseName = item.file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
+                fd.append("name", baseName);
+                fd.append("file", item.file);
+
+                const xhr = new XMLHttpRequest();
+                xhr.open("POST", "explorer.php?ajax=1");
+                xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+
+                xhr.upload.onprogress = function (e) {
+                    if (e.lengthComputable) {
+                        const pct = Math.round((e.loaded / e.total) * 100);
+                        if (statusTextEl) statusTextEl.textContent = `Uploading (${pct}%)...`;
+                    }
+                };
+
+                xhr.onload = function () {
+                    let res = null;
+                    try {
+                        res = JSON.parse(xhr.responseText);
+                    } catch (_) {}
+
+                    if (xhr.status >= 200 && xhr.status < 300 && res && res.success) {
+                        if (stateEl) {
+                            stateEl.className = "dock-item-state is-success";
+                            stateEl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+                        }
+                        if (statusTextEl) {
+                            statusTextEl.textContent = formatBytes(item.size) + " • Completed";
+                        }
+                        resolve(true);
+                    } else {
+                        const errMsg = (res && res.message) ? res.message : "Upload rejected";
+                        if (stateEl) {
+                            stateEl.className = "dock-item-state is-error";
+                            stateEl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+                            stateEl.title = errMsg;
+                        }
+                        if (statusTextEl) {
+                            statusTextEl.textContent = errMsg;
+                            statusTextEl.style.color = "var(--red)";
+                        }
+                        if (typeof window.showBottomToast === "function") {
+                            window.showBottomToast(errMsg, "error");
+                        }
+                        resolve(false);
+                    }
+                };
+
+                xhr.onerror = function () {
+                    if (stateEl) {
+                        stateEl.className = "dock-item-state is-error";
+                        stateEl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+                    }
+                    if (statusTextEl) {
+                        statusTextEl.textContent = "Network error";
+                        statusTextEl.style.color = "var(--red)";
+                    }
+                    if (typeof window.showBottomToast === "function") {
+                        window.showBottomToast("Network error occurred during upload.", "error");
+                    }
+                    resolve(false);
+                };
+
+                xhr.send(fd);
+            });
+        }
+
+        // Dock toggle minimize / expand
+        if (btnToggleUploadDock) {
+            btnToggleUploadDock.addEventListener("click", function (e) {
+                e.stopPropagation();
+                if (edmsUploadDock) edmsUploadDock.classList.toggle("is-minimized");
+            });
+        }
+        if (uploadDockHeader) {
+            uploadDockHeader.addEventListener("click", function (e) {
+                if (e.target.closest(".dock-btn-icon")) return;
+                if (edmsUploadDock) edmsUploadDock.classList.toggle("is-minimized");
+            });
+        }
+        if (btnCloseUploadDock) {
+            btnCloseUploadDock.addEventListener("click", function (e) {
+                e.stopPropagation();
+                if (edmsUploadDock) edmsUploadDock.style.display = "none";
+            });
+        }
+
+        // ============================================================
+        // 8C. Action Popover Menu & Item Operations (Rename, Move, Delete)
         // ============================================================
         // CONTEXT POPOVER & ACTION MODALS (RENAME, MOVE, DELETE, VIEWER)
         // ============================================================
@@ -548,7 +1021,9 @@
 
         const modalMove = document.getElementById("modalMoveNode");
         const formMove = document.getElementById("formMoveNode");
+        const inputMoveAction = document.getElementById("moveNodeAction");
         const inputMoveId = document.getElementById("moveNodeId");
+        const inputMoveIds = document.getElementById("moveNodeIds");
         const inputMoveTargetFolderId = document.getElementById("moveTargetFolderId");
         const moveModalTitleName = document.getElementById("moveModalTitleName");
         const moveItemLocationDisplay = document.getElementById("moveItemLocationDisplay");
@@ -560,10 +1035,53 @@
 
         const modalDelete = document.getElementById("modalDeleteNode");
         const formDelete = document.getElementById("formDeleteNode");
+        const inputDeleteAction = document.getElementById("deleteNodeAction");
         const inputDeleteId = document.getElementById("deleteNodeId");
+        const inputDeleteIds = document.getElementById("deleteNodeIds");
         const displayDeleteName = document.getElementById("deleteItemNameDisplay");
         const btnCloseDelete = document.getElementById("btnCloseDeleteModal");
         const btnCancelDelete = document.getElementById("btnCancelDelete");
+
+        // Popover Elements for Context Menu
+        const popoverHeaderLabel = document.getElementById("popoverHeaderLabel");
+        const popoverActionMoveLabel = document.getElementById("popoverActionMoveLabel");
+        const popoverActionDeleteLabel = document.getElementById("popoverActionDeleteLabel");
+
+        // Selection State
+        const selectedItemsMap = new Map();
+        let isMarqueeDragging = false;
+        let marqueeStartX = 0;
+        let marqueeStartY = 0;
+        let marqueeEl = null;
+
+        function updateSelectionUI() {
+            if (!cardListContainer) return;
+            cardListContainer.querySelectorAll(".explorer-item-card").forEach(card => {
+                const id = card.dataset.id;
+                const isSel = selectedItemsMap.has(id);
+                card.classList.toggle("is-selected", isSel);
+                const cb = card.querySelector(".item-checkbox");
+                if (cb) cb.checked = isSel;
+            });
+        }
+
+        function clearBatchSelection() {
+            selectedItemsMap.clear();
+            updateSelectionUI();
+        }
+
+        function getItemDataFromRow(el) {
+            const card = el ? el.closest(".explorer-item-card") : null;
+            if (!card) return null;
+            return {
+                id: card.dataset.id,
+                name: card.dataset.name,
+                type: card.dataset.type || "document",
+                location: card.dataset.location || "Root",
+                ext: card.dataset.ext || "pdf",
+                version: card.dataset.version || "v1.0"
+            };
+        }
 
         // Drive Move State
         let moveTreeData = [];
@@ -572,17 +1090,23 @@
 
         let currentActiveItem = null;
 
+        // State to differentiate between 3-Dots popover (always single item) and Right-Click context menu (supports bulk)
+        let isContextMenuActive = false;
+
         function hidePopover() {
             if (popover) popover.style.display = "none";
+            isContextMenuActive = false;
         }
 
-        // Delegated Item Click Handler (3-Dots Popover)
+        // Delegated Item Click Handler (3-Dots Popover: Always Single Selection)
         cardListContainer.addEventListener("click", function (e) {
             // Check 3-Dots button
             const btn = e.target.closest(".btn-more-actions");
             if (!btn || !popover) return;
             e.preventDefault();
             e.stopPropagation();
+
+            isContextMenuActive = false; // Explicitly NOT right-click context menu
 
             const nodeId = btn.dataset.id;
             const nodeName = btn.dataset.name;
@@ -599,6 +1123,12 @@
                 ext: nodeExt,
                 version: nodeVersion
             };
+
+            // 3-Dots actions are strictly single-item actions:
+            if (popoverHeaderLabel) popoverHeaderLabel.style.display = "none";
+            if (popoverRename) popoverRename.style.display = "flex";
+            if (popoverActionMoveLabel) popoverActionMoveLabel.textContent = "Move to...";
+            if (popoverActionDeleteLabel) popoverActionDeleteLabel.textContent = "Move to Archives";
 
             // Configure Open Workspace link in popover
             if (popoverView) {
@@ -648,8 +1178,10 @@
         document.addEventListener("keydown", function (e) {
             if (e.key === "Escape") {
                 hidePopover();
+                if (typeof clearBatchSelection === "function") clearBatchSelection();
                 if (modalNewFolder && modalNewFolder.classList.contains("is-open")) closeModal(modalNewFolder);
                 if (modalUploadDoc && modalUploadDoc.classList.contains("is-open")) closeModal(modalUploadDoc);
+                if (modalBatchUpload && modalBatchUpload.classList.contains("is-open")) closeModal(modalBatchUpload);
                 if (modalRename && modalRename.classList.contains("is-open")) closeModal(modalRename);
                 if (modalMove && modalMove.classList.contains("is-open")) closeModal(modalMove);
                 if (modalDelete && modalDelete.classList.contains("is-open")) closeModal(modalDelete);
@@ -693,12 +1225,12 @@
                         closeModal(modalRename);
                         performAjaxUpdate();
                     } else {
-                        alert(data.message || "Failed to rename item.");
+                        showBottomToast(data.message || "Failed to rename item.", "error");
                     }
                 })
                 .catch(err => {
                     console.error("Rename error:", err);
-                    alert("An error occurred while renaming.");
+                    showBottomToast("An error occurred while renaming.", "error");
                 });
             });
         }
@@ -847,62 +1379,102 @@
             });
         }
 
+        // ============================================================
+        // Unified Move & Archive Modal Openers (Single & Batch)
+        // ============================================================
+        function openMoveModalForItems(items) {
+            if (!items || items.length === 0) return;
+            hidePopover();
+
+            const isBatch = items.length > 1;
+            if (inputMoveAction) inputMoveAction.value = isBatch ? "batch_move" : "move_node";
+            if (inputMoveId) inputMoveId.value = isBatch ? "" : items[0].id;
+            if (inputMoveIds) inputMoveIds.value = isBatch ? items.map(i => i.id).join(",") : "";
+
+            if (moveModalTitleName) {
+                moveModalTitleName.textContent = isBatch ? `${items.length} selected items` : items[0].name;
+            }
+            if (moveItemLocationDisplay) {
+                moveItemLocationDisplay.textContent = isBatch ? "Various locations" : (items[0].location || "Projects");
+            }
+
+            // Reset Move Navigator State
+            moveTreeData = [];
+            moveCurrentViewingFolderId = null;
+            moveSelectedDestinationFolderId = null;
+            if (inputMoveTargetFolderId) inputMoveTargetFolderId.value = "";
+            if (driveMoveSelectedName) driveMoveSelectedName.textContent = "Projects";
+
+            if (driveMoveFolderList) {
+                driveMoveFolderList.innerHTML = '<div class="drive-move-empty">Loading folder structure...</div>';
+            }
+
+            openModal(modalMove);
+
+            // Fetch available move destinations hierarchy
+            const fd = new FormData();
+            fd.append("action", "get_move_destinations");
+            if (isBatch) {
+                fd.append("ids", items.map(i => i.id).join(","));
+                fd.append("type", "folder");
+            } else {
+                fd.append("id", items[0].id);
+                fd.append("type", items[0].type);
+            }
+
+            fetch("explorer.php", {
+                method: "POST",
+                body: fd,
+                headers: { "X-Requested-With": "XMLHttpRequest" }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success && Array.isArray(data.folders)) {
+                    moveTreeData = data.folders;
+
+                    if (!isBatch && items[0].location && items[0].location !== "Root") {
+                        const parentMatch = moveTreeData.find(f => f.name === items[0].location);
+                        if (parentMatch) {
+                            moveItemLocationDisplay.textContent = getFullFolderPath(parentMatch.id);
+                        }
+                    }
+
+                    renderDriveMoveExplorer();
+                }
+            })
+            .catch(err => {
+                console.error("Fetch destinations error:", err);
+                if (driveMoveFolderList) {
+                    driveMoveFolderList.innerHTML = '<div class="drive-move-empty">Unable to load destinations.</div>';
+                }
+            });
+        }
+
+        function openArchiveModalForItems(items) {
+            if (!items || items.length === 0) return;
+            hidePopover();
+
+            const isBatch = items.length > 1;
+            if (inputDeleteAction) inputDeleteAction.value = isBatch ? "batch_archive" : "delete_node";
+            if (inputDeleteId) inputDeleteId.value = isBatch ? "" : items[0].id;
+            if (inputDeleteIds) inputDeleteIds.value = isBatch ? items.map(i => i.id).join(",") : "";
+
+            if (displayDeleteName) {
+                displayDeleteName.textContent = isBatch ? `${items.length} selected items` : items[0].name;
+            }
+
+            openModal(modalDelete);
+        }
+
         // --- Action: Move ---
         if (popoverMove) {
             popoverMove.addEventListener("click", function () {
+                const isBulk = isContextMenuActive && selectedItemsMap.size > 1;
+                const itemsToMove = isBulk ? Array.from(selectedItemsMap.values()) : (currentActiveItem ? [currentActiveItem] : []);
                 hidePopover();
-                if (!currentActiveItem) return;
-                if (inputMoveId) inputMoveId.value = currentActiveItem.id;
-                if (moveModalTitleName) moveModalTitleName.textContent = currentActiveItem.name;
-                if (moveItemLocationDisplay) moveItemLocationDisplay.textContent = currentActiveItem.location || "Projects";
-
-                // Reset Move Navigator State
-                moveTreeData = [];
-                moveCurrentViewingFolderId = null;
-                moveSelectedDestinationFolderId = null;
-                if (inputMoveTargetFolderId) inputMoveTargetFolderId.value = "";
-                if (driveMoveSelectedName) driveMoveSelectedName.textContent = "Projects";
-
-                if (driveMoveFolderList) {
-                    driveMoveFolderList.innerHTML = '<div class="drive-move-empty">Loading folder structure...</div>';
+                if (itemsToMove.length > 0) {
+                    openMoveModalForItems(itemsToMove);
                 }
-
-                openModal(modalMove);
-
-                // Fetch available move destinations hierarchy
-                const fd = new FormData();
-                fd.append("action", "get_move_destinations");
-                fd.append("id", currentActiveItem.id);
-                fd.append("type", currentActiveItem.type);
-
-                fetch("explorer.php", {
-                    method: "POST",
-                    body: fd,
-                    headers: { "X-Requested-With": "XMLHttpRequest" }
-                })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success && Array.isArray(data.folders)) {
-                        moveTreeData = data.folders;
-
-                        // If item is in a subfolder, compute its full current location trail
-                        if (currentActiveItem.location && currentActiveItem.location !== "Root") {
-                            // Find parent folder in moveTreeData
-                            const parentMatch = moveTreeData.find(f => f.name === currentActiveItem.location);
-                            if (parentMatch) {
-                                moveItemLocationDisplay.textContent = getFullFolderPath(parentMatch.id);
-                            }
-                        }
-
-                        renderDriveMoveExplorer();
-                    }
-                })
-                .catch(err => {
-                    console.error("Fetch destinations error:", err);
-                    if (driveMoveFolderList) {
-                        driveMoveFolderList.innerHTML = '<div class="drive-move-empty">Unable to load destinations.</div>';
-                    }
-                });
             });
         }
 
@@ -927,26 +1499,28 @@
                 .then(data => {
                     if (data.success) {
                         closeModal(modalMove);
+                        clearBatchSelection();
                         performAjaxUpdate();
                     } else {
-                        alert(data.message || "Failed to move item.");
+                        showBottomToast(data.message || "Failed to move item(s).", "error");
                     }
                 })
                 .catch(err => {
                     console.error("Move error:", err);
-                    alert("An error occurred while moving item.");
+                    showBottomToast("An error occurred while moving item(s).", "error");
                 });
             });
         }
 
-        // --- Action: Delete ---
+        // --- Action: Delete / Archive ---
         if (popoverDelete) {
             popoverDelete.addEventListener("click", function () {
+                const isBulk = isContextMenuActive && selectedItemsMap.size > 1;
+                const itemsToArchive = isBulk ? Array.from(selectedItemsMap.values()) : (currentActiveItem ? [currentActiveItem] : []);
                 hidePopover();
-                if (!currentActiveItem) return;
-                if (inputDeleteId) inputDeleteId.value = currentActiveItem.id;
-                if (displayDeleteName) displayDeleteName.textContent = currentActiveItem.name;
-                openModal(modalDelete);
+                if (itemsToArchive.length > 0) {
+                    openArchiveModalForItems(itemsToArchive);
+                }
             });
         }
 
@@ -971,17 +1545,200 @@
                 .then(data => {
                     if (data.success) {
                         closeModal(modalDelete);
+                        clearBatchSelection();
                         performAjaxUpdate();
                     } else {
-                        alert(data.message || "Failed to delete item.");
+                        showBottomToast(data.message || "Failed to archive item(s).", "error");
                     }
                 })
                 .catch(err => {
                     console.error("Delete error:", err);
-                    alert("An error occurred while deleting item.");
+                    showBottomToast("An error occurred while archiving item(s).", "error");
                 });
             });
         }
+
+        // Checkbox Direct Click Selection Toggle
+        cardListContainer.addEventListener("change", function (e) {
+            const cb = e.target.closest(".item-checkbox");
+            if (!cb) return;
+            const card = cb.closest(".explorer-item-card");
+            if (!card) return;
+            const itemData = getItemDataFromRow(card);
+            if (!itemData) return;
+
+            if (cb.checked) {
+                selectedItemsMap.set(itemData.id, itemData);
+            } else {
+                selectedItemsMap.delete(itemData.id);
+            }
+            updateSelectionUI();
+        });
+
+        // ============================================================
+        // 8D. Marquee Drag-to-Select & Contextual Right-Click Engine
+        // ============================================================
+        // 1. Mouse Drag Selection (Marquee / Lasso)
+        cardListContainer.addEventListener("mousedown", function (e) {
+            if (e.button !== 0) return; // Left click only
+            if (e.target.closest("button, a, input, select, textarea, .btn-action, .edms-action-popover, .edms-modal-backdrop")) {
+                return;
+            }
+
+            const clickedCard = e.target.closest(".explorer-item-card");
+            const isModifier = e.ctrlKey || e.metaKey;
+
+            if (clickedCard) {
+                const itemData = getItemDataFromRow(clickedCard);
+                if (isModifier) {
+                    if (selectedItemsMap.has(itemData.id)) {
+                        selectedItemsMap.delete(itemData.id);
+                    } else {
+                        selectedItemsMap.set(itemData.id, itemData);
+                    }
+                    updateSelectionUI();
+                    return;
+                } else if (!selectedItemsMap.has(itemData.id)) {
+                    selectedItemsMap.clear();
+                    selectedItemsMap.set(itemData.id, itemData);
+                    updateSelectionUI();
+                }
+            } else if (!isModifier) {
+                clearBatchSelection();
+            }
+
+            // Begin Marquee Box Drag
+            isMarqueeDragging = true;
+            marqueeStartX = e.clientX;
+            marqueeStartY = e.clientY;
+
+            if (!marqueeEl) {
+                marqueeEl = document.createElement("div");
+                marqueeEl.className = "selection-marquee";
+                marqueeEl.style.display = "none";
+                document.body.appendChild(marqueeEl);
+            }
+        });
+
+        window.addEventListener("mousemove", function (e) {
+            if (!isMarqueeDragging || !marqueeEl) return;
+
+            const currentX = e.clientX;
+            const currentY = e.clientY;
+            const x = Math.min(marqueeStartX, currentX);
+            const y = Math.min(marqueeStartY, currentY);
+            const w = Math.abs(currentX - marqueeStartX);
+            const h = Math.abs(currentY - marqueeStartY);
+
+            if (w > 4 || h > 4) {
+                marqueeEl.style.display = "block";
+                marqueeEl.style.left = x + "px";
+                marqueeEl.style.top = y + "px";
+                marqueeEl.style.width = w + "px";
+                marqueeEl.style.height = h + "px";
+
+                const marqueeRect = marqueeEl.getBoundingClientRect();
+                const cards = cardListContainer.querySelectorAll(".explorer-item-card");
+
+                cards.forEach(card => {
+                    const cardRect = card.getBoundingClientRect();
+                    const intersects = !(
+                        marqueeRect.right < cardRect.left ||
+                        marqueeRect.left > cardRect.right ||
+                        marqueeRect.bottom < cardRect.top ||
+                        marqueeRect.top > cardRect.bottom
+                    );
+
+                    const itemData = getItemDataFromRow(card);
+                    if (intersects) {
+                        selectedItemsMap.set(itemData.id, itemData);
+                    } else if (!e.ctrlKey && !e.metaKey) {
+                        selectedItemsMap.delete(itemData.id);
+                    }
+                });
+
+                updateSelectionUI();
+            }
+        });
+
+        window.addEventListener("mouseup", function () {
+            if (isMarqueeDragging) {
+                isMarqueeDragging = false;
+                if (marqueeEl) {
+                    marqueeEl.style.display = "none";
+                }
+            }
+        });
+
+        // 2. Right-Click Context Menu (Single & Bulk)
+        cardListContainer.addEventListener("contextmenu", function (e) {
+            if (e.target.closest(".edms-modal-dialog")) return;
+
+            e.preventDefault();
+            isContextMenuActive = true;
+            const clickedCard = e.target.closest(".explorer-item-card");
+
+            if (clickedCard) {
+                const itemData = getItemDataFromRow(clickedCard);
+                if (!selectedItemsMap.has(itemData.id)) {
+                    selectedItemsMap.clear();
+                    selectedItemsMap.set(itemData.id, itemData);
+                    updateSelectionUI();
+                }
+            }
+
+            const count = selectedItemsMap.size;
+            if (count === 0) {
+                hidePopover();
+                return;
+            }
+
+            if (count > 1) {
+                if (popoverHeaderLabel) {
+                    popoverHeaderLabel.style.display = "block";
+                    popoverHeaderLabel.textContent = `${count} items selected`;
+                }
+                if (popoverView) popoverView.style.display = "none";
+                if (popoverDownload) popoverDownload.style.display = "none";
+                if (popoverRename) popoverRename.style.display = "none";
+                if (popoverActionMoveLabel) popoverActionMoveLabel.textContent = `Move ${count} items...`;
+                if (popoverActionDeleteLabel) popoverActionDeleteLabel.textContent = `Move to Archives (${count})`;
+            } else {
+                const singleItem = Array.from(selectedItemsMap.values())[0];
+                currentActiveItem = singleItem;
+
+                if (popoverHeaderLabel) popoverHeaderLabel.style.display = "none";
+                if (popoverView) {
+                    popoverView.style.display = singleItem.type === "document" ? "flex" : "none";
+                    popoverView.href = "view.php?id=" + encodeURIComponent(singleItem.id);
+                    popoverView.onclick = () => hidePopover();
+                }
+                if (popoverDownload) {
+                    popoverDownload.style.display = singleItem.type === "document" ? "flex" : "none";
+                    popoverDownload.href = "download.php?id=" + encodeURIComponent(singleItem.id);
+                    popoverDownload.onclick = () => hidePopover();
+                }
+                if (popoverRename) popoverRename.style.display = "flex";
+                if (popoverActionMoveLabel) popoverActionMoveLabel.textContent = "Move to...";
+                if (popoverActionDeleteLabel) popoverActionDeleteLabel.textContent = "Move to Archives";
+            }
+
+            // Position Context Popover at cursor with boundary safety
+            popover.style.display = "flex";
+            const popoverWidth = 185;
+            let left = e.clientX;
+            let top = e.clientY;
+
+            if (left + popoverWidth > window.innerWidth) {
+                left = window.innerWidth - popoverWidth - 10;
+            }
+            if (top + 200 > window.innerHeight) {
+                top = window.innerHeight - 200;
+            }
+
+            popover.style.left = Math.max(10, left) + "px";
+            popover.style.top = Math.max(10, top) + "px";
+        });
     }
 
     // Initialize on DOM Ready

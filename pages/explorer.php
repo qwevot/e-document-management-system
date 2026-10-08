@@ -38,6 +38,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
+            // Check for duplicate name under same parent
+            if (is_node_duplicate($pdo, $postParentId, $folderName)) {
+                if ($isAjax) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => "A folder named \"{$folderName}\" already exists here.", 'duplicate' => true]);
+                    exit;
+                }
+                header('Location: explorer.php?mode=project' . ($postParentId ? '&folder=' . $postParentId : ''));
+                exit;
+            }
+
             $userId = current_user()['id'] ?? 1;
 
             $insertStmt = $pdo->prepare("
@@ -80,6 +91,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
         } else {
+            $nodeStmt = $pdo->prepare("SELECT parent_id FROM dms_nodes WHERE id = :id");
+            $nodeStmt->execute(['id' => $nodeId]);
+            $nodeParentId = $nodeStmt->fetchColumn() ?: null;
+
+            if (is_node_duplicate($pdo, $nodeParentId, $newName, $nodeId)) {
+                if ($isAjax) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => "An item named \"{$newName}\" already exists in this folder.", 'duplicate' => true]);
+                    exit;
+                }
+                header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? 'explorer.php'));
+                exit;
+            }
+
             $stmt = $pdo->prepare("UPDATE dms_nodes SET name = :name, updated_at = NOW() WHERE id = :id AND is_deleted = 0");
             $stmt->execute(['name' => $newName, 'id' => $nodeId]);
 
@@ -97,19 +122,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'get_move_destinations') {
         $nodeId = isset($_POST['id']) && is_numeric($_POST['id']) ? (int)$_POST['id'] : 0;
         $nodeType = trim($_POST['type'] ?? 'document');
+        $postIds = isset($_POST['ids']) ? (is_array($_POST['ids']) ? $_POST['ids'] : explode(',', (string)$_POST['ids'])) : [];
+        $nodeIds = array_filter(array_map('intval', $postIds));
+        if ($nodeId > 0 && !in_array($nodeId, $nodeIds, true)) {
+            $nodeIds[] = $nodeId;
+        }
 
         $stmt = $pdo->query("SELECT id, parent_id, name FROM dms_nodes WHERE node_type = 'folder' AND is_deleted = 0 ORDER BY name ASC");
         $allFolders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         $excludedIds = [];
-        if ($nodeType === 'folder' && $nodeId > 0) {
-            $excludedIds[$nodeId] = true;
+        if (!empty($nodeIds)) {
             $childrenMap = [];
+            $folderMap = [];
             foreach ($allFolders as $f) {
+                $folderMap[(int)$f['id']] = true;
                 $pid = (int)($f['parent_id'] ?? 0);
                 $childrenMap[$pid][] = (int)$f['id'];
             }
-            $queue = [$nodeId];
+            $queue = [];
+            foreach ($nodeIds as $nid) {
+                if (isset($folderMap[$nid]) || $nodeType === 'folder') {
+                    $excludedIds[$nid] = true;
+                    $queue[] = $nid;
+                }
+            }
             while (!empty($queue)) {
                 $curr = array_shift($queue);
                 if (!empty($childrenMap[$curr])) {
@@ -140,6 +177,107 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    // 3B. Batch Move Items
+    if ($action === 'batch_move') {
+        $postIds = isset($_POST['ids']) ? (is_array($_POST['ids']) ? $_POST['ids'] : explode(',', (string)$_POST['ids'])) : [];
+        $nodeIds = array_values(array_unique(array_filter(array_map('intval', $postIds))));
+        $targetFolderId = isset($_POST['target_folder_id']) && is_numeric($_POST['target_folder_id']) && (int)$_POST['target_folder_id'] > 0
+            ? (int)$_POST['target_folder_id']
+            : null;
+
+        if (empty($nodeIds)) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'No items selected for move.']);
+            exit;
+        }
+
+        if ($targetFolderId !== null) {
+            $checkTarget = $pdo->prepare("SELECT id FROM dms_nodes WHERE id = :id AND is_deleted = 0 AND node_type = 'folder'");
+            $checkTarget->execute(['id' => $targetFolderId]);
+            if (!$checkTarget->fetch()) {
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'message' => 'Target destination folder does not exist.']);
+                exit;
+            }
+
+            if (in_array($targetFolderId, $nodeIds, true)) {
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'message' => 'Cannot move items into one of the selected folders.']);
+                exit;
+            }
+        }
+
+        $placeholders = implode(',', array_fill(0, count($nodeIds), '?'));
+
+        // Retrieve names and current parent_ids of the items being moved
+        $itemsStmt = $pdo->prepare("SELECT id, name, parent_id FROM dms_nodes WHERE id IN ($placeholders) AND is_deleted = 0");
+        $itemsStmt->execute($nodeIds);
+        $movingItems = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($movingItems)) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'No active items found to move.']);
+            exit;
+        }
+
+        // Duplicate name verification in destination folder
+        $conflictingNames = [];
+        foreach ($movingItems as $mItem) {
+            if (is_node_duplicate($pdo, $targetFolderId, $mItem['name'], (int)$mItem['id'])) {
+                $conflictingNames[] = $mItem['name'];
+            }
+        }
+
+        if (!empty($conflictingNames)) {
+            $conflictList = implode(', ', array_map(fn($n) => "\"{$n}\"", array_unique($conflictingNames)));
+            header('Content-Type: application/json');
+            echo json_encode([
+                'success'   => false,
+                'message'   => "Cannot move: item(s) named {$conflictList} already exist in the destination folder.",
+                'duplicate' => true
+            ]);
+            exit;
+        }
+
+        $updateParams = array_merge([$targetFolderId], $nodeIds);
+        $stmt = $pdo->prepare("UPDATE dms_nodes SET parent_id = ?, updated_at = NOW() WHERE id IN ($placeholders) AND is_deleted = 0");
+        $stmt->execute($updateParams);
+
+        header('Content-Type: application/json');
+        echo json_encode([
+            'success' => true,
+            'message' => count($nodeIds) . ' item(s) moved successfully.'
+        ]);
+        exit;
+    }
+
+    // 3C. Batch Archive Items
+    if ($action === 'batch_archive') {
+        $postIds = isset($_POST['ids']) ? (is_array($_POST['ids']) ? $_POST['ids'] : explode(',', (string)$_POST['ids'])) : [];
+        $nodeIds = array_values(array_unique(array_filter(array_map('intval', $postIds))));
+
+        if (empty($nodeIds)) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'No items selected for archive.']);
+            exit;
+        }
+
+        // Collect all target items and their nested descendants
+        $allAffectedIds = get_descendant_node_ids($pdo, $nodeIds, false);
+        if (!empty($allAffectedIds)) {
+            $placeholders = implode(',', array_fill(0, count($allAffectedIds), '?'));
+            $stmt = $pdo->prepare("UPDATE dms_nodes SET is_deleted = 1, status = 'obsolete', updated_at = NOW() WHERE id IN ($placeholders)");
+            $stmt->execute($allAffectedIds);
+        }
+
+        header('Content-Type: application/json');
+        echo json_encode([
+            'success' => true,
+            'message' => count($nodeIds) . ' item(s) moved to Archives.'
+        ]);
+        exit;
+    }
+
     // 4. Move Item
     if ($action === 'move_node') {
         $nodeId = isset($_POST['id']) && is_numeric($_POST['id']) ? (int)$_POST['id'] : 0;
@@ -154,6 +292,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
         } else {
+            $nodeStmt = $pdo->prepare("SELECT name, parent_id FROM dms_nodes WHERE id = :id AND is_deleted = 0");
+            $nodeStmt->execute(['id' => $nodeId]);
+            $currentNode = $nodeStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$currentNode) {
+                if ($isAjax) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => 'Item not found.']);
+                    exit;
+                }
+                header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? 'explorer.php'));
+                exit;
+            }
+
+            if ((string)$currentNode['parent_id'] === (string)$targetFolderId) {
+                if ($isAjax) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => 'Item is already in this location.']);
+                    exit;
+                }
+                header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? 'explorer.php'));
+                exit;
+            }
+
             if ($targetFolderId !== null) {
                 if ($targetFolderId === $nodeId) {
                     header('Content-Type: application/json');
@@ -167,6 +329,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     echo json_encode(['success' => false, 'message' => 'Target destination folder does not exist.']);
                     exit;
                 }
+            }
+
+            $itemName = $currentNode['name'];
+
+            if (is_node_duplicate($pdo, $targetFolderId, $itemName, $nodeId)) {
+                if ($isAjax) {
+                    header('Content-Type: application/json');
+                    echo json_encode([
+                        'success'   => false,
+                        'message'   => "Cannot move: An item named \"{$itemName}\" already exists in the destination folder.",
+                        'duplicate' => true
+                    ]);
+                    exit;
+                }
+                header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? 'explorer.php'));
+                exit;
             }
 
             $stmt = $pdo->prepare("UPDATE dms_nodes SET parent_id = :parent_id, updated_at = NOW() WHERE id = :id AND is_deleted = 0");
@@ -301,6 +479,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
+                // Check for duplicate document/folder name under the same parent_id
+                if (is_node_duplicate($pdo, $postParentId, $docName)) {
+                    if (file_exists($destinationPath)) {
+                        @unlink($destinationPath);
+                    }
+                    if ($isAjax) {
+                        header('Content-Type: application/json');
+                        echo json_encode([
+                            'success'   => false,
+                            'message'   => "A document named \"{$docName}\" already exists in this folder.",
+                            'duplicate' => true
+                        ]);
+                        exit;
+                    }
+                    header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? 'explorer.php'));
+                    exit;
+                }
+
                 $userId = current_user()['id'] ?? 1;
 
                 $stmt = $pdo->prepare("
@@ -331,6 +527,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
 
                 $newDocId = $pdo->lastInsertId();
+
+                // Seed baseline version into dms_document_versions
+                try {
+                    $verStmt = $pdo->prepare("
+                        INSERT INTO dms_document_versions (
+                            document_id, version_number, file_path, file_original_name,
+                            file_size, file_extension, mime_type, file_hash,
+                            change_summary, is_current, created_by, created_at
+                        ) VALUES (
+                            :document_id, 'v0.1', :file_path, :file_original_name,
+                            :file_size, :file_extension, :mime_type, :file_hash,
+                            'Initial document baseline upload.', 1, :created_by, NOW()
+                        )
+                    ");
+                    $verStmt->execute([
+                        'document_id'        => $newDocId,
+                        'file_path'          => $relativeStoragePath,
+                        'file_original_name' => $originalName,
+                        'file_size'          => $fileSize,
+                        'file_extension'     => $fileExt,
+                        'mime_type'          => $mimeType,
+                        'file_hash'          => $fileHash,
+                        'created_by'         => $userId,
+                    ]);
+                } catch (Throwable $e) {
+                    // Graceful fallback if table does not exist yet
+                }
 
                 if ($isAjax) {
                     header('Content-Type: application/json');
@@ -530,20 +753,6 @@ function get_status_class(string $status): string {
     };
 }
 
-if (!function_exists('get_initials')) {
-    function get_initials(string $name): string {
-        $parts = preg_split('/\s+/', trim($name));
-        $initials = '';
-        foreach ($parts as $p) {
-            if ($p !== '') {
-                $initials .= mb_strtoupper(mb_substr($p, 0, 1));
-                if (mb_strlen($initials) >= 2) break;
-            }
-        }
-        return $initials ?: 'U';
-    }
-}
-
 // Helper function to render cards HTML (shared between normal load and AJAX)
 function render_card_list_html($items, $viewMode, $parentId, $currentNode, $breadcrumbs, $searchQ, $page = 1, $perPage = 25, $totalCount = 0, $totalPages = 1): void {
     ?>
@@ -599,7 +808,7 @@ function render_card_list_html($items, $viewMode, $parentId, $currentNode, $brea
             <div class="empty-icon"><?php echo render_icon('files'); ?></div>
             <h3 class="empty-title">No items found</h3>
             <p class="empty-subtitle">
-                <?php echo $searchQ !== '' ? 'No documents or folders matched your query.' : 'No specimens found matching the selected filters. Upload a document or adjust filters.'; ?>
+                <?php echo $searchQ !== '' ? 'No documents or folders matched your query.' : 'No documents found matching the selected filters. Upload a document or adjust filters.'; ?>
             </p>
         </div>
     <?php else: ?>
@@ -620,11 +829,11 @@ function render_card_list_html($items, $viewMode, $parentId, $currentNode, $brea
             $itemLink = $isFolder ? '?mode=project&folder=' . $item['id'] : '#doc-' . $item['id'];
             $extIcon  = $isFolder ? 'folder' : ($item['file_extension'] ?? 'files');
             ?>
-            <div class="explorer-item-card <?php echo $isFolder ? 'is-folder' : 'is-document'; ?>" id="node-<?php echo e((string)$item['id']); ?>">
+            <div class="explorer-item-card <?php echo $isFolder ? 'is-folder' : 'is-document'; ?>" id="node-<?php echo e((string)$item['id']); ?>" data-id="<?php echo e((string)$item['id']); ?>" data-name="<?php echo e($item['name']); ?>" data-type="<?php echo $isFolder ? 'folder' : 'document'; ?>" data-location="<?php echo e($item['parent_name'] ?: 'Root'); ?>">
                 
                 <!-- Selection Checkbox -->
                 <div class="item-checkbox-col">
-                    <input type="checkbox" class="item-checkbox" aria-label="Select item">
+                    <input type="checkbox" class="item-checkbox" value="<?php echo e((string)$item['id']); ?>" aria-label="Select item">
                 </div>
 
                 <!-- Type Icon -->
@@ -796,6 +1005,18 @@ require_once __DIR__ . '/../includes/header.php';
 
 <div class="explorer-wrapper">
 
+    <!-- Drag-and-Drop Ingestion Overlay -->
+    <div class="explorer-drag-overlay" id="explorerDragOverlay" aria-hidden="true">
+        <div class="drag-overlay-card">
+            <div class="drag-overlay-icon">
+                <?php echo render_icon('cloud-upload'); ?>
+            </div>
+            <h3 class="drag-overlay-title">Drop documents here to upload</h3>
+            <p class="drag-overlay-subtitle">Target: <strong id="dragOverlayTargetLabel"><?php echo ($currentNode && $viewMode === 'project') ? e($currentNode['name']) : 'Projects'; ?></strong></p>
+            <span class="drag-overlay-hint">Release mouse to review and confirm upload</span>
+        </div>
+    </div>
+
     <!-- Top Action & Search Bar -->
     <div class="explorer-toolbar-card">
         <form method="GET" action="" class="explorer-search-form" id="explorerSearchForm">
@@ -950,7 +1171,7 @@ require_once __DIR__ . '/../includes/header.php';
                     <?php if ($currentNode && $viewMode === 'project'): ?>
                         Target location: Inside <strong><?php echo e($currentNode['name']); ?></strong>
                     <?php else: ?>
-                        Target location: <strong>Root Level</strong>
+                        Target location: <strong>Projects</strong>
                     <?php endif; ?>
                 </p>
             </div>
@@ -962,6 +1183,80 @@ require_once __DIR__ . '/../includes/header.php';
                 </button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- Modal: Batch Upload Confirmation -->
+<div class="edms-modal-backdrop" id="modalBatchUploadConfirm">
+    <div class="edms-modal-dialog" style="max-width: 540px; width: 95%;">
+        <div class="edms-modal-header">
+            <div class="edms-modal-title">
+                <?php echo render_icon('cloud-upload'); ?>
+                <span id="batchUploadModalTitle">Confirm Document Upload</span>
+            </div>
+            <button type="button" class="btn-modal-close" id="btnCloseBatchUploadModal" title="Close modal">&times;</button>
+        </div>
+        <form id="formBatchUploadConfirm">
+            <div class="edms-modal-body">
+                <div class="batch-upload-summary-bar">
+                    <span id="batchUploadCountText">Are you sure you want to upload <strong>0 documents</strong>?</span>
+                    <span class="batch-upload-size" id="batchUploadTotalSize">0 KB</span>
+                </div>
+
+                <!-- Scrollable File Inspection List with Remove Buttons -->
+                <div class="batch-upload-file-list" id="batchUploadFileList">
+                    <!-- Populated dynamically by core.js -->
+                </div>
+
+                <!-- Initial Status Selector for the Batch -->
+                <div class="form-group" style="margin-top: 14px;">
+                    <label for="batchUploadStatusSelect" class="form-label">Initial Status for All Documents</label>
+                    <div class="select-wrapper">
+                        <select id="batchUploadStatusSelect" class="form-input">
+                            <option value="active" selected>Active (Draft)</option>
+                            <option value="published">Published</option>
+                            <option value="hold">On Hold</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Target Location Breadcrumb Indicator -->
+                <p class="form-help" id="batchUploadLocationHelp" style="margin-top: 12px;">
+                    Target location: <strong>Projects</strong>
+                </p>
+            </div>
+            <div class="edms-modal-footer">
+                <button type="button" class="btn btn-secondary" id="btnCancelBatchUpload">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="btnConfirmBatchUpload">
+                    <?php echo render_icon('cloud-upload'); ?>
+                    <span id="btnConfirmBatchUploadText">Upload Documents</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Floating Upload Dock (Google Drive Style Progress Tray) -->
+<div class="edms-upload-dock" id="edmsUploadDock" style="display: none;">
+    <div class="upload-dock-header" id="uploadDockHeader">
+        <div class="upload-dock-title">
+            <span class="upload-dock-spinner" id="uploadDockSpinner"></span>
+            <span id="uploadDockTitleText">Uploading 1 of 3 files...</span>
+        </div>
+        <div class="upload-dock-actions">
+            <button type="button" class="dock-btn-icon" id="btnToggleUploadDock" title="Minimize / Expand">
+                <svg class="dock-chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <button type="button" class="dock-btn-icon" id="btnCloseUploadDock" title="Close dock" style="display: none;">&times;</button>
+        </div>
+    </div>
+    <div class="upload-dock-progress-wrapper">
+        <div class="upload-dock-progress-bar" id="uploadDockOverallBar" style="width: 0%;"></div>
+    </div>
+    <div class="upload-dock-body" id="uploadDockBody">
+        <div class="upload-dock-item-list" id="uploadDockItemList">
+            <!-- Populated dynamically with each uploading specimen -->
+        </div>
     </div>
 </div>
 
@@ -986,7 +1281,7 @@ require_once __DIR__ . '/../includes/header.php';
                         <?php if ($currentNode): ?>
                             Target location: Inside <strong><?php echo e($currentNode['name']); ?></strong>
                         <?php else: ?>
-                            Target location: <strong>Root Level</strong>
+                            Target location: <strong>Projects</strong>
                         <?php endif; ?>
                     </p>
                 </div>
@@ -1002,8 +1297,9 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<!-- Floating Action Popover Menu (3-Dots Context Menu) -->
+<!-- Floating Action Popover Menu (3-Dots Context Menu & Right Click Menu) -->
 <div class="edms-action-popover" id="edmsActionPopover" style="display: none;">
+    <div class="popover-header-label" id="popoverHeaderLabel" style="display: none;">1 item selected</div>
     <a href="#" class="popover-item" id="popoverActionView" style="text-decoration: none;">
         <?php echo render_icon('view'); ?>
         <span>Open Workspace</span>
@@ -1018,12 +1314,12 @@ require_once __DIR__ . '/../includes/header.php';
     </button>
     <button type="button" class="popover-item" id="popoverActionMove">
         <?php echo render_icon('move'); ?>
-        <span>Move to...</span>
+        <span id="popoverActionMoveLabel">Move to...</span>
     </button>
     <div class="popover-divider"></div>
     <button type="button" class="popover-item is-archive" id="popoverActionDelete">
         <?php echo render_icon('archive'); ?>
-        <span>Move to Archives</span>
+        <span id="popoverActionDeleteLabel">Move to Archives</span>
     </button>
 </div>
 
@@ -1066,8 +1362,9 @@ require_once __DIR__ . '/../includes/header.php';
             <button type="button" class="btn-modal-close" id="btnCloseMoveModal" title="Close modal">&times;</button>
         </div>
         <form id="formMoveNode" method="POST" action="explorer.php">
-            <input type="hidden" name="action" value="move_node">
+            <input type="hidden" name="action" id="moveNodeAction" value="move_node">
             <input type="hidden" name="id" id="moveNodeId" value="">
+            <input type="hidden" name="ids" id="moveNodeIds" value="">
             <input type="hidden" name="target_folder_id" id="moveTargetFolderId" value="">
             
             <div class="edms-modal-body" style="padding-bottom: 8px;">
@@ -1115,8 +1412,9 @@ require_once __DIR__ . '/../includes/header.php';
             <button type="button" class="btn-modal-close" id="btnCloseDeleteModal" title="Close modal">&times;</button>
         </div>
         <form id="formDeleteNode" method="POST" action="explorer.php">
-            <input type="hidden" name="action" value="delete_node">
+            <input type="hidden" name="action" id="deleteNodeAction" value="delete_node">
             <input type="hidden" name="id" id="deleteNodeId" value="">
+            <input type="hidden" name="ids" id="deleteNodeIds" value="">
             <div class="edms-modal-body">
                 <p style="font-size: 13.5px; color: var(--ink); margin-bottom: 8px;">
                     Move <strong id="deleteItemNameDisplay"></strong> to Archives?

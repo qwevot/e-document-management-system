@@ -131,12 +131,18 @@ document.addEventListener("DOMContentLoaded", function () {
         .catch(err => console.error("Error loading saved annotations:", err));
     }
 
-    // --- 2. Load Document (PDF via PDF.js vs DOCX via docx-preview) ---
+    // --- 2. Load Document (PDF vs DOCX Fallback vs Image) ---
     const streamUrl = config.streamUrl || `stream.php?id=${config.docId}`;
     const fileExt = (config.fileExt || "pdf").toLowerCase().replace(/^\./, "");
-    const isDocx = fileExt === "docx" || fileExt === "doc";
+    const imageExtensions = ["png", "jpg", "jpeg", "webp", "gif", "svg", "bmp", "ico"];
+    const isImage = imageExtensions.includes(fileExt);
+    const renderMode = config.renderMode || (isImage ? "image" : (fileExt === "pdf" ? "pdf" : "docx_fallback"));
 
-    if (isDocx) {
+    let loadedImageObj = null;
+
+    if (renderMode === "image") {
+        loadImageDocument();
+    } else if (renderMode === "docx_fallback") {
         loadDocxDocument();
     } else if (window.pdfjsLib) {
         pdfjsLib.getDocument({
@@ -159,6 +165,97 @@ document.addEventListener("DOMContentLoaded", function () {
             }
             if (workspaceDocLoading) workspaceDocLoading.classList.add("is-hidden");
         });
+    }
+
+    // --- 2a. Image Client-Side Rendering Engine ---
+    async function loadImageDocument() {
+        if (!pdfPagesFeed) return;
+        if (workspaceDocLoading) workspaceDocLoading.classList.remove("is-hidden");
+        if (loadingStatusText) loadingStatusText.textContent = "Loading image specimen...";
+
+        try {
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            await new Promise((resolve, reject) => {
+                img.onload = () => resolve(img);
+                img.onerror = () => reject(new Error("Unable to load image file."));
+                img.src = streamUrl;
+            });
+
+            loadedImageObj = img;
+            totalPages = 1;
+            updatePageIndicator(1, 1);
+            renderImagePage();
+            fetchDatabaseAnnotations();
+        } catch (err) {
+            console.error("Image loading error:", err);
+            if (loadingStatusText) {
+                loadingStatusText.textContent = "Failed to load image: " + (err.message || err);
+            }
+            if (workspaceDocLoading) workspaceDocLoading.classList.remove("is-hidden");
+        }
+    }
+
+    function renderImagePage() {
+        if (!loadedImageObj || !pdfPagesFeed) return;
+        if (workspaceDocLoading) workspaceDocLoading.classList.remove("is-hidden");
+
+        pdfPagesFeed.innerHTML = "";
+        const dpr = window.devicePixelRatio || 1;
+
+        const natW = loadedImageObj.naturalWidth || 800;
+        const natH = loadedImageObj.naturalHeight || 600;
+
+        const baseDisplayWidth = Math.min(natW, 900);
+        const aspect = natH / natW;
+        const baseDisplayHeight = baseDisplayWidth * aspect;
+
+        const scale = (currentZoomPercent / 100);
+        const displayW = Math.round(baseDisplayWidth * scale);
+        const displayH = Math.round(baseDisplayHeight * scale);
+
+        const pageNum = 1;
+        const pageWrapper = document.createElement("div");
+        pageWrapper.className = "pdf-page-wrapper";
+        pageWrapper.id = `pageWrapper_${pageNum}`;
+        pageWrapper.dataset.page = pageNum;
+        pageWrapper.style.width = displayW + "px";
+        pageWrapper.style.height = displayH + "px";
+
+        // Base Canvas
+        const baseCanvas = document.createElement("canvas");
+        baseCanvas.className = "pdf-base-canvas";
+        baseCanvas.id = `baseCanvas_${pageNum}`;
+        baseCanvas.width = Math.round(displayW * dpr);
+        baseCanvas.height = Math.round(displayH * dpr);
+        baseCanvas.style.width = displayW + "px";
+        baseCanvas.style.height = displayH + "px";
+
+        const baseCtx = baseCanvas.getContext("2d");
+        baseCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        baseCtx.drawImage(loadedImageObj, 0, 0, displayW, displayH);
+
+        // Transparent Synchronized Annotation Overlay Canvas
+        const annoCanvas = document.createElement("canvas");
+        annoCanvas.className = "pdf-annotation-canvas";
+        annoCanvas.id = `annoCanvas_${pageNum}`;
+        annoCanvas.dataset.page = pageNum;
+        annoCanvas.width = Math.round(displayW * dpr);
+        annoCanvas.height = Math.round(displayH * dpr);
+        annoCanvas.style.width = displayW + "px";
+        annoCanvas.style.height = displayH + "px";
+        annoCanvas.style.opacity = layerOpacity.toString();
+
+        attachDrawingListeners(annoCanvas, pageNum);
+
+        pageWrapper.appendChild(baseCanvas);
+        pageWrapper.appendChild(annoCanvas);
+        pdfPagesFeed.appendChild(pageWrapper);
+
+        renderPageAnnotations(pageNum);
+
+        if (workspaceDocLoading) workspaceDocLoading.classList.add("is-hidden");
+        setupScrollObserver();
     }
 
     // --- 2b. DOCX Client-Side Rendering Engine ---
@@ -1340,9 +1437,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // --- 9. Zoom Engine ---
     function setZoom(newZoom) {
-        currentZoomPercent = Math.max(50, Math.min(250, newZoom));
+        currentZoomPercent = Math.max(30, Math.min(300, newZoom));
         if (zoomLevelDisplay) zoomLevelDisplay.textContent = Math.round(currentZoomPercent) + "%";
-        renderAllPdfPages();
+        if (renderMode === "image") {
+            renderImagePage();
+        } else if (renderMode === "pdf") {
+            renderAllPdfPages();
+        }
     }
 
     if (btnZoomIn) btnZoomIn.addEventListener("click", () => setZoom(currentZoomPercent + 15));
@@ -1352,9 +1453,16 @@ document.addEventListener("DOMContentLoaded", function () {
         btnZoomFit.addEventListener("click", () => {
             if (!workspaceCenterStage) return;
             const containerWidth = workspaceCenterStage.clientWidth - 80;
-            const standardPageWidth = 595 * baseScale; // Default PDF standard width
-            const fitPercent = Math.round((containerWidth / standardPageWidth) * 100);
-            setZoom(fitPercent);
+            if (renderMode === "image" && loadedImageObj) {
+                const natW = loadedImageObj.naturalWidth || 800;
+                const baseDisplayWidth = Math.min(natW, 900);
+                const fitPercent = Math.round((containerWidth / baseDisplayWidth) * 100);
+                setZoom(fitPercent);
+            } else if (renderMode === "pdf") {
+                const standardPageWidth = 595 * baseScale; // Default PDF standard width
+                const fitPercent = Math.round((containerWidth / standardPageWidth) * 100);
+                setZoom(fitPercent);
+            }
         });
     }
 
@@ -1622,122 +1730,13 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    // Helper: Export DOCX pages as PDF using html2canvas & pdf-lib
-    async function exportDocxToPdf(withAnnotations = false) {
-        let docxSections = document.querySelectorAll(
-            ".docx-render-host .pdf-page-wrapper, " +
-            ".pdf-pages-feed .pdf-page-wrapper, " +
-            ".docx-render-host section, " +
-            ".docx-render-host .docx-wrapper > section, " +
-            "section.docx-document, " +
-            "section.docx"
-        );
-
-        if (!docxSections || docxSections.length === 0) {
-            // Fallback: look for the host wrapper itself if rendered as single article
-            const hostWrapper = document.querySelector(".docx-render-host");
-            if (hostWrapper) {
-                docxSections = [hostWrapper];
-            } else {
-                throw new Error("No rendered Word pages found to export.");
-            }
-        }
-
-        // Create fresh empty PDF document
-        const pdfDoc = await PDFLib.PDFDocument.create();
-
-        for (let i = 0; i < docxSections.length; i++) {
-            const sec = docxSections[i];
-            const pageNum = i + 1;
-            const annoCanvas = document.getElementById(`annoCanvas_${pageNum}`);
-
-            // Temporarily hide or ensure canvas visibility based on parameter
-            const originalCanvasDisplay = annoCanvas ? annoCanvas.style.display : "";
-            if (annoCanvas) {
-                annoCanvas.style.display = withAnnotations ? "block" : "none";
-            }
-
-            // Capture rendered Word page section
-            const canvasShot = await html2canvas(sec, {
-                scale: 1.5,
-                useCORS: true,
-                logging: false,
-                backgroundColor: "#ffffff"
-            });
-
-            if (annoCanvas) {
-                annoCanvas.style.display = originalCanvasDisplay;
-            }
-
-            const imgData = canvasShot.toDataURL("image/jpeg", 0.92);
-            const imgBytes = await fetch(imgData).then(res => res.arrayBuffer());
-            const embeddedImg = await pdfDoc.embedJpg(imgBytes);
-
-            // Add page with standard points dimensions
-            const pdfPage = pdfDoc.addPage([canvasShot.width / 1.5, canvasShot.height / 1.5]);
-            pdfPage.drawImage(embeddedImg, {
-                x: 0,
-                y: 0,
-                width: pdfPage.getWidth(),
-                height: pdfPage.getHeight(),
-            });
-        }
-
-        return await pdfDoc.save();
-    }
-
-    // Export As PDF button (for DOCX)
-    const btnDownloadAsPdf = document.getElementById("btnDownloadAsPdf");
-    if (btnDownloadAsPdf) {
-        btnDownloadAsPdf.addEventListener("click", async function (e) {
-            e.preventDefault();
-            if (workspaceDownloadDropdown) {
-                workspaceDownloadDropdown.classList.remove("is-open");
-            }
-
-            const origButtonHtml = btnDownloadDropdownToggle.innerHTML;
-            btnDownloadDropdownToggle.disabled = true;
-            btnDownloadDropdownToggle.innerHTML = `
-                <div class="viewer-spinner" style="width:14px; height:14px; border-width:2px; margin-right:4px;"></div>
-                <span>Converting PDF...</span>
-            `;
-
-            try {
-                const pdfBytes = await exportDocxToPdf(false);
-                let baseDocName = (config.docName || "document").replace(/\.(docx|doc)$/i, "");
-                const downloadFileName = `${baseDocName}.pdf`;
-
-                const blob = new Blob([pdfBytes], { type: "application/pdf" });
-                const blobUrl = URL.createObjectURL(blob);
-                const downloadLink = document.createElement("a");
-                downloadLink.href = blobUrl;
-                downloadLink.download = downloadFileName;
-                document.body.appendChild(downloadLink);
-                downloadLink.click();
-                document.body.removeChild(downloadLink);
-
-                setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
-            } catch (err) {
-                console.error("Error converting DOCX to PDF:", err);
-                alert("Failed to export PDF: " + (err.message || err));
-            } finally {
-                btnDownloadDropdownToggle.disabled = false;
-                btnDownloadDropdownToggle.innerHTML = origButtonHtml;
-            }
-        });
-    }
+    // Export with Annotations (Images & PDFs)
 
     if (btnDownloadWithAnnotations) {
         btnDownloadWithAnnotations.addEventListener("click", async function (e) {
             e.preventDefault();
             if (workspaceDownloadDropdown) {
                 workspaceDownloadDropdown.classList.remove("is-open");
-            }
-
-            // Verify pdf-lib availability
-            if (typeof PDFLib === "undefined" || !PDFLib.PDFDocument) {
-                alert("PDF export engine is still loading. Please try again shortly.");
-                return;
             }
 
             // Visual loading state
@@ -1749,24 +1748,64 @@ document.addEventListener("DOMContentLoaded", function () {
             `;
 
             try {
-                if (isDocx) {
-                    // Export DOCX with annotations
-                    const pdfBytes = await exportDocxToPdf(true);
-                    let baseDocName = (config.docName || "document").replace(/\.(docx|doc)$/i, "");
-                    const downloadFileName = `${baseDocName}_annotated.pdf`;
+                if (isImage) {
+                    // Export Image with annotations in its native format (.png, .jpg, .webp, etc.)
+                    if (!loadedImageObj) throw new Error("Image specimen is not loaded.");
 
-                    const blob = new Blob([pdfBytes], { type: "application/pdf" });
-                    const blobUrl = URL.createObjectURL(blob);
-                    const downloadLink = document.createElement("a");
-                    downloadLink.href = blobUrl;
-                    downloadLink.download = downloadFileName;
-                    document.body.appendChild(downloadLink);
-                    downloadLink.click();
-                    document.body.removeChild(downloadLink);
+                    const natW = loadedImageObj.naturalWidth || 800;
+                    const natH = loadedImageObj.naturalHeight || 600;
 
-                    setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
+                    const tempCanvas = document.createElement("canvas");
+                    tempCanvas.width = natW;
+                    tempCanvas.height = natH;
+                    const tCtx = tempCanvas.getContext("2d");
+
+                    // 1. Draw original base image
+                    tCtx.drawImage(loadedImageObj, 0, 0, natW, natH);
+
+                    // 2. Composite active annotation layer
+                    const annoCanvas = generateCleanPageAnnotationsCanvas(1, natW, natH);
+                    tCtx.drawImage(annoCanvas, 0, 0);
+
+                    // 3. Determine MIME type and file extension
+                    let mimeType = "image/png";
+                    let outExt = fileExt;
+                    if (fileExt === "jpg" || fileExt === "jpeg") {
+                        mimeType = "image/jpeg";
+                        outExt = "jpg";
+                    } else if (fileExt === "webp") {
+                        mimeType = "image/webp";
+                        outExt = "webp";
+                    } else {
+                        mimeType = "image/png";
+                        outExt = "png";
+                    }
+
+                    let baseDocName = (config.docName || "image").replace(/\.(png|jpe?g|webp|gif|svg|bmp|ico)$/i, "");
+                    const downloadFileName = `${baseDocName}_annotated.${outExt}`;
+
+                    tempCanvas.toBlob(blob => {
+                        if (!blob) {
+                            alert("Failed to export annotated image.");
+                            return;
+                        }
+                        const blobUrl = URL.createObjectURL(blob);
+                        const downloadLink = document.createElement("a");
+                        downloadLink.href = blobUrl;
+                        downloadLink.download = downloadFileName;
+                        document.body.appendChild(downloadLink);
+                        downloadLink.click();
+                        document.body.removeChild(downloadLink);
+
+                        setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
+                    }, mimeType, 0.95);
                 } else {
                     // Export Native PDF with annotations
+                    if (typeof PDFLib === "undefined" || !PDFLib.PDFDocument) {
+                        alert("PDF export engine is still loading. Please try again shortly.");
+                        return;
+                    }
+
                     const streamUrl = config.streamUrl || `stream.php?id=${config.docId}`;
                     const existingPdfBytes = await fetch(streamUrl).then(res => res.arrayBuffer());
 
@@ -1825,12 +1864,282 @@ document.addEventListener("DOMContentLoaded", function () {
                     setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
                 }
             } catch (err) {
-                console.error("Error generating annotated PDF:", err);
+                console.error("Error generating annotated document:", err);
                 alert("Failed to export annotated document: " + (err.message || err));
             } finally {
                 btnDownloadDropdownToggle.disabled = false;
                 btnDownloadDropdownToggle.innerHTML = origButtonHtml;
             }
+        });
+    }
+
+    // --- 14. Version History & Revision Lineage Controller ---
+    const versionHistoryModal = document.getElementById("versionHistoryModal");
+    const btnOpenVersionHistoryModal = document.getElementById("btnOpenVersionHistoryModal");
+    const btnBadgeVersion = document.getElementById("btnBadgeVersion");
+    const btnCloseVersionModal = document.getElementById("btnCloseVersionModal");
+    const versionTimelineContainer = document.getElementById("versionTimelineContainer");
+
+    // Upload Revision Modal Elements (Matches explorer.php style)
+    const modalUploadRevision = document.getElementById("modalUploadRevision");
+    const btnOpenUploadRevisionModal = document.getElementById("btnOpenUploadRevisionModal");
+    const btnCloseUploadRevisionModal = document.getElementById("btnCloseUploadRevisionModal");
+    const btnCancelRevisionUpload = document.getElementById("btnCancelRevisionUpload");
+    const formUploadRevision = document.getElementById("formUploadRevision");
+    const uploadDropzoneRevision = document.getElementById("uploadDropzoneRevision");
+    const uploadFileInputRevision = document.getElementById("uploadFileInputRevision");
+    const selectedFilePreviewRevision = document.getElementById("selectedFilePreviewRevision");
+    const previewFileNameRevision = document.getElementById("previewFileNameRevision");
+    const previewFileSizeRevision = document.getElementById("previewFileSizeRevision");
+    const btnClearSelectedFileRevision = document.getElementById("btnClearSelectedFileRevision");
+    const btnSubmitRevision = document.getElementById("btnSubmitRevision");
+
+    function openVersionModal() {
+        if (!versionHistoryModal) return;
+        versionHistoryModal.classList.add("is-open");
+        loadVersionHistory();
+    }
+
+    function closeVersionModal() {
+        if (!versionHistoryModal) return;
+        versionHistoryModal.classList.remove("is-open");
+    }
+
+    if (btnOpenVersionHistoryModal) btnOpenVersionHistoryModal.addEventListener("click", openVersionModal);
+    if (btnBadgeVersion) btnBadgeVersion.addEventListener("click", openVersionModal);
+    if (btnCloseVersionModal) btnCloseVersionModal.addEventListener("click", closeVersionModal);
+
+    if (versionHistoryModal) {
+        versionHistoryModal.addEventListener("click", function (e) {
+            if (e.target === versionHistoryModal) closeVersionModal();
+        });
+    }
+
+    function openUploadRevisionModal() {
+        if (!modalUploadRevision) return;
+        modalUploadRevision.classList.add("is-open");
+        if (versionHistoryModal) versionHistoryModal.classList.remove("is-open");
+    }
+
+    function closeUploadRevisionModal() {
+        if (!modalUploadRevision) return;
+        modalUploadRevision.classList.remove("is-open");
+        if (formUploadRevision) formUploadRevision.reset();
+        clearRevisionFileSelection();
+    }
+
+    if (btnOpenUploadRevisionModal) btnOpenUploadRevisionModal.addEventListener("click", openUploadRevisionModal);
+    if (btnCloseUploadRevisionModal) btnCloseUploadRevisionModal.addEventListener("click", closeUploadRevisionModal);
+    if (btnCancelRevisionUpload) btnCancelRevisionUpload.addEventListener("click", closeUploadRevisionModal);
+
+    if (modalUploadRevision) {
+        modalUploadRevision.addEventListener("click", function (e) {
+            if (e.target === modalUploadRevision) closeUploadRevisionModal();
+        });
+    }
+
+    // Dropzone File Handling (Full clickable / drag-and-drop area via .upload-file-input)
+    if (uploadFileInputRevision) {
+        uploadFileInputRevision.addEventListener("change", function () {
+            if (this.files && this.files[0]) {
+                displayRevisionFileSelection(this.files[0]);
+            }
+        });
+    }
+
+    if (uploadDropzoneRevision) {
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadDropzoneRevision.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                uploadDropzoneRevision.classList.add("is-dragover");
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadDropzoneRevision.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                uploadDropzoneRevision.classList.remove("is-dragover");
+            });
+        });
+
+        uploadDropzoneRevision.addEventListener("drop", (e) => {
+            if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                if (uploadFileInputRevision) uploadFileInputRevision.files = e.dataTransfer.files;
+                displayRevisionFileSelection(e.dataTransfer.files[0]);
+            }
+        });
+    }
+
+    function displayRevisionFileSelection(file) {
+        if (!selectedFilePreviewRevision) return;
+        if (previewFileNameRevision) previewFileNameRevision.textContent = file.name;
+        if (previewFileSizeRevision) previewFileSizeRevision.textContent = `${(file.size / 1024).toFixed(1)} KB`;
+        selectedFilePreviewRevision.style.display = "flex";
+        if (uploadDropzoneRevision) uploadDropzoneRevision.style.display = "none";
+    }
+
+    function clearRevisionFileSelection() {
+        if (uploadFileInputRevision) uploadFileInputRevision.value = "";
+        if (selectedFilePreviewRevision) selectedFilePreviewRevision.style.display = "none";
+        if (uploadDropzoneRevision) uploadDropzoneRevision.style.display = "block";
+    }
+
+    if (btnClearSelectedFileRevision) {
+        btnClearSelectedFileRevision.addEventListener("click", clearRevisionFileSelection);
+    }
+
+    function loadVersionHistory() {
+        if (!versionTimelineContainer) return;
+        versionTimelineContainer.innerHTML = `
+            <div style="text-align:center; padding: 20px; color: var(--slate-muted); font-size: 13px;">
+                <div class="viewer-spinner" style="margin: 0 auto 10px;"></div>
+                <span>Loading revisions...</span>
+            </div>
+        `;
+
+        fetch(`../actions/version-handler.php?action=get_versions&doc_id=${docId}`, {
+            headers: { "X-Requested-With": "XMLHttpRequest" }
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success && Array.isArray(data.versions)) {
+                renderVersionTimeline(data.versions);
+            } else {
+                versionTimelineContainer.innerHTML = `<div style="text-align:center; padding: 20px; color: #ef4444;">${escapeHtml(data.message || 'Failed to load versions.')}</div>`;
+            }
+        })
+        .catch(err => {
+            console.error("Error fetching version lineage:", err);
+            versionTimelineContainer.innerHTML = `<div style="text-align:center; padding: 20px; color: #ef4444;">Error loading versions.</div>`;
+        });
+    }
+
+    // Render Compact Minimalist Version Cards with Icon-Based Action Controls
+    function renderVersionTimeline(versions) {
+        if (!versionTimelineContainer) return;
+        if (versions.length === 0) {
+            versionTimelineContainer.innerHTML = `<div style="text-align:center; padding: 24px 16px; color: var(--slate-muted); font-size: 13px;">No revision records found.</div>`;
+            return;
+        }
+
+        versionTimelineContainer.innerHTML = "";
+
+        versions.forEach(v => {
+            const isCurrent = Boolean(parseInt(v.is_current, 10) === 1);
+            const card = document.createElement("div");
+            card.style.cssText = `
+                background: ${isCurrent ? 'rgba(16, 185, 129, 0.04)' : 'var(--surface)'};
+                border: 1px solid ${isCurrent ? '#86efac' : 'var(--border)'};
+                border-left: ${isCurrent ? '3px solid #10b981' : '1px solid var(--border)'};
+                border-radius: 6px;
+                padding: 9px 12px;
+                transition: all 0.15s ease;
+            `;
+
+            const fileSizeFormatted = v.file_size ? `${(v.file_size / 1024).toFixed(1)} KB` : '';
+
+            card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <span style="font-family: monospace; font-size: 12.5px; font-weight: 700; color: var(--ink);">${escapeHtml(v.version_number)}</span>
+                        ${isCurrent ? `<span style="background: #dcfce7; color: #15803d; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; border: 1px solid #bbf7d0;">Active</span>` : ''}
+                        <span style="font-size: 11.5px; color: var(--muted);">${escapeHtml(v.author_name || 'System')} • ${escapeHtml(v.created_at || '')}</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 2px;">
+                        <a href="view.php?id=${docId}&version_id=${v.id}" class="btn-action" style="width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; color: var(--ink); text-decoration: none;" title="Preview snapshot">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                        </a>
+                        <a href="download.php?id=${docId}&version_id=${v.id}" class="btn-action" style="width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; color: var(--ink); text-decoration: none;" title="Download file" download>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        </a>
+                        <button type="button" class="btn-action btn-toggle-details" style="width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; color: var(--muted); border: none; background: transparent; cursor: pointer;" title="Details">
+                            <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="transition: transform 0.2s ease;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="version-details-panel" style="display: none; margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--border); font-size: 11.5px; color: var(--muted);">
+                    <div><strong>File:</strong> ${escapeHtml(v.file_original_name || '')} ${fileSizeFormatted ? `(${fileSizeFormatted})` : ''}</div>
+                    ${v.change_summary ? `<div style="margin-top: 2px; color: var(--ink);"><strong>Note:</strong> ${escapeHtml(v.change_summary)}</div>` : ''}
+                </div>
+            `;
+
+            // Toggle Details Dropdown Handler
+            const btnDetails = card.querySelector(".btn-toggle-details");
+            const chevronIcon = card.querySelector(".chevron-icon");
+            const panelDetails = card.querySelector(".version-details-panel");
+            if (btnDetails && panelDetails) {
+                btnDetails.addEventListener("click", function () {
+                    const isHidden = panelDetails.style.display === "none";
+                    panelDetails.style.display = isHidden ? "block" : "none";
+                    if (chevronIcon) {
+                        chevronIcon.style.transform = isHidden ? "rotate(180deg)" : "rotate(0deg)";
+                    }
+                });
+            }
+
+            versionTimelineContainer.appendChild(card);
+        });
+    }
+
+    // Handle Upload New Revision Form Submission
+    if (formUploadRevision) {
+        formUploadRevision.addEventListener("submit", function (e) {
+            e.preventDefault();
+
+            if (!uploadFileInputRevision || !uploadFileInputRevision.files || uploadFileInputRevision.files.length === 0) {
+                if (typeof window.showBottomToast === "function") {
+                    window.showBottomToast("Please select a file to upload as revision.", "warning");
+                } else {
+                    alert("Please select a file to upload.");
+                }
+                return;
+            }
+
+            const formData = new FormData(formUploadRevision);
+
+            if (btnSubmitRevision) {
+                btnSubmitRevision.disabled = true;
+                btnSubmitRevision.innerHTML = `
+                    <div class="viewer-spinner" style="width:12px; height:12px; border-width:2px; margin-right:4px;"></div>
+                    <span>Uploading...</span>
+                `;
+            }
+
+            fetch("../actions/version-handler.php", {
+                method: "POST",
+                headers: { "X-Requested-With": "XMLHttpRequest" },
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.href = `view.php?id=${docId}`;
+                } else {
+                    if (typeof window.showBottomToast === "function") {
+                        window.showBottomToast(data.message || "Revision upload failed.", "error");
+                    } else {
+                        alert("Revision upload failed: " + (data.message || "Unknown error"));
+                    }
+                    if (btnSubmitRevision) {
+                        btnSubmitRevision.disabled = false;
+                        btnSubmitRevision.innerHTML = `<span>Upload Revision</span>`;
+                    }
+                }
+            })
+            .catch(err => {
+                console.error("Error uploading revision:", err);
+                if (typeof window.showBottomToast === "function") {
+                    window.showBottomToast("Network error while uploading revision.", "error");
+                } else {
+                    alert("Network error while uploading revision.");
+                }
+                if (btnSubmitRevision) {
+                    btnSubmitRevision.disabled = false;
+                    btnSubmitRevision.innerHTML = `<span>Upload Revision</span>`;
+                }
+            });
         });
     }
 

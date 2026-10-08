@@ -1,0 +1,125 @@
+<?php
+// Document Version Actions Endpoint (Upload Revision, Revert, List)
+
+require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/functions.php';
+
+require_login();
+
+header('Content-Type: application/json');
+
+$action = $_REQUEST['action'] ?? '';
+$user = current_user();
+$userId = (int)($user['id'] ?? 1);
+
+// 1. Get version history for a document
+if ($action === 'get_versions') {
+    $docId = isset($_GET['doc_id']) && is_numeric($_GET['doc_id']) ? (int)$_GET['doc_id'] : 0;
+    if ($docId <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Invalid document ID.']);
+        exit;
+    }
+
+    $versions = get_document_versions($docId);
+    echo json_encode([
+        'success'  => true,
+        'versions' => $versions
+    ]);
+    exit;
+}
+
+// 2. Upload a new revision (version bump)
+if ($action === 'upload_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $docId = isset($_POST['doc_id']) && is_numeric($_POST['doc_id']) ? (int)$_POST['doc_id'] : 0;
+    $bumpType = in_array($_POST['bump_type'] ?? '', ['major', 'minor'], true) ? $_POST['bump_type'] : 'minor';
+    $changeSummary = trim($_POST['change_summary'] ?? '');
+
+    if ($docId <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Invalid document ID.']);
+        exit;
+    }
+
+    if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+        echo json_encode(['success' => false, 'message' => 'File upload error or no file provided.']);
+        exit;
+    }
+
+    $file = $_FILES['file'];
+    $origName = $file['name'];
+    $fileSize = (int)$file['size'];
+    $tmpPath = $file['tmp_name'];
+    $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+
+    // Determine storage path
+    $yearMonth = date('Y/m');
+    $destFolder = __DIR__ . '/../uploads/documents/' . $yearMonth;
+    if (!is_dir($destFolder)) {
+        @mkdir($destFolder, 0777, true);
+    }
+
+    $fileHash = hash_file('sha256', $tmpPath);
+    $safeName = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', pathinfo($origName, PATHINFO_FILENAME));
+    $storedFileName = md5($origName . microtime(true)) . '_' . $safeName . '.' . $ext;
+    $relPath = 'uploads/documents/' . $yearMonth . '/' . $storedFileName;
+    $fullDestPath = __DIR__ . '/../' . $relPath;
+
+    if (!move_uploaded_file($tmpPath, $fullDestPath)) {
+        echo json_encode(['success' => false, 'message' => 'Failed to save uploaded file to storage.']);
+        exit;
+    }
+
+    $mimeType = mime_content_type($fullDestPath) ?: 'application/octet-stream';
+
+    $fileData = [
+        'file_path'          => $relPath,
+        'file_original_name' => $origName,
+        'file_size'          => $fileSize,
+        'file_extension'     => $ext,
+        'mime_type'          => $mimeType,
+        'file_hash'          => $fileHash,
+    ];
+
+    $result = create_document_version($docId, $fileData, $bumpType, $changeSummary, $userId);
+
+    echo json_encode($result);
+    exit;
+}
+
+// 3. Revert to a specific revision
+if ($action === 'revert_version' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $rawInput = file_get_contents('php://input');
+    $data = json_decode($rawInput, true) ?: $_POST;
+
+    $docId = isset($data['doc_id']) && is_numeric($data['doc_id']) ? (int)$data['doc_id'] : 0;
+    $versionId = isset($data['version_id']) && is_numeric($data['version_id']) ? (int)$data['version_id'] : 0;
+
+    if ($docId <= 0 || $versionId <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Invalid parameters.']);
+        exit;
+    }
+
+    $result = revert_document_version($docId, $versionId, $userId);
+    echo json_encode($result);
+    exit;
+}
+
+// 4. Publish document (Transition to PUBLISHED & bump major version)
+if ($action === 'publish_document' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $rawInput = file_get_contents('php://input');
+    $data = json_decode($rawInput, true) ?: $_POST;
+
+    $docId = isset($data['doc_id']) && is_numeric($data['doc_id']) ? (int)$data['doc_id'] : 0;
+    $notes = trim($data['notes'] ?? '');
+
+    if ($docId <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Invalid document ID.']);
+        exit;
+    }
+
+    $result = publish_document($docId, $notes, $userId);
+    echo json_encode($result);
+    exit;
+}
+
+echo json_encode(['success' => false, 'message' => 'Unknown action.']);
+exit;

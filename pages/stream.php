@@ -30,6 +30,21 @@ if (!$doc || $doc['node_type'] !== 'document') {
     die('Document not found.');
 }
 
+// Support streaming specific historical revision
+$versionId = isset($_GET['version_id']) && is_numeric($_GET['version_id']) ? (int)$_GET['version_id'] : 0;
+if ($versionId > 0) {
+    $vStmt = $pdo->prepare("SELECT * FROM dms_document_versions WHERE id = :vid AND document_id = :did");
+    $vStmt->execute(['vid' => $versionId, 'did' => $nodeId]);
+    $vDoc = $vStmt->fetch(PDO::FETCH_ASSOC);
+    if ($vDoc) {
+        $doc['file_path'] = $vDoc['file_path'];
+        $doc['file_original_name'] = $vDoc['file_original_name'];
+        $doc['file_size'] = $vDoc['file_size'];
+        $doc['file_extension'] = $vDoc['file_extension'];
+        $doc['mime_type'] = $vDoc['mime_type'];
+    }
+}
+
 // Check physical file existence
 $physicalFilePath = __DIR__ . '/../' . ltrim($doc['file_path'], '/\\');
 
@@ -44,7 +59,24 @@ if (ob_get_level()) {
 }
 
 $ext = strtolower(trim($doc['file_extension'] ?? '', '.'));
-$mimeType = !empty($doc['mime_type']) ? $doc['mime_type'] : null;
+$officeExtensions = ['docx', 'doc', 'rtf', 'odt', 'xlsx', 'xls', 'csv', 'pptx', 'ppt', 'txt'];
+$imageExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'];
+$isOffice = in_array($ext, $officeExtensions, true);
+$previewRequested = (isset($_GET['preview']) && (string)$_GET['preview'] === '1');
+
+// If preview is requested for an office document and LibreOffice is available, stream as converted vector PDF
+if (($previewRequested || $isOffice) && $ext !== 'pdf' && !in_array($ext, $imageExtensions, true)) {
+    if (is_libreoffice_available()) {
+        $pdfPath = convert_document_to_pdf($physicalFilePath);
+        if ($pdfPath && file_exists($pdfPath) && is_readable($pdfPath)) {
+            $physicalFilePath = $pdfPath;
+            $mimeType = 'application/pdf';
+            $ext = 'pdf';
+        }
+    }
+}
+
+$mimeType = !empty($mimeType) ? $mimeType : (!empty($doc['mime_type']) ? $doc['mime_type'] : null);
 
 // Determine MIME type with high accuracy for inline streaming
 if (!$mimeType || $mimeType === 'application/octet-stream') {
@@ -52,13 +84,21 @@ if (!$mimeType || $mimeType === 'application/octet-stream') {
         'pdf'               => 'application/pdf',
         'docx'              => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'doc'               => 'application/msword',
+        'xlsx'              => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'xls'               => 'application/vnd.ms-excel',
+        'pptx'              => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'ppt'               => 'application/vnd.ms-powerpoint',
+        'odt'               => 'application/vnd.oasis.opendocument.text',
+        'ods'               => 'application/vnd.oasis.opendocument.spreadsheet',
+        'odp'               => 'application/vnd.oasis.opendocument.presentation',
+        'rtf'               => 'application/rtf',
         'png'               => 'image/png',
         'jpg', 'jpeg'       => 'image/jpeg',
         'gif'               => 'image/gif',
         'webp'              => 'image/webp',
         'svg'               => 'image/svg+xml',
         'txt', 'log', 'md'  => 'text/plain; charset=utf-8',
-        'html', 'htm'       => 'text/plain; charset=utf-8', // Plain text for security
+        'html', 'htm'       => 'text/plain; charset=utf-8',
         default             => 'application/octet-stream',
     };
 }

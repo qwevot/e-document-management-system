@@ -1,6 +1,12 @@
-# Uploaded item photos (user data) — never commit these.
+# Uploaded item photos & document binaries (user data) — never commit these.
 uploads/*
 !uploads/.htaccess
 
+# Portable binary runtimes & dependencies (LibreOffice portable)
+bin/
+bin/*
+
 # Local context & scratch notes
 context.md
+*.log
+

@@ -27,21 +27,63 @@ $stmt->execute(['id' => $docId]);
 $doc = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$doc) {
-    die('Document specimen not found.');
+    die('Document data not found.');
 }
 
 $isArchived = ($doc['status'] === 'obsolete' || (int)$doc['is_deleted'] === 1);
 $backUrl = $isArchived ? 'archives.php' : ('explorer.php?mode=project' . (!empty($doc['parent_id']) ? '&folder=' . (int)$doc['parent_id'] : ''));
+
+$currentVersion = $doc['version'] ?? 'v1.0';
+$nextMinorVer = calculate_next_version($currentVersion, 'minor');
+$nextMajorVer = calculate_next_version($currentVersion, 'major');
+
+// Check if viewing a historical version snapshot
+$reqVersionId = isset($_GET['version_id']) && is_numeric($_GET['version_id']) ? (int)$_GET['version_id'] : 0;
+$isHistoricalSnapshot = false;
+$activeVersionName = $currentVersion;
+
+if ($reqVersionId > 0) {
+    $vStmt = $pdo->prepare("SELECT * FROM dms_document_versions WHERE id = :vid AND document_id = :did");
+    $vStmt->execute(['vid' => $reqVersionId, 'did' => $docId]);
+    $vDoc = $vStmt->fetch(PDO::FETCH_ASSOC);
+    if ($vDoc) {
+        $isHistoricalSnapshot = true;
+        $activeVersionName = $vDoc['version_number'];
+        $doc['file_path'] = $vDoc['file_path'];
+        $doc['file_original_name'] = $vDoc['file_original_name'];
+        $doc['file_size'] = $vDoc['file_size'];
+        $doc['file_extension'] = $vDoc['file_extension'];
+        $doc['mime_type'] = $vDoc['mime_type'];
+    }
+}
+
 $ext = strtolower(trim($doc['file_extension'] ?? '', '.'));
-$streamUrl = 'stream.php?id=' . $doc['id'];
-$downloadUrl = 'download.php?id=' . $doc['id'];
+$streamUrl = 'stream.php?id=' . $doc['id'] . ($reqVersionId > 0 ? '&version_id=' . $reqVersionId : '');
+$downloadUrl = 'download.php?id=' . $doc['id'] . ($reqVersionId > 0 ? '&version_id=' . $reqVersionId : '');
 $currentUser = current_user() ?? ['id' => 1, 'full_name' => 'Dr. Ruan Mei'];
 $userId = (int)($currentUser['id'] ?? 1);
 $userName = $currentUser['full_name'] ?? 'Collaborator';
 
-// Check if file type can be rendered in the canvas/preview engine (PDF and DOCX)
-$supportedViewerExts = ['pdf', 'docx', 'doc'];
-$isSupportedViewer = in_array($ext, $supportedViewerExts, true);
+// Check if file type can be rendered in the canvas/preview engine
+$imageExtensions = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'ico'];
+$officeExtensions = ['docx', 'doc', 'rtf', 'odt', 'xlsx', 'xls', 'csv', 'pptx', 'ppt', 'txt'];
+$hasLibreOffice = is_libreoffice_available();
+
+$isImage = in_array($ext, $imageExtensions, true);
+$isPdf = ($ext === 'pdf');
+$isOfficeDoc = in_array($ext, $officeExtensions, true);
+
+if ($isPdf || ($isOfficeDoc && $hasLibreOffice)) {
+    $renderMode = 'pdf';
+} elseif ($isImage) {
+    $renderMode = 'image';
+} elseif ($isOfficeDoc && ($ext === 'docx' || $ext === 'doc')) {
+    $renderMode = 'docx_fallback';
+} else {
+    $renderMode = 'unsupported';
+}
+
+$isSupportedViewer = ($renderMode !== 'unsupported');
 
 // --- AJAX Annotation Persistence API ---
 $action = $_REQUEST['action'] ?? null;
@@ -557,7 +599,14 @@ if ($action) {
                 <?php if (!empty($ext)): ?>
                     <span class="workspace-badge badge-type">.<?php echo e($ext); ?></span>
                 <?php endif; ?>
-                <span class="workspace-badge badge-version"><?php echo e($doc['version'] ?? 'v1.0'); ?></span>
+                <?php if ($isHistoricalSnapshot): ?>
+                    <span class="workspace-badge" style="background:#fef3c7; color:#92400e; border:1px solid #fde68a;" title="Viewing historical version snapshot">Snapshot: <?php echo e($activeVersionName); ?></span>
+                    <a href="view.php?id=<?php echo $docId; ?>" class="btn-workspace-action" style="padding: 2px 8px; font-size: 11px; height: 24px;" title="Switch to latest active revision">Latest (<?php echo e($currentVersion); ?>)</a>
+                <?php else: ?>
+                    <button type="button" class="workspace-badge badge-version" id="btnBadgeVersion" title="View Revision Lineage" style="cursor:pointer; background: var(--green-tint-surface); border: 1px dashed var(--green-tint-border);">
+                        <?php echo e($doc['version'] ?? 'v1.0'); ?>
+                    </button>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -591,7 +640,7 @@ if ($action) {
             <?php endif; ?>
         </div>
 
-        <!-- Right Controls: Active Collaborators, Layer Drawer Toggle, Download -->
+        <!-- Right Controls: Active Collaborators, Version History, Layer Drawer Toggle, Download -->
         <div class="workspace-nav-right">
             <?php if ($isSupportedViewer): ?>
                 <!-- Active Collaborator Presence Indicator -->
@@ -601,13 +650,19 @@ if ($action) {
                     </div>
                 </div>
 
+                <!-- Version History Trigger -->
+                <button type="button" class="btn-workspace-action" id="btnOpenVersionHistoryModal" title="Version Lineage & Upload Revision">
+                    <?php echo render_icon('history'); ?>
+                    <span>Versions</span>
+                </button>
+
                 <!-- Layer Panel Toggle -->
                 <button type="button" class="btn-workspace-action is-active" id="btnToggleLayerDrawer" title="Toggle Annotation Layers">
                     <?php echo render_icon('layers'); ?>
                     <span>Annotation Layers</span>
                 </button>
 
-                <!-- Download Dropdown Menu -->
+                <!-- Download Dropdown Menu for All Supported Formats -->
                 <div class="workspace-download-dropdown" id="workspaceDownloadDropdown">
                     <button type="button" class="btn-workspace-action" id="btnDownloadDropdownToggle" title="Download Options">
                         <?php echo render_icon('download'); ?>
@@ -620,26 +675,31 @@ if ($action) {
                         <a href="<?php echo e($downloadUrl); ?>" class="download-menu-item" download>
                             <?php echo render_icon('files'); ?>
                             <div class="menu-item-text">
-                                <span class="menu-item-title"><?php echo ($ext === 'docx' || $ext === 'doc') ? 'Original (.docx)' : 'Original Document'; ?></span>
+                                <span class="menu-item-title"><?php 
+                                    if ($isOfficeDoc) echo 'Original (.' . e($ext) . ')';
+                                    elseif ($isImage) echo 'Original Image (.' . e($ext) . ')';
+                                    else echo 'Original Document'; 
+                                ?></span>
                                 <span class="menu-item-sub">Download source file</span>
                             </div>
                         </a>
-                        <?php if ($ext === 'docx' || $ext === 'doc'): ?>
-                            <button type="button" class="download-menu-item" id="btnDownloadAsPdf">
+                        <?php if ($isOfficeDoc): ?>
+                            <a href="download.php?id=<?php echo e((string)$doc['id']); ?>&as_pdf=1" class="download-menu-item" download>
                                 <?php echo render_icon('pdf'); ?>
                                 <div class="menu-item-text">
                                     <span class="menu-item-title">Download As PDF</span>
-                                    <span class="menu-item-sub">Convert pages to clean PDF</span>
+                                    <span class="menu-item-sub">Convert to clean vector PDF</span>
+                                </div>
+                            </a>
+                        <?php else: ?>
+                            <button type="button" class="download-menu-item" id="btnDownloadWithAnnotations">
+                                <?php echo render_icon('edit'); ?>
+                                <div class="menu-item-text">
+                                    <span class="menu-item-title"><?php echo $isImage ? ('With Annotations (.' . e($ext) . ')') : 'With Annotations (PDF)'; ?></span>
+                                    <span class="menu-item-sub">Flatten visible drawings &amp; notes</span>
                                 </div>
                             </button>
                         <?php endif; ?>
-                        <button type="button" class="download-menu-item" id="btnDownloadWithAnnotations">
-                            <?php echo render_icon('edit'); ?>
-                            <div class="menu-item-text">
-                                <span class="menu-item-title"><?php echo ($ext === 'docx' || $ext === 'doc') ? 'With Annotations (PDF)' : 'With Annotations'; ?></span>
-                                <span class="menu-item-sub">Flatten visible drawings &amp; notes</span>
-                            </div>
-                        </button>
                     </div>
                 </div>
             <?php else: ?>
@@ -744,10 +804,10 @@ if ($action) {
                 <div class="drawer-body">
                     
                     <div class="layer-section-header-row">
-                        <div class="layer-section-title" style="margin-bottom: 0;">Annotation Layers</div>
+                        <div class="layer-section-title" style="margin-bottom: 0;">Contributors</div>
                         <button type="button" class="btn-add-layer" id="btnAddLayerGroup" title="Add New Annotation Group">
                             <?php echo render_icon('plus'); ?>
-                            <span>New Layer</span>
+                            <span>New Annotation</span>
                         </button>
                     </div>
                     <div class="layers-list" id="layersList">
@@ -807,12 +867,102 @@ if ($action) {
 
 </div>
 
+<!-- 1. Version History Modal (Clean Minimalist Accordion List) -->
+<div class="edms-modal-backdrop" id="versionHistoryModal">
+    <div class="edms-modal-dialog" style="max-width: 580px;">
+        <div class="edms-modal-header">
+            <div class="edms-modal-title">
+                <?php echo render_icon('history'); ?>
+                <span>Version History</span>
+            </div>
+            <button type="button" class="btn-modal-close" id="btnCloseVersionModal" title="Close">&times;</button>
+        </div>
+        <div class="edms-modal-body" style="max-height: 70vh; overflow-y: auto; padding: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                <span style="font-size: 13px; font-weight: 600; color: var(--ink);">Revisions for this document</span>
+                <button type="button" class="btn btn-primary" id="btnOpenUploadRevisionModal" style="padding: 5px 12px; font-size: 12px;">
+                    <?php echo render_icon('plus'); ?>
+                    <span>Upload Revision</span>
+                </button>
+            </div>
+
+            <!-- Version Timeline Feed (Clean Compact Cards) -->
+            <div id="versionTimelineContainer" style="display: flex; flex-direction: column; gap: 8px;">
+                <div style="text-align: center; padding: 20px; color: var(--slate-muted); font-size: 13px;">
+                    Loading version history...
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 2. Modal: Upload Document Revision (Matches explorer.php style) -->
+<div class="edms-modal-backdrop" id="modalUploadRevision">
+    <div class="edms-modal-dialog" style="max-width: 500px;">
+        <div class="edms-modal-header">
+            <div class="edms-modal-title">
+                <?php echo render_icon('cloud-upload'); ?>
+                <span>Upload Document Revision</span>
+            </div>
+            <button type="button" class="btn-modal-close" id="btnCloseUploadRevisionModal" title="Close modal">&times;</button>
+        </div>
+        <form id="formUploadRevision" enctype="multipart/form-data">
+            <input type="hidden" name="action" value="upload_revision">
+            <input type="hidden" name="doc_id" value="<?php echo $docId; ?>">
+
+            <div class="edms-modal-body">
+                <!-- Dropzone Area -->
+                <div class="upload-dropzone" id="uploadDropzoneRevision">
+                    <input type="file" name="file" id="uploadFileInputRevision" class="upload-file-input" required>
+                    <div class="dropzone-content">
+                        <div class="dropzone-icon">
+                            <?php echo render_icon('cloud-upload'); ?>
+                        </div>
+                        <p class="dropzone-text">
+                            <strong>Click to browse</strong> or drag &amp; drop your file here
+                        </p>
+                        <span class="dropzone-hint">Will be saved as revision <strong><?php echo e($nextMinorVer); ?></strong></span>
+                    </div>
+                </div>
+
+                <!-- Selected File Pill (Shown when file is selected) -->
+                <div class="selected-file-preview" id="selectedFilePreviewRevision" style="display: none; margin-top: 14px;">
+                    <div class="preview-file-icon">
+                        <?php echo render_icon('files'); ?>
+                    </div>
+                    <div class="preview-file-details">
+                        <span class="preview-file-name" id="previewFileNameRevision">filename.ext</span>
+                        <span class="preview-file-size" id="previewFileSizeRevision">0 KB</span>
+                    </div>
+                    <button type="button" class="btn-clear-selected-file" id="btnClearSelectedFileRevision" title="Remove file">&times;</button>
+                </div>
+
+                <!-- Revision Notes -->
+                <div class="form-group" style="margin-top: 14px;">
+                    <label for="revisionNotes" class="form-label">Revision Summary (Optional)</label>
+                    <textarea id="revisionNotes" name="change_summary" rows="2" class="form-input" placeholder="What changed in this revision?"></textarea>
+                </div>
+            </div>
+
+            <div class="edms-modal-footer">
+                <button type="button" class="btn btn-secondary" id="btnCancelRevisionUpload">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="btnSubmitRevision">
+                    <?php echo render_icon('cloud-upload'); ?>
+                    <span>Upload Revision (<?php echo e($nextMinorVer); ?>)</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- Pass Initial Document Configuration to JS -->
 <script>
 window.EDMS_WORKSPACE_CONFIG = {
     docId: <?php echo (int)$doc['id']; ?>,
     docName: <?php echo json_encode($doc['name']); ?>,
     fileExt: <?php echo json_encode($ext); ?>,
+    renderMode: <?php echo json_encode($renderMode); ?>,
+    hasLibreOffice: <?php echo $hasLibreOffice ? 'true' : 'false'; ?>,
     isSupportedViewer: <?php echo $isSupportedViewer ? 'true' : 'false'; ?>,
     streamUrl: <?php echo json_encode($streamUrl); ?>,
     downloadUrl: <?php echo json_encode($downloadUrl); ?>,
@@ -822,11 +972,13 @@ window.EDMS_WORKSPACE_CONFIG = {
 };
 </script>
 <?php if ($isSupportedViewer): ?>
+<?php if ($renderMode === 'pdf'): ?>
 <script src="../assets/vendor/pdfjs/pdf.min.js"></script>
 <script src="../assets/vendor/pdf-lib.min.js"></script>
+<?php elseif ($renderMode === 'docx_fallback'): ?>
 <script src="../assets/vendor/jszip.min.js"></script>
 <script src="../assets/vendor/docx-preview.min.js"></script>
-<script src="../assets/vendor/html2canvas.min.js"></script>
+<?php endif; ?>
 <script src="../assets/js/viewer.js" defer></script>
 <?php endif; ?>
 </body>

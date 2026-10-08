@@ -65,7 +65,7 @@ include __DIR__ . '/../includes/header.php';
                 <?php if (empty($users)): ?>
                     <tr>
                         <td colspan="6" style="text-align:center; color:var(--muted); padding:40px;">
-                            No user specimens recorded. Click "Add User" above to create an account.
+                            No user data recorded. Click "Add User" above to create an account.
                         </td>
                     </tr>
                 <?php else: ?>

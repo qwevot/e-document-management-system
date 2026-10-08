@@ -27,9 +27,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
         } else {
-            // Restore node: set is_deleted = 0, status = 'active'
-            $stmt = $pdo->prepare("UPDATE dms_nodes SET is_deleted = 0, status = 'active', updated_at = NOW() WHERE id = :id");
-            $stmt->execute(['id' => $nodeId]);
+            $nodeStmt = $pdo->prepare("SELECT name, parent_id FROM dms_nodes WHERE id = :id AND is_deleted = 1");
+            $nodeStmt->execute(['id' => $nodeId]);
+            $nodeToRestore = $nodeStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$nodeToRestore) {
+                if ($isAjax) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => 'Item not found in archives.']);
+                    exit;
+                }
+                redirect_to('archives', 'error', 'Item not found in archives.');
+            }
+
+            $parentId = $nodeToRestore['parent_id'] !== null ? (int)$nodeToRestore['parent_id'] : null;
+            $name = $nodeToRestore['name'];
+
+            // Check if active duplicate name already exists in target parent
+            if (is_node_duplicate($pdo, $parentId, $name, $nodeId)) {
+                if ($isAjax) {
+                    header('Content-Type: application/json');
+                    echo json_encode([
+                        'success'   => false,
+                        'message'   => "Cannot restore: An active item named \"{$name}\" already exists in the destination folder.",
+                        'duplicate' => true
+                    ]);
+                    exit;
+                }
+                redirect_to('archives', 'error', "An item named '{$name}' already exists in that folder.");
+            }
+
+            // Restore node and all descendants if folder
+            $allAffectedIds = get_descendant_node_ids($pdo, [$nodeId], false);
+            $placeholders = implode(',', array_fill(0, count($allAffectedIds), '?'));
+            $pdo->prepare("UPDATE dms_nodes SET is_deleted = 0, status = 'active', updated_at = NOW() WHERE id IN ($placeholders)")->execute($allAffectedIds);
 
             if ($isAjax) {
                 header('Content-Type: application/json');
@@ -38,6 +69,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             redirect_to('archives', 'success', 'Item restored successfully.');
         }
+    }
+
+    // 1B. Batch Restore Items
+    if ($action === 'batch_restore') {
+        $postIds = isset($_POST['ids']) ? (is_array($_POST['ids']) ? $_POST['ids'] : explode(',', (string)$_POST['ids'])) : [];
+        $nodeIds = array_values(array_unique(array_filter(array_map('intval', $postIds))));
+
+        if (empty($nodeIds)) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'No items selected for restore.']);
+            exit;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($nodeIds), '?'));
+        $itemsStmt = $pdo->prepare("SELECT id, name, parent_id FROM dms_nodes WHERE id IN ($placeholders) AND is_deleted = 1");
+        $itemsStmt->execute($nodeIds);
+        $movingItems = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $conflictingNames = [];
+        foreach ($movingItems as $mItem) {
+            $pid = $mItem['parent_id'] !== null ? (int)$mItem['parent_id'] : null;
+            if (is_node_duplicate($pdo, $pid, $mItem['name'], (int)$mItem['id'])) {
+                $conflictingNames[] = $mItem['name'];
+            }
+        }
+
+        if (!empty($conflictingNames)) {
+            $conflictList = implode(', ', array_map(fn($n) => "\"{$n}\"", array_unique($conflictingNames)));
+            header('Content-Type: application/json');
+            echo json_encode([
+                'success'   => false,
+                'message'   => "Cannot restore: item(s) named {$conflictList} already exist in the active destination folder.",
+                'duplicate' => true
+            ]);
+            exit;
+        }
+
+        $allAffectedIds = get_descendant_node_ids($pdo, $nodeIds, false);
+        if (!empty($allAffectedIds)) {
+            $descPlaceholders = implode(',', array_fill(0, count($allAffectedIds), '?'));
+            $pdo->prepare("UPDATE dms_nodes SET is_deleted = 0, status = 'active', updated_at = NOW() WHERE id IN ($descPlaceholders)")->execute($allAffectedIds);
+        }
+
+        header('Content-Type: application/json');
+        echo json_encode([
+            'success' => true,
+            'message' => count($nodeIds) . ' item(s) restored successfully.'
+        ]);
+        exit;
     }
 
     // 2. Permanently Delete Item (Hard delete from database & disk)
@@ -50,39 +130,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
         } else {
-            // Gather all nodes to purge (the node itself plus any descendants if it is a folder)
-            $nodesToPurge = [$nodeId];
-            $queue = [$nodeId];
-            while (!empty($queue)) {
-                $currId = array_shift($queue);
-                $cStmt = $pdo->prepare("SELECT id FROM dms_nodes WHERE parent_id = :parent_id");
-                $cStmt->execute(['parent_id' => $currId]);
-                $cIds = $cStmt->fetchAll(PDO::FETCH_COLUMN);
-                foreach ($cIds as $cid) {
-                    $cidInt = (int)$cid;
-                    $nodesToPurge[] = $cidInt;
-                    $queue[] = $cidInt;
-                }
-            }
+            $nodesToPurge = get_descendant_node_ids($pdo, [$nodeId], false);
 
-            foreach ($nodesToPurge as $pid) {
-                // Find file path to unlink physical file if exists
-                $st = $pdo->prepare("SELECT file_path FROM dms_nodes WHERE id = :id");
-                $st->execute(['id' => $pid]);
-                $found = $st->fetch(PDO::FETCH_ASSOC);
-
-                if ($found && !empty($found['file_path'])) {
-                    $physicalPath = __DIR__ . '/../' . ltrim($found['file_path'], '/\\');
-                    if (file_exists($physicalPath)) {
-                        @unlink($physicalPath);
+            if (!empty($nodesToPurge)) {
+                $placeholders = implode(',', array_fill(0, count($nodesToPurge), '?'));
+                
+                // Fetch physical files in a single batch
+                $fStmt = $pdo->prepare("SELECT file_path FROM dms_nodes WHERE id IN ($placeholders) AND file_path IS NOT NULL");
+                $fStmt->execute($nodesToPurge);
+                $files = $fStmt->fetchAll(PDO::FETCH_COLUMN);
+                foreach ($files as $filePath) {
+                    if (!empty($filePath)) {
+                        $physicalPath = __DIR__ . '/../' . ltrim($filePath, '/\\');
+                        if (file_exists($physicalPath)) {
+                            @unlink($physicalPath);
+                        }
                     }
                 }
 
-                // Delete annotations and layers associated with this node
-                $pdo->prepare("DELETE FROM dms_annotations WHERE document_id = :id")->execute(['id' => $pid]);
-                $pdo->prepare("DELETE FROM dms_annotation_layers WHERE document_id = :id")->execute(['id' => $pid]);
-                $pdo->prepare("DELETE FROM dms_annotation_history WHERE document_id = :id")->execute(['id' => $pid]);
-                $pdo->prepare("DELETE FROM dms_nodes WHERE id = :id")->execute(['id' => $pid]);
+                // Delete associated records in batch
+                $pdo->prepare("DELETE FROM dms_annotations WHERE document_id IN ($placeholders)")->execute($nodesToPurge);
+                $pdo->prepare("DELETE FROM dms_annotation_layers WHERE document_id IN ($placeholders)")->execute($nodesToPurge);
+                $pdo->prepare("DELETE FROM dms_annotation_history WHERE document_id IN ($placeholders)")->execute($nodesToPurge);
+                $pdo->prepare("DELETE FROM dms_nodes WHERE id IN ($placeholders)")->execute($nodesToPurge);
             }
 
             if ($isAjax) {
@@ -92,6 +162,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             redirect_to('archives', 'success', 'Item permanently purged from database.');
         }
+    }
+
+    // 2B. Batch Permanently Delete Items
+    if ($action === 'batch_purge') {
+        $postIds = isset($_POST['ids']) ? (is_array($_POST['ids']) ? $_POST['ids'] : explode(',', (string)$_POST['ids'])) : [];
+        $nodeIds = array_values(array_unique(array_filter(array_map('intval', $postIds))));
+
+        if (empty($nodeIds)) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'No items selected for permanent deletion.']);
+            exit;
+        }
+
+        $nodesToPurge = get_descendant_node_ids($pdo, $nodeIds, false);
+
+        if (!empty($nodesToPurge)) {
+            $placeholders = implode(',', array_fill(0, count($nodesToPurge), '?'));
+
+            // Fetch physical files in a single batch
+            $fStmt = $pdo->prepare("SELECT file_path FROM dms_nodes WHERE id IN ($placeholders) AND file_path IS NOT NULL");
+            $fStmt->execute($nodesToPurge);
+            $files = $fStmt->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($files as $filePath) {
+                if (!empty($filePath)) {
+                    $physicalPath = __DIR__ . '/../' . ltrim($filePath, '/\\');
+                    if (file_exists($physicalPath)) {
+                        @unlink($physicalPath);
+                    }
+                }
+            }
+
+            // Batch purge annotations and nodes
+            $pdo->prepare("DELETE FROM dms_annotations WHERE document_id IN ($placeholders)")->execute($nodesToPurge);
+            $pdo->prepare("DELETE FROM dms_annotation_layers WHERE document_id IN ($placeholders)")->execute($nodesToPurge);
+            $pdo->prepare("DELETE FROM dms_annotation_history WHERE document_id IN ($placeholders)")->execute($nodesToPurge);
+            $pdo->prepare("DELETE FROM dms_nodes WHERE id IN ($placeholders)")->execute($nodesToPurge);
+        }
+
+        header('Content-Type: application/json');
+        echo json_encode([
+            'success' => true,
+            'message' => count($nodeIds) . ' item(s) permanently deleted.'
+        ]);
+        exit;
     }
 }
 
@@ -255,7 +369,7 @@ function render_archives_card_list($items, $searchQ, $folderId = null, $currentF
             <div class="empty-icon" style="color:var(--amber);"><?php echo render_icon('archive'); ?></div>
             <h3 class="empty-title"><?php echo $folderId !== null ? 'This archived folder is empty' : 'No archived items found'; ?></h3>
             <p class="empty-subtitle">
-                <?php echo $searchQ !== '' ? 'No obsolete documents or folders matched your query.' : ($folderId !== null ? 'There are no items inside this archived folder.' : 'There are currently no obsolete or archived specimens in the repository.'); ?>
+                <?php echo $searchQ !== '' ? 'No obsolete documents or folders matched your query.' : ($folderId !== null ? 'There are no items inside this archived folder.' : 'There are currently no obsolete or archived documents in the repository.'); ?>
             </p>
         </div>
     <?php else: ?>
@@ -277,10 +391,10 @@ function render_archives_card_list($items, $searchQ, $folderId = null, $currentF
             $extIcon = $isFolder ? 'folder' : ($item['file_extension'] ?? 'files');
             $archivedDate = $item['updated_at'] ?? $item['created_at'];
             ?>
-            <div class="explorer-item-card <?php echo $isFolder ? 'is-folder' : 'is-document'; ?>" id="node-<?php echo e((string)$item['id']); ?>">
+            <div class="explorer-item-card <?php echo $isFolder ? 'is-folder' : 'is-document'; ?>" id="node-<?php echo e((string)$item['id']); ?>" data-id="<?php echo e((string)$item['id']); ?>" data-name="<?php echo e($item['name']); ?>" data-type="<?php echo $isFolder ? 'folder' : 'document'; ?>" data-location="<?php echo e($item['parent_name'] ?: 'Projects'); ?>" data-ext="<?php echo e($extIcon); ?>">
                 <!-- Selection Checkbox -->
                 <div class="item-checkbox-col">
-                    <input type="checkbox" class="item-checkbox" aria-label="Select item">
+                    <input type="checkbox" class="item-checkbox" value="<?php echo e((string)$item['id']); ?>" aria-label="Select item">
                 </div>
 
                 <!-- Type Icon -->
@@ -492,14 +606,15 @@ include __DIR__ . '/../includes/header.php';
 
 <!-- Floating Action Popover Menu (3-Dots Context Menu for Archives) -->
 <div class="edms-action-popover" id="archiveActionPopover" style="display: none;">
+    <div class="popover-header-label" id="archivePopoverHeaderLabel" style="display: none;">1 item selected</div>
     <button type="button" class="popover-item" id="popoverArchiveRestore">
         <?php echo render_icon('refresh'); ?>
-        <span>Restore to Workspace</span>
+        <span id="popoverArchiveRestoreLabel">Restore to Workspace</span>
     </button>
     <div class="popover-divider"></div>
     <button type="button" class="popover-item is-danger" id="popoverArchivePurge">
         <?php echo render_icon('trash'); ?>
-        <span>Permanently Delete</span>
+        <span id="popoverArchivePurgeLabel">Permanently Delete</span>
     </button>
 </div>
 
@@ -514,21 +629,22 @@ include __DIR__ . '/../includes/header.php';
             <button type="button" class="btn-modal-close" onclick="closeRestoreModal()">&times;</button>
         </div>
         <form method="POST" action="archives.php" id="formRestoreDoc">
-            <input type="hidden" name="action" value="restore_node">
+            <input type="hidden" name="action" id="restoreDocAction" value="restore_node">
             <input type="hidden" name="id" id="restoreDocId" value="">
+            <input type="hidden" name="ids" id="restoreDocIds" value="">
             <div class="edms-modal-body">
                 <p style="font-size: 13.5px; color: var(--ink); margin-bottom: 8px;">
                     Restore <strong id="restoreDocNameDisplay"></strong> to the active workspace?
                 </p>
                 <p class="form-help" style="color: var(--muted); line-height: 1.5; font-size:12.5px; margin:0;">
-                    Its status will transition from <strong>OBSOLETE</strong> to <strong>ACTIVE</strong>, returning it to the active project tree in its original location.
+                    Status will transition from <strong>OBSOLETE</strong> to <strong>ACTIVE</strong>, returning items to the active project tree in their original locations.
                 </p>
             </div>
             <div class="edms-modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="closeRestoreModal()">Cancel</button>
                 <button type="submit" class="btn btn-primary" id="btnSubmitRestore">
                     <?php echo render_icon('refresh'); ?>
-                    <span>Confirm Restore</span>
+                    <span id="btnSubmitRestoreText">Confirm Restore</span>
                 </button>
             </div>
         </form>
@@ -546,21 +662,22 @@ include __DIR__ . '/../includes/header.php';
             <button type="button" class="btn-modal-close" onclick="closePurgeModal()">&times;</button>
         </div>
         <form method="POST" action="archives.php" id="formPurgeDoc">
-            <input type="hidden" name="action" value="purge_node">
+            <input type="hidden" name="action" id="purgeDocAction" value="purge_node">
             <input type="hidden" name="id" id="purgeDocId" value="">
+            <input type="hidden" name="ids" id="purgeDocIds" value="">
             <div class="edms-modal-body">
                 <p style="font-size: 13.5px; color: var(--ink); margin-bottom: 8px;">
                     Permanently delete <strong id="purgeDocNameDisplay"></strong>?
                 </p>
                 <p class="form-help" style="color: var(--red-ink); background: var(--red-soft); padding: 8px 12px; border-radius: 6px; font-size: 12px; margin:0; line-height: 1.5;">
-                    <strong>Caution:</strong> This operation completely purges the specimen binary, annotations, and database records. If this is a folder, all enclosed contents will also be removed. This cannot be undone.
+                    <strong>Caution:</strong> This operation completely purges the document binary, annotations, and database records. If this is a folder, all enclosed contents will also be removed. This cannot be undone.
                 </p>
             </div>
             <div class="edms-modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="closePurgeModal()">Cancel</button>
                 <button type="submit" class="btn btn-primary" style="background:var(--red); border-color:var(--red);" id="btnSubmitPurge">
                     <?php echo render_icon('trash'); ?>
-                    <span>Delete Permanently</span>
+                    <span id="btnSubmitPurgeText">Delete Permanently</span>
                 </button>
             </div>
         </form>
@@ -572,24 +689,70 @@ let archivesSearchTimer = null;
 let currentArchiveActiveItem = null;
 
 const archivePopover = document.getElementById('archiveActionPopover');
+const archivePopoverHeaderLabel = document.getElementById('archivePopoverHeaderLabel');
 const popoverArchiveRestore = document.getElementById('popoverArchiveRestore');
+const popoverArchiveRestoreLabel = document.getElementById('popoverArchiveRestoreLabel');
 const popoverArchivePurge = document.getElementById('popoverArchivePurge');
+const popoverArchivePurgeLabel = document.getElementById('popoverArchivePurgeLabel');
+const archivesCardList = document.getElementById('archivesCardList');
+
+// Selection State Map
+const selectedArchiveMap = new Map();
+let isArchiveMarqueeDragging = false;
+let archiveMarqueeStartX = 0;
+let archiveMarqueeStartY = 0;
+let archiveMarqueeEl = null;
+let isArchiveContextMenuActive = false;
 
 function hideArchivePopover() {
     if (archivePopover) archivePopover.style.display = 'none';
+    isArchiveContextMenuActive = false;
 }
 
-// Delegated Click for 3-Dots Action Popover
-document.getElementById('archivesCardList').addEventListener('click', function(e) {
+function updateArchiveSelectionUI() {
+    if (!archivesCardList) return;
+    archivesCardList.querySelectorAll('.explorer-item-card').forEach(card => {
+        const id = card.dataset.id;
+        const isSel = selectedArchiveMap.has(id);
+        card.classList.toggle('is-selected', isSel);
+        const cb = card.querySelector('.item-checkbox');
+        if (cb) cb.checked = isSel;
+    });
+}
+
+function clearArchiveSelection() {
+    selectedArchiveMap.clear();
+    updateArchiveSelectionUI();
+}
+
+function getArchiveItemData(card) {
+    if (!card) return null;
+    return {
+        id: card.dataset.id,
+        name: card.dataset.name,
+        type: card.dataset.type || 'document',
+        location: card.dataset.location || 'Projects'
+    };
+}
+
+// Delegated Click for 3-Dots Action Popover (Always Single Selection)
+archivesCardList.addEventListener('click', function(e) {
     const btn = e.target.closest('.btn-archive-actions');
     if (!btn || !archivePopover) return;
     e.preventDefault();
     e.stopPropagation();
 
+    isArchiveContextMenuActive = false; // Strictly single item action
+
     currentArchiveActiveItem = {
         id: btn.dataset.id,
-        name: btn.dataset.name
+        name: btn.dataset.name,
+        type: btn.dataset.type || 'document'
     };
+
+    if (archivePopoverHeaderLabel) archivePopoverHeaderLabel.style.display = 'none';
+    if (popoverArchiveRestoreLabel) popoverArchiveRestoreLabel.textContent = 'Restore to Workspace';
+    if (popoverArchivePurgeLabel) popoverArchivePurgeLabel.textContent = 'Permanently Delete';
 
     // Position popover
     const rect = btn.getBoundingClientRect();
@@ -606,20 +769,189 @@ document.getElementById('archivesCardList').addEventListener('click', function(e
     archivePopover.style.top = top + 'px';
 });
 
+// Checkbox Direct Toggle
+archivesCardList.addEventListener('change', function(e) {
+    const cb = e.target.closest('.item-checkbox');
+    if (!cb) return;
+    const card = cb.closest('.explorer-item-card');
+    if (!card) return;
+    const itemData = getArchiveItemData(card);
+    if (!itemData) return;
+
+    if (cb.checked) {
+        selectedArchiveMap.set(itemData.id, itemData);
+    } else {
+        selectedArchiveMap.delete(itemData.id);
+    }
+    updateArchiveSelectionUI();
+});
+
+// Marquee Drag Selection Engine
+archivesCardList.addEventListener('mousedown', function(e) {
+    if (e.button !== 0) return; // Left click only
+    if (e.target.closest('button, a, input, select, textarea, .btn-action, .edms-action-popover, .edms-modal-backdrop')) {
+        return;
+    }
+
+    const clickedCard = e.target.closest('.explorer-item-card');
+    const isModifier = e.ctrlKey || e.metaKey;
+
+    if (clickedCard) {
+        const itemData = getArchiveItemData(clickedCard);
+        if (isModifier) {
+            if (selectedArchiveMap.has(itemData.id)) {
+                selectedArchiveMap.delete(itemData.id);
+            } else {
+                selectedArchiveMap.set(itemData.id, itemData);
+            }
+            updateArchiveSelectionUI();
+            return;
+        } else if (!selectedArchiveMap.has(itemData.id)) {
+            selectedArchiveMap.clear();
+            selectedArchiveMap.set(itemData.id, itemData);
+            updateArchiveSelectionUI();
+        }
+    } else if (!isModifier) {
+        clearArchiveSelection();
+    }
+
+    isArchiveMarqueeDragging = true;
+    archiveMarqueeStartX = e.clientX;
+    archiveMarqueeStartY = e.clientY;
+
+    if (!archiveMarqueeEl) {
+        archiveMarqueeEl = document.createElement('div');
+        archiveMarqueeEl.className = 'selection-marquee';
+        archiveMarqueeEl.style.display = 'none';
+        document.body.appendChild(archiveMarqueeEl);
+    }
+});
+
+window.addEventListener('mousemove', function(e) {
+    if (!isArchiveMarqueeDragging || !archiveMarqueeEl) return;
+
+    const currentX = e.clientX;
+    const currentY = e.clientY;
+    const x = Math.min(archiveMarqueeStartX, currentX);
+    const y = Math.min(archiveMarqueeStartY, currentY);
+    const w = Math.abs(currentX - archiveMarqueeStartX);
+    const h = Math.abs(currentY - archiveMarqueeStartY);
+
+    if (w > 4 || h > 4) {
+        archiveMarqueeEl.style.display = 'block';
+        archiveMarqueeEl.style.left = x + 'px';
+        archiveMarqueeEl.style.top = y + 'px';
+        archiveMarqueeEl.style.width = w + 'px';
+        archiveMarqueeEl.style.height = h + 'px';
+
+        const marqueeRect = archiveMarqueeEl.getBoundingClientRect();
+        const cards = archivesCardList.querySelectorAll('.explorer-item-card');
+
+        cards.forEach(card => {
+            const cardRect = card.getBoundingClientRect();
+            const intersects = !(
+                marqueeRect.right < cardRect.left ||
+                marqueeRect.left > cardRect.right ||
+                marqueeRect.bottom < cardRect.top ||
+                marqueeRect.top > cardRect.bottom
+            );
+
+            const itemData = getArchiveItemData(card);
+            if (intersects) {
+                selectedArchiveMap.set(itemData.id, itemData);
+            } else if (!e.ctrlKey && !e.metaKey) {
+                selectedArchiveMap.delete(itemData.id);
+            }
+        });
+
+        updateArchiveSelectionUI();
+    }
+});
+
+window.addEventListener('mouseup', function() {
+    if (isArchiveMarqueeDragging) {
+        isArchiveMarqueeDragging = false;
+        if (archiveMarqueeEl) {
+            archiveMarqueeEl.style.display = 'none';
+        }
+    }
+});
+
+// Right-Click Context Menu (Single & Bulk)
+archivesCardList.addEventListener('contextmenu', function(e) {
+    if (e.target.closest('.edms-modal-dialog')) return;
+
+    e.preventDefault();
+    isArchiveContextMenuActive = true;
+    const clickedCard = e.target.closest('.explorer-item-card');
+
+    if (clickedCard) {
+        const itemData = getArchiveItemData(clickedCard);
+        if (!selectedArchiveMap.has(itemData.id)) {
+            selectedArchiveMap.clear();
+            selectedArchiveMap.set(itemData.id, itemData);
+            updateArchiveSelectionUI();
+        }
+    }
+
+    const count = selectedArchiveMap.size;
+    if (count === 0) {
+        hideArchivePopover();
+        return;
+    }
+
+    if (count > 1) {
+        if (archivePopoverHeaderLabel) {
+            archivePopoverHeaderLabel.style.display = 'block';
+            archivePopoverHeaderLabel.textContent = `${count} items selected`;
+        }
+        if (popoverArchiveRestoreLabel) popoverArchiveRestoreLabel.textContent = `Restore ${count} items`;
+        if (popoverArchivePurgeLabel) popoverArchivePurgeLabel.textContent = `Permanently Delete (${count})`;
+    } else {
+        const singleItem = Array.from(selectedArchiveMap.values())[0];
+        currentArchiveActiveItem = singleItem;
+
+        if (archivePopoverHeaderLabel) archivePopoverHeaderLabel.style.display = 'none';
+        if (popoverArchiveRestoreLabel) popoverArchiveRestoreLabel.textContent = 'Restore to Workspace';
+        if (popoverArchivePurgeLabel) popoverArchivePurgeLabel.textContent = 'Permanently Delete';
+    }
+
+    archivePopover.style.display = 'flex';
+    const popoverWidth = 185;
+    let left = e.clientX;
+    let top = e.clientY;
+
+    if (left + popoverWidth > window.innerWidth) {
+        left = window.innerWidth - popoverWidth - 10;
+    }
+    if (top + 140 > window.innerHeight) {
+        top = window.innerHeight - 140;
+    }
+
+    archivePopover.style.left = Math.max(10, left) + 'px';
+    archivePopover.style.top = Math.max(10, top) + 'px';
+});
+
 // Popover item clicks
 if (popoverArchiveRestore) {
     popoverArchiveRestore.addEventListener('click', function() {
+        const isBulk = isArchiveContextMenuActive && selectedArchiveMap.size > 1;
+        const itemsToRestore = isBulk ? Array.from(selectedArchiveMap.values()) : (currentArchiveActiveItem ? [currentArchiveActiveItem] : []);
         hideArchivePopover();
-        if (!currentArchiveActiveItem) return;
-        openRestoreModal(currentArchiveActiveItem.id, currentArchiveActiveItem.name);
+        if (itemsToRestore.length > 0) {
+            openRestoreModalForItems(itemsToRestore);
+        }
     });
 }
 
 if (popoverArchivePurge) {
     popoverArchivePurge.addEventListener('click', function() {
+        const isBulk = isArchiveContextMenuActive && selectedArchiveMap.size > 1;
+        const itemsToPurge = isBulk ? Array.from(selectedArchiveMap.values()) : (currentArchiveActiveItem ? [currentArchiveActiveItem] : []);
         hideArchivePopover();
-        if (!currentArchiveActiveItem) return;
-        openPurgeModal(currentArchiveActiveItem.id, currentArchiveActiveItem.name);
+        if (itemsToPurge.length > 0) {
+            openPurgeModalForItems(itemsToPurge);
+        }
     });
 }
 
@@ -629,6 +961,37 @@ document.addEventListener('click', function(e) {
         hideArchivePopover();
     }
 });
+
+// Modal Openers for Single / Bulk Items
+function openRestoreModalForItems(items) {
+    if (!items || items.length === 0) return;
+    const isBatch = items.length > 1;
+    document.getElementById('restoreDocAction').value = isBatch ? 'batch_restore' : 'restore_node';
+    document.getElementById('restoreDocId').value = isBatch ? '' : items[0].id;
+    document.getElementById('restoreDocIds').value = isBatch ? items.map(i => i.id).join(',') : '';
+    document.getElementById('restoreDocNameDisplay').textContent = isBatch ? `${items.length} selected items` : items[0].name;
+    document.getElementById('btnSubmitRestoreText').textContent = isBatch ? `Restore ${items.length} Items` : 'Confirm Restore';
+    document.getElementById('modalRestoreDoc').classList.add('is-open');
+}
+
+function closeRestoreModal() {
+    document.getElementById('modalRestoreDoc').classList.remove('is-open');
+}
+
+function openPurgeModalForItems(items) {
+    if (!items || items.length === 0) return;
+    const isBatch = items.length > 1;
+    document.getElementById('purgeDocAction').value = isBatch ? 'batch_purge' : 'purge_node';
+    document.getElementById('purgeDocId').value = isBatch ? '' : items[0].id;
+    document.getElementById('purgeDocIds').value = isBatch ? items.map(i => i.id).join(',') : '';
+    document.getElementById('purgeDocNameDisplay').textContent = isBatch ? `${items.length} selected items` : items[0].name;
+    document.getElementById('btnSubmitPurgeText').textContent = isBatch ? `Delete ${items.length} Items Permanently` : 'Delete Permanently';
+    document.getElementById('modalPurgeDoc').classList.add('is-open');
+}
+
+function closePurgeModal() {
+    document.getElementById('modalPurgeDoc').classList.remove('is-open');
+}
 
 // Form Submissions with AJAX
 const formRestore = document.getElementById('formRestoreDoc');
@@ -645,14 +1008,23 @@ if (formRestore) {
         .then(data => {
             if (data.success) {
                 closeRestoreModal();
+                clearArchiveSelection();
                 submitArchivesAjax();
             } else {
-                alert(data.message || 'Failed to restore document.');
+                if (typeof window.showBottomToast === 'function') {
+                    window.showBottomToast(data.message || 'Failed to restore document(s).', 'error');
+                } else {
+                    alert(data.message || 'Failed to restore document(s).');
+                }
             }
         })
         .catch(err => {
             console.error('Restore error:', err);
-            alert('An error occurred while restoring.');
+            if (typeof window.showBottomToast === 'function') {
+                window.showBottomToast('An error occurred while restoring.', 'error');
+            } else {
+                alert('An error occurred while restoring.');
+            }
         });
     });
 }
@@ -671,14 +1043,23 @@ if (formPurge) {
         .then(data => {
             if (data.success) {
                 closePurgeModal();
+                clearArchiveSelection();
                 submitArchivesAjax();
             } else {
-                alert(data.message || 'Failed to delete document.');
+                if (typeof window.showBottomToast === 'function') {
+                    window.showBottomToast(data.message || 'Failed to delete document(s).', 'error');
+                } else {
+                    alert(data.message || 'Failed to delete document(s).');
+                }
             }
         })
         .catch(err => {
             console.error('Purge error:', err);
-            alert('An error occurred during deletion.');
+            if (typeof window.showBottomToast === 'function') {
+                window.showBottomToast('An error occurred during deletion.', 'error');
+            } else {
+                alert('An error occurred during deletion.');
+            }
         });
     });
 }
@@ -737,28 +1118,9 @@ function submitArchivesAjax(page = 1, perPage = null) {
         if (list) list.innerHTML = html;
         params.delete('ajax');
         window.history.replaceState({}, '', `archives.php?${params.toString()}`);
+        clearArchiveSelection();
     })
     .catch(err => console.error('Archives filter error:', err));
-}
-
-function openRestoreModal(id, name) {
-    document.getElementById('restoreDocId').value = id;
-    document.getElementById('restoreDocNameDisplay').textContent = name;
-    document.getElementById('modalRestoreDoc').classList.add('is-open');
-}
-
-function closeRestoreModal() {
-    document.getElementById('modalRestoreDoc').classList.remove('is-open');
-}
-
-function openPurgeModal(id, name) {
-    document.getElementById('purgeDocId').value = id;
-    document.getElementById('purgeDocNameDisplay').textContent = name;
-    document.getElementById('modalPurgeDoc').classList.add('is-open');
-}
-
-function closePurgeModal() {
-    document.getElementById('modalPurgeDoc').classList.remove('is-open');
 }
 
 // Modal closing helpers
@@ -770,6 +1132,7 @@ document.querySelectorAll('.edms-modal-backdrop').forEach(modal => {
 window.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
         hideArchivePopover();
+        clearArchiveSelection();
         document.querySelectorAll('.edms-modal-backdrop.is-open').forEach(m => m.classList.remove('is-open'));
     }
 });

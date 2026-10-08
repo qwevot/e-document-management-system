@@ -41,7 +41,28 @@ CREATE TABLE IF NOT EXISTS `dms_nodes` (
     INDEX `idx_status` (`status`),
     INDEX `idx_is_deleted` (`is_deleted`),
     INDEX `idx_created_by` (`created_by`),
+    INDEX `idx_parent_deleted_status` (`parent_id`, `is_deleted`, `status`),
     CONSTRAINT `fk_dms_nodes_parent` FOREIGN KEY (`parent_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `dms_document_versions` (
+    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `document_id` BIGINT UNSIGNED NOT NULL,
+    `version_number` VARCHAR(20) NOT NULL DEFAULT 'v1.0',
+    `file_path` VARCHAR(255) NOT NULL,
+    `file_original_name` VARCHAR(255) NULL,
+    `file_size` BIGINT UNSIGNED NULL,
+    `file_extension` VARCHAR(20) NULL,
+    `mime_type` VARCHAR(100) NULL,
+    `file_hash` CHAR(64) NULL,
+    `change_summary` TEXT NULL,
+    `is_current` TINYINT(1) NOT NULL DEFAULT 1,
+    `created_by` BIGINT UNSIGNED NULL,
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX `idx_doc_id` (`document_id`),
+    INDEX `idx_doc_current` (`document_id`, `is_current`),
+    CONSTRAINT `fk_doc_versions_doc` FOREIGN KEY (`document_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_doc_versions_user` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================

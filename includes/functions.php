@@ -4,6 +4,8 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/icons.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/converter.php';
+require_once __DIR__ . '/versioning.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -235,6 +237,85 @@ function get_initials(?string $name): string
         }
     }
     return $initials !== '' ? $initials : 'U';
+}
+
+/**
+ * High-performance recursive descendant node ID collector using CTE
+ * Collects all nested descendant IDs of given root IDs in a single query.
+ */
+function get_descendant_node_ids(PDO $pdo, array $nodeIds, bool $activeOnly = false): array
+{
+    $cleanIds = array_values(array_unique(array_filter(array_map('intval', $nodeIds))));
+    if (empty($cleanIds)) {
+        return [];
+    }
+
+    $inClause = implode(',', $cleanIds);
+    $activeFilter = $activeOnly ? 'AND is_deleted = 0' : '';
+
+    try {
+        $sql = "
+            WITH RECURSIVE node_tree AS (
+                SELECT id FROM dms_nodes WHERE id IN ($inClause)
+                UNION ALL
+                SELECT n.id FROM dms_nodes n
+                INNER JOIN node_tree t ON n.parent_id = t.id
+                WHERE 1=1 $activeFilter
+            )
+            SELECT id FROM node_tree
+        ";
+        $stmt = $pdo->query($sql);
+        $allIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        return array_values(array_unique(array_map('intval', $allIds)));
+    } catch (\Throwable $e) {
+        // Graceful fallback for non-CTE or legacy setups
+        $all = $cleanIds;
+        $queue = $cleanIds;
+        while (!empty($queue)) {
+            $currId = array_shift($queue);
+            $q = "SELECT id FROM dms_nodes WHERE parent_id = " . (int)$currId . " $activeFilter";
+            $cIds = $pdo->query($q)->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($cIds as $cid) {
+                $cInt = (int)$cid;
+                if (!in_array($cInt, $all, true)) {
+                    $all[] = $cInt;
+                    $queue[] = $cInt;
+                }
+            }
+        }
+        return $all;
+    }
+}
+
+/**
+ * Checks whether an active item with the same name exists under the given parent folder.
+ */
+function is_node_duplicate(PDO $pdo, ?int $parentId, string $name, ?int $excludeId = null): bool
+{
+    $name = trim($name);
+    if ($name === '') {
+        return false;
+    }
+
+    if ($parentId !== null) {
+        if ($excludeId !== null) {
+            $stmt = $pdo->prepare("SELECT 1 FROM dms_nodes WHERE parent_id = :pid AND LOWER(name) = LOWER(:name) AND id != :eid AND is_deleted = 0 LIMIT 1");
+            $stmt->execute(['pid' => $parentId, 'name' => $name, 'eid' => $excludeId]);
+        } else {
+            $stmt = $pdo->prepare("SELECT 1 FROM dms_nodes WHERE parent_id = :pid AND LOWER(name) = LOWER(:name) AND is_deleted = 0 LIMIT 1");
+            $stmt->execute(['pid' => $parentId, 'name' => $name]);
+        }
+    } else {
+        if ($excludeId !== null) {
+            $stmt = $pdo->prepare("SELECT 1 FROM dms_nodes WHERE parent_id IS NULL AND LOWER(name) = LOWER(:name) AND id != :eid AND is_deleted = 0 LIMIT 1");
+            $stmt->execute(['name' => $name, 'eid' => $excludeId]);
+        } else {
+            $stmt = $pdo->prepare("SELECT 1 FROM dms_nodes WHERE parent_id IS NULL AND LOWER(name) = LOWER(:name) AND is_deleted = 0 LIMIT 1");
+            $stmt->execute(['name' => $name]);
+        }
+    }
+
+    return (bool)$stmt->fetchColumn();
 }
 
 
