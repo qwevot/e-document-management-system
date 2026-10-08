@@ -60,7 +60,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'name'       => $folderName,
                 'created_by' => $userId,
             ]);
-            $newFolderId = $pdo->lastInsertId();
+            $newFolderId = (int)$pdo->lastInsertId();
+
+            log_activity('folder.create', 'folder', $newFolderId, [
+                'name'      => $folderName,
+                'parent_id' => $postParentId
+            ], 'success');
 
             if ($isAjax) {
                 header('Content-Type: application/json');
@@ -91,9 +96,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
         } else {
-            $nodeStmt = $pdo->prepare("SELECT parent_id FROM dms_nodes WHERE id = :id");
+            $nodeStmt = $pdo->prepare("SELECT name, node_type, parent_id FROM dms_nodes WHERE id = :id");
             $nodeStmt->execute(['id' => $nodeId]);
-            $nodeParentId = $nodeStmt->fetchColumn() ?: null;
+            $nodeData = $nodeStmt->fetch(PDO::FETCH_ASSOC);
+            $nodeParentId = $nodeData['parent_id'] ?? null;
+            $oldName = $nodeData['name'] ?? '';
+            $nodeType = $nodeData['node_type'] ?? 'document';
 
             if (is_node_duplicate($pdo, $nodeParentId, $newName, $nodeId)) {
                 if ($isAjax) {
@@ -107,6 +115,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = $pdo->prepare("UPDATE dms_nodes SET name = :name, updated_at = NOW() WHERE id = :id AND is_deleted = 0");
             $stmt->execute(['name' => $newName, 'id' => $nodeId]);
+
+            log_activity('node.rename', $nodeType, $nodeId, [
+                'old_name' => $oldName,
+                'new_name' => $newName
+            ], 'success');
 
             if ($isAjax) {
                 header('Content-Type: application/json');
@@ -243,6 +256,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = $pdo->prepare("UPDATE dms_nodes SET parent_id = ?, updated_at = NOW() WHERE id IN ($placeholders) AND is_deleted = 0");
         $stmt->execute($updateParams);
 
+        log_activity('node.batch_move', 'folder', $targetFolderId, [
+            'moved_node_ids'   => $nodeIds,
+            'target_folder_id' => $targetFolderId,
+            'count'            => count($nodeIds)
+        ], 'success');
+
         header('Content-Type: application/json');
         echo json_encode([
             'success' => true,
@@ -268,6 +287,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $placeholders = implode(',', array_fill(0, count($allAffectedIds), '?'));
             $stmt = $pdo->prepare("UPDATE dms_nodes SET is_deleted = 1, status = 'obsolete', updated_at = NOW() WHERE id IN ($placeholders)");
             $stmt->execute($allAffectedIds);
+
+            log_activity('node.batch_archive', 'node', null, [
+                'selected_node_ids' => $nodeIds,
+                'affected_node_ids' => $allAffectedIds,
+                'count'             => count($nodeIds)
+            ], 'success');
         }
 
         header('Content-Type: application/json');
@@ -292,7 +317,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
         } else {
-            $nodeStmt = $pdo->prepare("SELECT name, parent_id FROM dms_nodes WHERE id = :id AND is_deleted = 0");
+            $nodeStmt = $pdo->prepare("SELECT name, node_type, parent_id FROM dms_nodes WHERE id = :id AND is_deleted = 0");
             $nodeStmt->execute(['id' => $nodeId]);
             $currentNode = $nodeStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -350,6 +375,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare("UPDATE dms_nodes SET parent_id = :parent_id, updated_at = NOW() WHERE id = :id AND is_deleted = 0");
             $stmt->execute(['parent_id' => $targetFolderId, 'id' => $nodeId]);
 
+            log_activity('node.move', $currentNode['node_type'] ?? 'document', $nodeId, [
+                'name'          => $itemName,
+                'old_parent_id' => $currentNode['parent_id'],
+                'new_parent_id' => $targetFolderId
+            ], 'success');
+
             if ($isAjax) {
                 header('Content-Type: application/json');
                 echo json_encode(['success' => true, 'message' => 'Item moved successfully.']);
@@ -371,11 +402,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
         } else {
+            $nodeStmt = $pdo->prepare("SELECT name, node_type FROM dms_nodes WHERE id = :id");
+            $nodeStmt->execute(['id' => $nodeId]);
+            $nodeData = $nodeStmt->fetch(PDO::FETCH_ASSOC);
+
             $stmt = $pdo->prepare("UPDATE dms_nodes SET is_deleted = 1, status = 'obsolete', updated_at = NOW() WHERE id = :id");
             $stmt->execute(['id' => $nodeId]);
 
             // If it was a folder, recursively soft-delete all children and mark obsolete
             $queue = [$nodeId];
+            $allDeletedIds = [$nodeId];
             while (!empty($queue)) {
                 $currId = array_shift($queue);
                 $cStmt = $pdo->prepare("SELECT id FROM dms_nodes WHERE parent_id = :parent_id AND is_deleted = 0");
@@ -387,9 +423,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->exec("UPDATE dms_nodes SET is_deleted = 1, status = 'obsolete', updated_at = NOW() WHERE id IN ($inClause)");
                     foreach ($childIds as $cid) {
                         $queue[] = (int)$cid;
+                        $allDeletedIds[] = (int)$cid;
                     }
                 }
             }
+
+            log_activity('node.archive', $nodeData['node_type'] ?? 'document', $nodeId, [
+                'name'               => $nodeData['name'] ?? '',
+                'affected_node_ids'  => $allDeletedIds
+            ], 'success');
 
             if ($isAjax) {
                 header('Content-Type: application/json');
@@ -526,7 +568,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'created_by'         => $userId,
                 ]);
 
-                $newDocId = $pdo->lastInsertId();
+                $newDocId = (int)$pdo->lastInsertId();
 
                 // Seed baseline version into dms_document_versions
                 try {
@@ -554,6 +596,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } catch (Throwable $e) {
                     // Graceful fallback if table does not exist yet
                 }
+
+                log_activity('document.upload', 'document', $newDocId, [
+                    'name'          => $docName,
+                    'original_name' => $originalName,
+                    'size'          => $fileSize,
+                    'extension'     => $fileExt,
+                    'parent_id'     => $postParentId,
+                    'status'        => $status
+                ], 'success');
 
                 if ($isAjax) {
                     header('Content-Type: application/json');

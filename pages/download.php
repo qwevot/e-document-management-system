@@ -87,6 +87,13 @@ $sanitizedBaseName = preg_replace('/\.(docx?|pdf|rtf|odt|xlsx?|pptx?)$/i', '', $
 // Ensure proper extension is appended
 $downloadName = $sanitizedBaseName . ($downloadExt !== '' ? ('.' . $downloadExt) : '');
 
+log_activity('document.download', 'document', $nodeId, [
+    'document_name' => $doc['name'] ?? '',
+    'filename'      => $downloadName,
+    'version_id'    => $versionId ?: null,
+    'as_pdf'        => $asPdf
+], 'success');
+
 // Clean output buffers to prevent corruption in binary stream
 if (ob_get_level()) {
     ob_end_clean();

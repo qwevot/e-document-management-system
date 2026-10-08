@@ -38,12 +38,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ];
                     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 
+                    log_activity('auth.login', 'user', (int)$user['id'], ['username' => $user['username']], 'success', (int)$user['id'], $user['username'], $user['role']);
+
                     header('Location: pages/explorer.php');
                     exit;
                 }
 
+                log_activity('auth.login_failed', 'user', $user ? (int)$user['id'] : null, ['attempted_username' => $username, 'reason' => 'Invalid credentials'], 'failure', $user ? (int)$user['id'] : null, $username, $user ? $user['role'] : null);
                 $error = 'Invalid username or password.';
             } catch (Exception $e) {
+                log_activity('auth.login_error', null, null, ['attempted_username' => $username, 'error' => $e->getMessage()], 'failure');
                 $error = 'Login is temporarily unavailable.';
             }
         }

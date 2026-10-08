@@ -62,6 +62,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $placeholders = implode(',', array_fill(0, count($allAffectedIds), '?'));
             $pdo->prepare("UPDATE dms_nodes SET is_deleted = 0, status = 'active', updated_at = NOW() WHERE id IN ($placeholders)")->execute($allAffectedIds);
 
+            log_activity('node.restore', 'node', $nodeId, [
+                'name'              => $name,
+                'parent_id'         => $parentId,
+                'affected_node_ids' => $allAffectedIds
+            ], 'success');
+
             if ($isAjax) {
                 header('Content-Type: application/json');
                 echo json_encode(['success' => true, 'message' => 'Item restored to active workspace.']);
@@ -110,6 +116,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!empty($allAffectedIds)) {
             $descPlaceholders = implode(',', array_fill(0, count($allAffectedIds), '?'));
             $pdo->prepare("UPDATE dms_nodes SET is_deleted = 0, status = 'active', updated_at = NOW() WHERE id IN ($descPlaceholders)")->execute($allAffectedIds);
+
+            log_activity('node.batch_restore', 'node', null, [
+                'selected_node_ids' => $nodeIds,
+                'affected_node_ids' => $allAffectedIds,
+                'count'             => count($nodeIds)
+            ], 'success');
         }
 
         header('Content-Type: application/json');
@@ -130,6 +142,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
         } else {
+            $nodeStmt = $pdo->prepare("SELECT name, node_type FROM dms_nodes WHERE id = :id");
+            $nodeStmt->execute(['id' => $nodeId]);
+            $nodeData = $nodeStmt->fetch(PDO::FETCH_ASSOC);
+
             $nodesToPurge = get_descendant_node_ids($pdo, [$nodeId], false);
 
             if (!empty($nodesToPurge)) {
@@ -153,6 +169,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("DELETE FROM dms_annotation_layers WHERE document_id IN ($placeholders)")->execute($nodesToPurge);
                 $pdo->prepare("DELETE FROM dms_annotation_history WHERE document_id IN ($placeholders)")->execute($nodesToPurge);
                 $pdo->prepare("DELETE FROM dms_nodes WHERE id IN ($placeholders)")->execute($nodesToPurge);
+
+                log_activity('node.purge', $nodeData['node_type'] ?? 'document', $nodeId, [
+                    'name'             => $nodeData['name'] ?? '',
+                    'purged_node_ids'  => $nodesToPurge,
+                    'files_unlinked'   => count($files)
+                ], 'success');
             }
 
             if ($isAjax) {
@@ -198,6 +220,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("DELETE FROM dms_annotation_layers WHERE document_id IN ($placeholders)")->execute($nodesToPurge);
             $pdo->prepare("DELETE FROM dms_annotation_history WHERE document_id IN ($placeholders)")->execute($nodesToPurge);
             $pdo->prepare("DELETE FROM dms_nodes WHERE id IN ($placeholders)")->execute($nodesToPurge);
+
+            log_activity('node.batch_purge', 'node', null, [
+                'selected_node_ids' => $nodeIds,
+                'purged_node_ids'   => $nodesToPurge,
+                'files_unlinked'    => count($files)
+            ], 'success');
         }
 
         header('Content-Type: application/json');
@@ -211,14 +239,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // 1. Capture request parameters
 $folderId = isset($_GET['folder']) && is_numeric($_GET['folder']) ? (int)$_GET['folder'] : null;
+$viewMode = isset($_GET['mode']) && in_array($_GET['mode'], ['project', 'document'], true) ? $_GET['mode'] : 'project';
 $typeFilt = isset($_GET['type']) && trim($_GET['type']) !== '' ? trim($_GET['type']) : null;
 $searchQ  = isset($_GET['q']) ? trim($_GET['q']) : '';
 
-// Resolve Breadcrumbs & Current Folder if inside an archived folder
+// Resolve Breadcrumbs & Current Folder if in project mode inside an archived folder
 $breadcrumbs = [];
 $currentFolder = null;
 
-if ($folderId !== null) {
+if ($viewMode === 'project' && $folderId !== null) {
     $stmt = $pdo->prepare('SELECT * FROM dms_nodes WHERE id = :id AND node_type = "folder"');
     $stmt->execute(['id' => $folderId]);
     $currentFolder = $stmt->fetch();
@@ -257,7 +286,7 @@ $fileTypesStmt = $pdo->query("
 ");
 $allFilterTypes = array_values(array_filter($fileTypesStmt->fetchAll(PDO::FETCH_COLUMN)));
 
-// 2. Query Obsolete Items (Both Folders and Documents)
+// 2. Query Obsolete Items (According to Project Tree Mode or Flat Documents Mode)
 $baseSelect = 'SELECT dms_nodes.*, 
                       COALESCE(u.full_name, u.username, "System") AS creator_name,
                       p.name AS parent_name
@@ -277,17 +306,29 @@ if ($searchQ !== '') {
     $whereClause .= ' AND dms_nodes.name LIKE :q';
     $params['q'] = '%' . $searchQ . '%';
     $countParams['q'] = '%' . $searchQ . '%';
+
+    if ($viewMode === 'document') {
+        $whereClause .= ' AND dms_nodes.node_type = "document"';
+    }
+
+    $orderBy = ' ORDER BY dms_nodes.node_type = "folder" DESC, dms_nodes.updated_at DESC, dms_nodes.name ASC';
+} elseif ($viewMode === 'document') {
+    // Flat list of ALL archived documents
+    $whereClause .= ' AND dms_nodes.node_type = "document"';
+    $orderBy = ' ORDER BY dms_nodes.updated_at DESC, dms_nodes.name ASC';
 } elseif ($folderId !== null) {
     // Inside a specific archived folder
     $whereClause .= ' AND dms_nodes.parent_id = :parent_id';
     $params['parent_id'] = $folderId;
     $countParams['parent_id'] = $folderId;
+    $orderBy = ' ORDER BY dms_nodes.node_type = "folder" DESC, dms_nodes.updated_at DESC, dms_nodes.name ASC';
 } else {
-    // Root level view of archives:
+    // Root level view of archives (Project mode):
     // Show root items OR items whose parent is not obsolete (so they surface at archives root)
     $whereClause .= ' AND (dms_nodes.parent_id IS NULL OR dms_nodes.parent_id NOT IN (
         SELECT id FROM dms_nodes WHERE node_type = "folder" AND (status = "obsolete" OR is_deleted = 1)
     ))';
+    $orderBy = ' ORDER BY dms_nodes.node_type = "folder" DESC, dms_nodes.updated_at DESC, dms_nodes.name ASC';
 }
 
 if ($typeFilt !== null) {
@@ -296,8 +337,6 @@ if ($typeFilt !== null) {
     $params['file_ext'] = $cleanExt;
     $countParams['file_ext'] = $cleanExt;
 }
-
-$orderBy = ' ORDER BY dms_nodes.node_type = "folder" DESC, dms_nodes.updated_at DESC, dms_nodes.name ASC';
 
 // 3. Count & Pagination Math
 $countStmt = $pdo->prepare($baseCount . $whereClause);
@@ -321,38 +360,44 @@ $stmt->execute();
 $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Helper function to render cards HTML (identical markup and pagination to explorer.php)
-function render_archives_card_list($items, $searchQ, $folderId = null, $currentFolder = null, $breadcrumbs = [], $page = 1, $perPage = 25, $totalCount = 0, $totalPages = 1): void {
+function render_archives_card_list($items, $viewMode, $searchQ, $folderId = null, $currentFolder = null, $breadcrumbs = [], $page = 1, $perPage = 25, $totalCount = 0, $totalPages = 1): void {
     ?>
     <!-- Permanent Top File Directory Navigation Bar (Blended Background) -->
     <div class="explorer-directory-bar">
-        <?php if ($folderId !== null && $currentFolder): ?>
+        <?php if ($viewMode === 'project' && $folderId !== null && $currentFolder): ?>
             <?php
-            $backUrl = $currentFolder['parent_id'] !== null ? '?folder=' . $currentFolder['parent_id'] : 'archives.php';
+            $backUrl = $currentFolder['parent_id'] !== null ? '?mode=project&folder=' . $currentFolder['parent_id'] : '?mode=project';
             ?>
             <a href="<?php echo e($backUrl); ?>" class="dir-nav-btn back-btn" title="Go up to parent directory">
                 <?php echo render_icon('arrow-left'); ?>
             </a>
         <?php else: ?>
             <span class="dir-nav-btn root-btn" title="Archives Repository" style="color:var(--amber);">
-                <?php echo render_icon('archive'); ?>
+                <?php echo render_icon($viewMode === 'document' ? 'files' : 'archive'); ?>
             </span>
         <?php endif; ?>
 
         <!-- Breadcrumbs Navigation -->
         <nav class="explorer-breadcrumbs" aria-label="Archive Breadcrumbs">
-            <a href="archives.php" class="breadcrumb-item root-link <?php echo ($folderId === null && $searchQ === '') ? 'current' : ''; ?>">
-                <span>Archives</span>
-            </a>
-            <?php foreach ($breadcrumbs as $idx => $crumb): ?>
-                <span class="breadcrumb-sep"><?php echo render_icon('chevron-right'); ?></span>
-                <?php if ($idx === count($breadcrumbs) - 1 && $searchQ === ''): ?>
-                    <span class="breadcrumb-item current"><?php echo e($crumb['name']); ?></span>
-                <?php else: ?>
-                    <a href="archives.php?folder=<?php echo e((string)$crumb['id']); ?>" class="breadcrumb-item">
-                        <?php echo e($crumb['name']); ?>
-                    </a>
-                <?php endif; ?>
-            <?php endforeach; ?>
+            <?php if ($viewMode === 'document'): ?>
+                <span class="breadcrumb-item <?php echo $searchQ === '' ? 'current' : ''; ?>">
+                    <span>All Archived Documents</span>
+                </span>
+            <?php else: ?>
+                <a href="?mode=project" class="breadcrumb-item root-link <?php echo ($folderId === null && $searchQ === '') ? 'current' : ''; ?>">
+                    <span>Archives</span>
+                </a>
+                <?php foreach ($breadcrumbs as $idx => $crumb): ?>
+                    <span class="breadcrumb-sep"><?php echo render_icon('chevron-right'); ?></span>
+                    <?php if ($idx === count($breadcrumbs) - 1 && $searchQ === ''): ?>
+                        <span class="breadcrumb-item current"><?php echo e($crumb['name']); ?></span>
+                    <?php else: ?>
+                        <a href="?mode=project&folder=<?php echo e((string)$crumb['id']); ?>" class="breadcrumb-item">
+                            <?php echo e($crumb['name']); ?>
+                        </a>
+                    <?php endif; ?>
+                <?php endforeach; ?>
+            <?php endif; ?>
 
             <?php if ($searchQ !== ''): ?>
                 <span class="breadcrumb-sep"><?php echo render_icon('chevron-right'); ?></span>
@@ -550,7 +595,7 @@ function render_archives_card_list($items, $searchQ, $folderId = null, $currentF
 
 // Handle AJAX partial reload
 if ($isAjax) {
-    render_archives_card_list($items, $searchQ, $folderId, $currentFolder, $breadcrumbs, $page, $perPage, $totalCount, $totalPages);
+    render_archives_card_list($items, $viewMode, $searchQ, $folderId, $currentFolder, $breadcrumbs, $page, $perPage, $totalCount, $totalPages);
     exit;
 }
 
@@ -565,7 +610,8 @@ include __DIR__ . '/../includes/header.php';
     <!-- Top Action & Search Bar -->
     <div class="explorer-toolbar-card">
         <form method="GET" action="" class="explorer-search-form" id="archivesSearchForm">
-            <?php if ($folderId !== null): ?>
+            <input type="hidden" name="mode" value="<?php echo e($viewMode); ?>" id="archivesSearchMode">
+            <?php if ($folderId !== null && $viewMode === 'project'): ?>
                 <input type="hidden" name="folder" value="<?php echo (int)$folderId; ?>" id="archivesCurrentFolderId">
             <?php endif; ?>
             <?php if ($typeFilt !== null): ?>
@@ -574,32 +620,62 @@ include __DIR__ . '/../includes/header.php';
 
             <div class="explorer-search-box">
                 <span class="search-icon"><?php echo render_icon('search'); ?></span>
-                <input type="text" name="q" id="archivesSearchInput" value="<?php echo e($searchQ); ?>" placeholder="Search archived documents..." class="search-input" autocomplete="off" oninput="debounceArchivesSearch()">
+                <input type="text" name="q" id="archivesSearchInput" value="<?php echo e($searchQ); ?>" placeholder="Search archived documents or folders..." class="search-input" autocomplete="off" oninput="debounceArchivesSearch()">
                 <a href="#" id="archivesSearchClear" class="search-clear" title="Clear search" style="<?php echo $searchQ === '' ? 'display: none;' : ''; ?>" onclick="clearArchivesSearch(event)">&times;</a>
             </div>
         </form>
 
-        <div class="explorer-filters-right">
-            <div class="filter-dropdown-group">
-                <div class="select-wrapper">
-                    <select name="type" id="archivesFilterType" class="filter-select" onchange="handleArchivesTypeFilter(this.value)">
-                        <option value="">All File Types</option>
-                        <?php foreach ($allFilterTypes as $fExt): ?>
-                            <?php $cleanExt = ltrim(strtolower($fExt), '.'); ?>
-                            <option value="<?php echo e($cleanExt); ?>" <?php echo (ltrim(strtolower($typeFilt ?? ''), '.') === $cleanExt) ? 'selected' : ''; ?>>
-                                .<?php echo e($cleanExt); ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
+        <div class="toolbar-actions" style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 12px; color: var(--muted); font-weight: 500;">
+                Repository: <strong style="color: var(--amber-dark);">Archives (Obsolete)</strong>
+            </span>
+        </div>
+    </div>
+
+    <!-- Filter & Navigation Card: Projects vs Documents Mode + Filters -->
+    <div class="explorer-filter-card">
+        
+        <div class="explorer-nav-left">
+            <!-- Main View Switcher (Projects vs Documents) Identical to explorer.php -->
+            <div class="pill-tabs" id="archivesPillTabs">
+                <a href="?mode=project<?php echo $typeFilt ? '&type=' . urlencode($typeFilt) : ''; ?>" data-mode="project" class="pill-tab <?php echo $viewMode === 'project' ? 'active' : ''; ?>" onclick="handleArchivesModeClick(event, 'project')">
+                    <?php echo render_icon('folder'); ?>
+                    <span>Projects</span>
+                </a>
+                <a href="?mode=document<?php echo $typeFilt ? '&type=' . urlencode($typeFilt) : ''; ?>" data-mode="document" class="pill-tab <?php echo $viewMode === 'document' ? 'active' : ''; ?>" onclick="handleArchivesModeClick(event, 'document')">
+                    <?php echo render_icon('files'); ?>
+                    <span>Documents</span>
+                </a>
             </div>
+        </div>
+
+        <!-- Filter Controls: File Type Dropdown -->
+        <div class="explorer-filters-right">
+            <form method="GET" action="" class="filter-dropdown-form" id="archivesFilterForm">
+                <input type="hidden" name="mode" id="archivesFilterMode" value="<?php echo e($viewMode); ?>">
+                <input type="hidden" name="folder" id="archivesFilterFolder" value="<?php echo ($folderId !== null && $viewMode === 'project') ? e((string)$folderId) : ''; ?>">
+
+                <div class="filter-dropdown-group">
+                    <div class="select-wrapper">
+                        <select name="type" id="archivesFilterType" class="filter-select" onchange="handleArchivesTypeFilter(this.value)">
+                            <option value="">All File Types</option>
+                            <?php foreach ($allFilterTypes as $fExt): ?>
+                                <?php $cleanExt = ltrim(strtolower($fExt), '.'); ?>
+                                <option value="<?php echo e($cleanExt); ?>" <?php echo (ltrim(strtolower($typeFilt ?? ''), '.') === $cleanExt) ? 'selected' : ''; ?>>
+                                    .<?php echo e($cleanExt); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+            </form>
         </div>
 
     </div>
 
     <!-- Main Card-by-Card Document List Container -->
     <div class="explorer-card-list" id="archivesCardList">
-        <?php render_archives_card_list($items, $searchQ, $folderId, $currentFolder, $breadcrumbs, $page, $perPage, $totalCount, $totalPages); ?>
+        <?php render_archives_card_list($items, $viewMode, $searchQ, $folderId, $currentFolder, $breadcrumbs, $page, $perPage, $totalCount, $totalPages); ?>
     </div>
 
 </div>
@@ -1083,8 +1159,22 @@ function clearArchivesSearch(e) {
     submitArchivesAjax();
 }
 
+function handleArchivesModeClick(e, mode) {
+    if (e) e.preventDefault();
+    const modeHidden1 = document.getElementById('archivesSearchMode');
+    const modeHidden2 = document.getElementById('archivesFilterMode');
+    if (modeHidden1) modeHidden1.value = mode;
+    if (modeHidden2) modeHidden2.value = mode;
+
+    document.querySelectorAll('#archivesPillTabs .pill-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.mode === mode);
+    });
+
+    submitArchivesAjax(1, null, mode);
+}
+
 function handleArchivesTypeFilter() {
-    submitArchivesAjax();
+    submitArchivesAjax(1);
 }
 
 function handleArchivesPerPage(val) {
@@ -1095,15 +1185,17 @@ function navigateArchivesPage(page) {
     submitArchivesAjax(page);
 }
 
-function submitArchivesAjax(page = 1, perPage = null) {
+function submitArchivesAjax(page = 1, perPage = null, overrideMode = null) {
     const q = document.getElementById('archivesSearchInput')?.value || '';
     const type = document.getElementById('archivesFilterType')?.value || '';
-    const folder = document.getElementById('archivesCurrentFolderId')?.value || '';
+    const mode = overrideMode || document.getElementById('archivesFilterMode')?.value || document.getElementById('archivesSearchMode')?.value || 'project';
+    const folder = (mode === 'project') ? (document.getElementById('archivesCurrentFolderId')?.value || '') : '';
     const selectedPerPage = perPage || document.getElementById('archivesPerPageSelect')?.value || 25;
 
     const params = new URLSearchParams();
     params.set('ajax', '1');
-    if (folder) params.set('folder', folder);
+    params.set('mode', mode);
+    if (folder && mode === 'project') params.set('folder', folder);
     if (q) params.set('q', q);
     if (type) params.set('type', type);
     params.set('page', page);

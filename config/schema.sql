@@ -65,6 +65,27 @@ CREATE TABLE IF NOT EXISTS `dms_document_versions` (
     CONSTRAINT `fk_doc_versions_user` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `system_logs` (
+    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `user_id` BIGINT UNSIGNED NULL,
+    `username` VARCHAR(50) NULL,
+    `role` VARCHAR(50) NULL,
+    `action` VARCHAR(100) NOT NULL,
+    `entity_type` VARCHAR(50) NULL,
+    `entity_id` BIGINT UNSIGNED NULL,
+    `details` LONGTEXT NULL,
+    `ip_address` VARCHAR(45) NULL,
+    `user_agent` VARCHAR(255) NULL,
+    `status` ENUM('success', 'failure', 'warning') NOT NULL DEFAULT 'success',
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX `idx_sys_action` (`action`),
+    INDEX `idx_sys_user` (`user_id`, `username`),
+    INDEX `idx_sys_status` (`status`),
+    INDEX `idx_sys_created_at` (`created_at`),
+    INDEX `idx_sys_entity` (`entity_type`, `entity_id`),
+    CONSTRAINT `fk_sys_logs_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ============================================================
 -- INITIAL SEED DATA
 -- ============================================================

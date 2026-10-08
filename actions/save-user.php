@@ -47,6 +47,15 @@ if ($id > 0) {
         $pdo->prepare('UPDATE users SET username = ?, full_name = ?, role = ?, department = ? WHERE id = ?')
             ->execute([$username, $fullName, $role, $department, $id]);
     }
+
+    log_activity('user.update', 'user', $id, [
+        'username'        => $username,
+        'full_name'       => $fullName,
+        'role'            => $role,
+        'department'      => $department,
+        'password_change' => ($password !== '')
+    ], 'success');
+
     redirect_to('users', 'success', 'User "' . $username . '" updated successfully.');
 }
 
@@ -56,5 +65,13 @@ if ($password === '') {
 
 $pdo->prepare('INSERT INTO users (username, full_name, role, department, password_hash) VALUES (?, ?, ?, ?, ?)')
     ->execute([$username, $fullName, $role, $department, password_hash($password, PASSWORD_DEFAULT)]);
+$newUserId = (int)$pdo->lastInsertId();
+
+log_activity('user.create', 'user', $newUserId, [
+    'username'   => $username,
+    'full_name'  => $fullName,
+    'role'       => $role,
+    'department' => $department
+], 'success');
 
 redirect_to('users', 'success', 'User "' . $username . '" added successfully.');

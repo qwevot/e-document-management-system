@@ -34,4 +34,9 @@ if ($targetUser['role'] === 'super admin') {
 
 $pdo->prepare('DELETE FROM users WHERE id = ?')->execute([$id]);
 
+log_activity('user.delete', 'user', $id, [
+    'username' => $username,
+    'role'     => $targetUser['role'] ?? 'viewer'
+], 'success');
+
 redirect_to('users', 'success', 'User "' . $username . '" removed successfully.');

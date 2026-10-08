@@ -81,6 +81,15 @@ if ($action === 'upload_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $result = create_document_version($docId, $fileData, $bumpType, $changeSummary, $userId);
 
+    if ($result['success'] ?? false) {
+        log_activity('version.upload', 'document', $docId, [
+            'bump_type'       => $bumpType,
+            'change_summary'  => $changeSummary,
+            'original_name'   => $origName,
+            'file_size'       => $fileSize
+        ], 'success');
+    }
+
     echo json_encode($result);
     exit;
 }
@@ -99,6 +108,13 @@ if ($action === 'revert_version' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $result = revert_document_version($docId, $versionId, $userId);
+
+    if ($result['success'] ?? false) {
+        log_activity('version.revert', 'document', $docId, [
+            'version_id' => $versionId
+        ], 'success');
+    }
+
     echo json_encode($result);
     exit;
 }
@@ -117,6 +133,13 @@ if ($action === 'publish_document' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $result = publish_document($docId, $notes, $userId);
+
+    if ($result['success'] ?? false) {
+        log_activity('version.publish', 'document', $docId, [
+            'notes' => $notes
+        ], 'success');
+    }
+
     echo json_encode($result);
     exit;
 }

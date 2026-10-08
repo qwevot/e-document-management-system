@@ -318,4 +318,58 @@ function is_node_duplicate(PDO $pdo, ?int $parentId, string $name, ?int $exclude
     return (bool)$stmt->fetchColumn();
 }
 
+/**
+ * Audit log helper: Records system actions into system_logs.
+ */
+function log_activity(
+    string $action,
+    ?string $entityType = null,
+    ?int $entityId = null,
+    array $details = [],
+    string $status = 'success',
+    ?int $userId = null,
+    ?string $username = null,
+    ?string $role = null
+): bool {
+    try {
+        $pdo = db();
+        if ($userId === null) {
+            $user = current_user();
+            if ($user) {
+                $userId = (int)($user['id'] ?? 0) ?: null;
+                $username = $username ?? ($user['username'] ?? null);
+                $role = $role ?? ($user['role'] ?? null);
+            }
+        }
 
+        $ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+        if (str_contains($ip, ',')) {
+            $ip = trim(explode(',', $ip)[0]);
+        }
+        $ip = substr($ip, 0, 45);
+
+        $ua = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
+        $detailsJson = !empty($details) ? json_encode($details, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : null;
+
+        $stmt = $pdo->prepare("
+            INSERT INTO system_logs (user_id, username, role, action, entity_type, entity_id, details, ip_address, user_agent, status, created_at)
+            VALUES (:user_id, :username, :role, :action, :entity_type, :entity_id, :details, :ip_address, :user_agent, :status, NOW())
+        ");
+
+        return $stmt->execute([
+            'user_id'     => $userId,
+            'username'    => $username ? substr($username, 0, 50) : null,
+            'role'        => $role ? substr($role, 0, 50) : null,
+            'action'      => substr($action, 0, 100),
+            'entity_type' => $entityType ? substr($entityType, 0, 50) : null,
+            'entity_id'   => $entityId,
+            'details'     => $detailsJson,
+            'ip_address'  => $ip,
+            'user_agent'  => $ua,
+            'status'      => in_array($status, ['success', 'failure', 'warning'], true) ? $status : 'success'
+        ]);
+    } catch (\Throwable $e) {
+        error_log("Failed to write system log: " . $e->getMessage());
+        return false;
+    }
+}
