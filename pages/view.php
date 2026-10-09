@@ -682,12 +682,6 @@ if ($action) {
                     </div>
                 </div>
 
-                <!-- Side Panel Toggle -->
-                <button type="button" class="btn-workspace-action is-active" id="btnToggleRightDrawer" title="Toggle Side Panel">
-                    <?php echo render_icon('layers'); ?>
-                    <span>Side Panel</span>
-                </button>
-
                 <!-- Download Dropdown Menu for All Supported Formats -->
                 <div class="workspace-download-dropdown" id="workspaceDownloadDropdown">
                     <button type="button" class="btn-workspace-action" id="btnDownloadDropdownToggle" title="Download Options">
@@ -867,14 +861,19 @@ if ($action) {
 
             <!-- Right Side Drawer: Annotation Layers & Version Lineage Tabs -->
             <aside class="workspace-right-drawer is-open" id="workspaceRightDrawer">
-                <div class="drawer-header" style="padding: 10px 14px; gap: 8px;">
-                    <div style="display: flex; align-items: center; gap: 4px; background: var(--surface-light, #f1f5f9); padding: 3px; border-radius: 6px; border: 1px solid var(--border); flex: 1;">
-                        <button type="button" class="btn-drawer-tab is-active" id="tabBtnAnnotations" style="flex: 1; padding: 5px 8px; font-size: 11.5px; font-weight: 600; border: none; border-radius: 4px; background: var(--surface, #ffffff); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.05); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
-                            <?php echo render_icon('layers'); ?>
+                <!-- Poppable Arrow Toggle Button on Drawer Left Edge -->
+                <button type="button" class="drawer-edge-toggle" id="btnToggleRightDrawerEdge" title="Toggle Side Panel">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                </button>
+
+                <div class="drawer-header" style="padding: 8px 12px; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 3px; background: var(--surface-light, #f1f5f9); padding: 2px; border-radius: 6px; border: 1px solid var(--border); flex: 1;">
+                        <button type="button" class="btn-drawer-tab is-active" id="tabBtnAnnotations" style="flex: 1; height: 26px; padding: 0 6px; font-size: 11.5px; font-weight: 600; border: none; border-radius: 4px; background: var(--surface, #ffffff); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.05); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
                             <span>Layers</span>
                         </button>
-                        <button type="button" class="btn-drawer-tab" id="tabBtnVersions" style="flex: 1; padding: 5px 8px; font-size: 11.5px; font-weight: 600; border: none; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
-                            <?php echo render_icon('history'); ?>
+                        <button type="button" class="btn-drawer-tab" id="tabBtnVersions" style="flex: 1; height: 26px; padding: 0 6px; font-size: 11.5px; font-weight: 600; border: none; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
                             <span>Versions</span>
                         </button>
                     </div>

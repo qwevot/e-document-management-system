@@ -1729,13 +1729,23 @@ document.addEventListener("DOMContentLoaded", function () {
     if (tabBtnAnnotations) tabBtnAnnotations.addEventListener("click", () => switchSidePanelTab("annotations"));
     if (tabBtnVersions) tabBtnVersions.addEventListener("click", () => switchSidePanelTab("versions"));
 
-    if (btnToggleRightDrawer) {
-        btnToggleRightDrawer.addEventListener("click", function () {
-            if (workspaceRightDrawer) {
-                workspaceRightDrawer.classList.toggle("is-open");
+    const btnToggleRightDrawerEdge = document.getElementById("btnToggleRightDrawerEdge");
+
+    function toggleRightDrawer() {
+        if (workspaceRightDrawer) {
+            workspaceRightDrawer.classList.toggle("is-open");
+            if (btnToggleRightDrawer) {
                 btnToggleRightDrawer.classList.toggle("is-active", workspaceRightDrawer.classList.contains("is-open"));
             }
-        });
+        }
+    }
+
+    if (btnToggleRightDrawerEdge) {
+        btnToggleRightDrawerEdge.addEventListener("click", toggleRightDrawer);
+    }
+
+    if (btnToggleRightDrawer) {
+        btnToggleRightDrawer.addEventListener("click", toggleRightDrawer);
     }
 
     if (btnCloseRightDrawer) {
