@@ -877,7 +877,6 @@ if ($action) {
                             <span>Versions</span>
                         </button>
                     </div>
-                    <button type="button" class="btn-drawer-close" id="btnCloseRightDrawer" title="Collapse Drawer">&times;</button>
                 </div>
 
                 <div class="drawer-body">
@@ -1026,13 +1025,13 @@ if ($action) {
     </div>
 </div>
 
-<!-- 3. Modal: Submit for Review & Approval -->
+<!-- 3. Modal: Submit for Review & Approval (Google Share Style) -->
 <div class="edms-modal-backdrop" id="modalSubmitReview">
     <div class="edms-modal-dialog" style="max-width: 520px;">
-        <div class="edms-modal-header">
-            <div class="edms-modal-title">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><polyline points="9 15 11 17 15 13"></polyline></svg>
-                <span>Submit Review</span>
+        <div class="edms-modal-header" style="padding: 16px 20px; border-bottom: 1px solid var(--border);">
+            <div class="edms-modal-title" style="display: flex; align-items: center; gap: 8px;">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="9 15 11 17 15 13"></polyline></svg>
+                <span>Submit for Review</span>
             </div>
             <button type="button" class="btn-modal-close" id="btnCloseSubmitReviewModal" title="Close modal">&times;</button>
         </div>
@@ -1040,38 +1039,74 @@ if ($action) {
             <input type="hidden" name="action" value="submit_review">
             <input type="hidden" name="doc_id" value="<?php echo $docId; ?>">
 
-            <div class="edms-modal-body">
+            <div class="edms-modal-body" style="padding: 18px 20px;">
+                
+                <!-- Google Style Search Input -->
+                <div style="position: relative; margin-bottom: 16px;">
+                    <div style="display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+                        <span style="color: var(--muted); display: flex; align-items: center;"><?php echo render_icon('search'); ?></span>
+                        <input type="text" id="searchReviewerInput" placeholder="Add people or search reviewers..." style="border: none; background: transparent; outline: none; width: 100%; font-size: 13px; color: var(--ink);" autocomplete="off">
+                    </div>
+                </div>
 
-                <div class="form-group" style="margin-bottom: 14px;">
-                    <label class="form-label">Assign Reviewers &amp; Approvers</label>
-                    <div style="max-height: 160px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--surface);">
+                <!-- Reviewers List (Google Drive style 'People with access') -->
+                <div style="margin-bottom: 16px;">
+                    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--muted); letter-spacing: 0.05em; margin-bottom: 8px;">
+                        People with review access
+                    </div>
+                    
+                    <div id="reviewersListContainer" style="max-height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border); border-radius: 8px; padding: 6px; background: var(--surface);">
                         <?php if (empty($eligibleReviewers)): ?>
-                            <span style="font-size: 12px; color: var(--muted); padding: 8px; text-align: center;">No other eligible reviewers found (requires Admin or Engineer role).</span>
+                            <div style="font-size: 12px; color: var(--muted); padding: 14px; text-align: center;">
+                                No eligible reviewers found (requires Admin or Engineer role).
+                            </div>
                         <?php else: ?>
-                            <?php foreach ($eligibleReviewers as $r): ?>
-                                <label style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 4px; cursor: pointer; transition: background 0.1s; font-size: 12.5px;" onmouseover="this.style.background='var(--slate-soft)'" onmouseout="this.style.background='transparent'">
-                                    <div style="display: flex; align-items: center; gap: 8px;">
-                                        <input type="checkbox" name="reviewer_ids[]" value="<?php echo $r['id']; ?>" checked style="cursor: pointer;">
-                                        <span style="font-weight: 600; color: var(--ink);"><?php echo e($r['full_name']); ?></span>
-                                        <span style="font-size: 11px; color: var(--muted);">@<?php echo e($r['username']); ?></span>
+                            <?php foreach ($eligibleReviewers as $r): 
+                                $rName = !empty($r['full_name']) ? $r['full_name'] : $r['username'];
+                                $rInitials = get_initials($rName);
+                                $rAvatar = !empty($r['avatar']) && is_file(__DIR__ . '/../' . $r['avatar']) ? BASE_URL . '/' . e($r['avatar']) : null;
+                            ?>
+                                <label class="reviewer-item-row" data-name="<?php echo e(mb_strtolower($rName)); ?>" data-username="<?php echo e(mb_strtolower($r['username'])); ?>" style="display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; border-radius: 6px; cursor: pointer; transition: background 0.12s ease;" onmouseover="this.style.background='var(--surface-light, #f8fafc)'" onmouseout="this.style.background='transparent'">
+                                    <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+                                        <!-- Avatar Circle -->
+                                        <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--slate-soft, #e2e8f0); color: var(--ink); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; overflow: hidden;">
+                                            <?php if ($rAvatar): ?>
+                                                <img src="<?php echo $rAvatar; ?>" alt="<?php echo e($rName); ?>" style="width: 100%; height: 100%; object-fit: cover;">
+                                            <?php else: ?>
+                                                <span><?php echo e($rInitials); ?></span>
+                                            <?php endif; ?>
+                                        </div>
+                                        <div style="min-width: 0;">
+                                            <div style="font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                <?php echo e($rName); ?>
+                                            </div>
+                                            <div style="font-size: 11px; color: var(--muted); line-height: 1.2;">
+                                                @<?php echo e($r['username']); ?> &bull; <?php echo e($r['department'] ?? 'Engineering'); ?>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <span class="workspace-badge" style="font-size: 10.5px; background: var(--slate-soft); color: var(--slate-ink);"><?php echo ucfirst(e($r['role'])); ?></span>
+                                    
+                                    <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                                        <span class="workspace-badge" style="font-size: 10.5px; background: var(--slate-soft); color: var(--slate-ink);">
+                                            <?php echo ucfirst(e($r['role'])); ?>
+                                        </span>
+                                        <input type="checkbox" name="reviewer_ids[]" value="<?php echo $r['id']; ?>" checked style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--green, #10b981);">
+                                    </div>
                                 </label>
                             <?php endforeach; ?>
                         <?php endif; ?>
                     </div>
-                    <span class="form-help">Selected reviewers will receive this document in their workspace review queue.</span>
                 </div>
 
-                <div class="form-group">
-                    <label for="reviewSubmissionNotes" class="form-label">Submission Notes</label>
-                    <textarea id="reviewSubmissionNotes" name="notes" rows="2" class="form-input" placeholder="e.g. Please review architectural section 3."></textarea>
+                <!-- Message / Notes Input -->
+                <div class="form-group" style="margin-bottom: 0;">
+                    <textarea id="reviewSubmissionNotes" name="notes" rows="2" class="form-input" placeholder="Notify reviewers (optional message)..." style="font-size: 12.5px; resize: vertical; border-radius: 6px;"></textarea>
                 </div>
             </div>
 
-            <div class="edms-modal-footer">
-                <button type="button" class="btn btn-secondary" id="btnCancelSubmitReview">Cancel</button>
-                <button type="submit" class="btn btn-primary" id="btnSubmitReviewAction">
+            <div class="edms-modal-footer" style="padding: 12px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px;">
+                <button type="button" class="btn btn-secondary" id="btnCancelSubmitReview" style="padding: 6px 14px; font-size: 12.5px;">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="btnSubmitReviewAction" style="padding: 6px 16px; font-size: 12.5px;">
                     <span>Submit</span>
                 </button>
             </div>

@@ -2190,6 +2190,19 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
+    const searchReviewerInput = document.getElementById("searchReviewerInput");
+    if (searchReviewerInput) {
+        searchReviewerInput.addEventListener("input", function () {
+            const q = this.value.trim().toLowerCase();
+            document.querySelectorAll("#reviewersListContainer .reviewer-item-row").forEach(row => {
+                const name = row.getAttribute("data-name") || "";
+                const username = row.getAttribute("data-username") || "";
+                const match = name.includes(q) || username.includes(q);
+                row.style.display = match ? "flex" : "none";
+            });
+        });
+    }
+
     if (formSubmitReview) {
         formSubmitReview.addEventListener("submit", function (e) {
             e.preventDefault();
