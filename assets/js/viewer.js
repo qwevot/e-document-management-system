@@ -1693,36 +1693,18 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function switchSidePanelTab(tabName) {
         if (tabName === "versions") {
-            if (tabBtnVersions) {
-                tabBtnVersions.style.background = "var(--surface, #ffffff)";
-                tabBtnVersions.style.color = "var(--ink)";
-                tabBtnVersions.style.boxShadow = "0 1px 2px rgba(0,0,0,0.05)";
-            }
-            if (tabBtnAnnotations) {
-                tabBtnAnnotations.style.background = "transparent";
-                tabBtnAnnotations.style.color = "var(--muted)";
-                tabBtnAnnotations.style.boxShadow = "none";
-            }
+            if (tabBtnVersions) tabBtnVersions.classList.add("active");
+            if (tabBtnAnnotations) tabBtnAnnotations.classList.remove("active");
             if (drawerTabVersions) drawerTabVersions.style.display = "block";
             if (drawerTabAnnotations) drawerTabAnnotations.style.display = "none";
             if (workspaceRightDrawer) workspaceRightDrawer.classList.add("is-open");
-            if (btnToggleRightDrawer) btnToggleRightDrawer.classList.add("is-active");
             loadVersionHistory();
         } else {
-            if (tabBtnAnnotations) {
-                tabBtnAnnotations.style.background = "var(--surface, #ffffff)";
-                tabBtnAnnotations.style.color = "var(--ink)";
-                tabBtnAnnotations.style.boxShadow = "0 1px 2px rgba(0,0,0,0.05)";
-            }
-            if (tabBtnVersions) {
-                tabBtnVersions.style.background = "transparent";
-                tabBtnVersions.style.color = "var(--muted)";
-                tabBtnVersions.style.boxShadow = "none";
-            }
+            if (tabBtnAnnotations) tabBtnAnnotations.classList.add("active");
+            if (tabBtnVersions) tabBtnVersions.classList.remove("active");
             if (drawerTabAnnotations) drawerTabAnnotations.style.display = "block";
             if (drawerTabVersions) drawerTabVersions.style.display = "none";
             if (workspaceRightDrawer) workspaceRightDrawer.classList.add("is-open");
-            if (btnToggleRightDrawer) btnToggleRightDrawer.classList.add("is-active");
         }
     }
 

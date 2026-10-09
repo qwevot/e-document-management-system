@@ -866,14 +866,14 @@ if ($action) {
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
                 </button>
 
-                <div class="drawer-header" style="padding: 8px 12px; gap: 8px;">
-                    <div style="display: flex; align-items: center; gap: 3px; background: var(--surface-light, #f1f5f9); padding: 2px; border-radius: 6px; border: 1px solid var(--border); flex: 1;">
-                        <button type="button" class="btn-drawer-tab is-active" id="tabBtnAnnotations" style="flex: 1; height: 26px; padding: 0 6px; font-size: 11.5px; font-weight: 600; border: none; border-radius: 4px; background: var(--surface, #ffffff); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.05); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;">
-                            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+                <div class="drawer-header" style="padding: 10px 14px; gap: 8px;">
+                    <div class="pill-tabs" style="display: flex; flex: 1; justify-content: stretch;">
+                        <button type="button" class="pill-tab active" id="tabBtnAnnotations" style="flex: 1; justify-content: center; border: none; cursor: pointer;">
+                            <?php echo render_icon('layers'); ?>
                             <span>Layers</span>
                         </button>
-                        <button type="button" class="btn-drawer-tab" id="tabBtnVersions" style="flex: 1; height: 26px; padding: 0 6px; font-size: 11.5px; font-weight: 600; border: none; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;">
-                            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                        <button type="button" class="pill-tab" id="tabBtnVersions" style="flex: 1; justify-content: center; border: none; cursor: pointer;">
+                            <?php echo render_icon('history'); ?>
                             <span>Versions</span>
                         </button>
                     </div>

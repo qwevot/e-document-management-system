@@ -3241,12 +3241,6 @@ body.sidebar-collapsed .main {
     transform: rotate(180deg);
 }
 
-.btn-drawer-tab svg {
-    width: 13px !important;
-    height: 13px !important;
-    flex-shrink: 0;
-}
-
 .drawer-header {
     display: flex;
     align-items: center;
