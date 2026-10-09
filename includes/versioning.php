@@ -131,8 +131,8 @@ function create_document_version(
     $nextVer = calculate_next_version($currentVer, 'minor');
     $summary = trim($changeSummary ?? '') ?: ("Revision update to " . $nextVer);
 
-    // If document was published, new revision sets status to active (working draft)
-    $newStatus = ($doc['status'] === 'published') ? 'active' : ($doc['status'] ?: 'active');
+    // If document was published or on hold, new revision sets status to active (working draft)
+    $newStatus = 'active';
 
     $pdo->beginTransaction();
     try {

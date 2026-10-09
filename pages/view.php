@@ -1039,7 +1039,7 @@ if ($action) {
         <div class="edms-modal-header">
             <div class="edms-modal-title">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><polyline points="9 15 11 17 15 13"></polyline></svg>
-                <span>Submit for Review &amp; Approval</span>
+                <span>Submit Review</span>
             </div>
             <button type="button" class="btn-modal-close" id="btnCloseSubmitReviewModal" title="Close modal">&times;</button>
         </div>
@@ -1048,17 +1048,6 @@ if ($action) {
             <input type="hidden" name="doc_id" value="<?php echo $docId; ?>">
 
             <div class="edms-modal-body">
-                <p style="font-size: 13px; color: var(--muted); margin-bottom: 14px; line-height: 1.5;">
-                    Submitting this document transitions its status to <strong>HOLD</strong>, locking direct modifications until designated reviewers verify and approve the revision.
-                </p>
-
-                <div class="form-group" style="margin-bottom: 14px;">
-                    <label class="form-label" for="targetPublishVersion">Target Publication Release</label>
-                    <select id="targetPublishVersion" name="target_version" class="form-input">
-                        <option value="<?php echo e($nextMajorVer); ?>">Next Major Release: <?php echo e($nextMajorVer); ?> (Recommended for standard release)</option>
-                        <option value="<?php echo e($nextMinorVer); ?>">Next Minor Release: <?php echo e($nextMinorVer); ?></option>
-                    </select>
-                </div>
 
                 <div class="form-group" style="margin-bottom: 14px;">
                     <label class="form-label">Assign Reviewers &amp; Approvers</label>
@@ -1082,7 +1071,7 @@ if ($action) {
                 </div>
 
                 <div class="form-group">
-                    <label for="reviewSubmissionNotes" class="form-label">Submission Notes / Instructions (Optional)</label>
+                    <label for="reviewSubmissionNotes" class="form-label">Submission Notes</label>
                     <textarea id="reviewSubmissionNotes" name="notes" rows="2" class="form-input" placeholder="e.g. Please review architectural section 3."></textarea>
                 </div>
             </div>
@@ -1090,7 +1079,7 @@ if ($action) {
             <div class="edms-modal-footer">
                 <button type="button" class="btn btn-secondary" id="btnCancelSubmitReview">Cancel</button>
                 <button type="submit" class="btn btn-primary" id="btnSubmitReviewAction">
-                    <span>Place on Hold &amp; Submit</span>
+                    <span>Submit</span>
                 </button>
             </div>
         </form>

@@ -2182,7 +2182,6 @@ document.addEventListener("DOMContentLoaded", function () {
             }
 
             const reviewerIds = Array.from(checkedReviewers).map(cb => parseInt(cb.value, 10));
-            const targetVersion = formSubmitReview.querySelector('select[name="target_version"]')?.value || "";
             const notes = formSubmitReview.querySelector('textarea[name="notes"]')?.value || "";
 
             if (btnSubmitReviewAction) {
@@ -2199,7 +2198,6 @@ document.addEventListener("DOMContentLoaded", function () {
                 body: JSON.stringify({
                     doc_id: docId,
                     reviewer_ids: reviewerIds,
-                    target_version: targetVersion,
                     notes: notes
                 })
             })
@@ -2211,7 +2209,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     alert(data.message || "Failed to submit for review.");
                     if (btnSubmitReviewAction) {
                         btnSubmitReviewAction.disabled = false;
-                        btnSubmitReviewAction.innerHTML = `<span>Place on Hold &amp; Submit</span>`;
+                        btnSubmitReviewAction.innerHTML = `<span>Submit</span>`;
                     }
                 }
             })
@@ -2220,7 +2218,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 alert("Network error while submitting review.");
                 if (btnSubmitReviewAction) {
                     btnSubmitReviewAction.disabled = false;
-                    btnSubmitReviewAction.innerHTML = `<span>Place on Hold &amp; Submit</span>`;
+                    btnSubmitReviewAction.innerHTML = `<span>Submit</span>`;
                 }
             });
         });

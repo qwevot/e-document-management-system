@@ -58,7 +58,7 @@ if ($action === 'submit_review' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $result = submit_document_for_review($docId, $reviewerIds, $userId, $targetVersion ?: null, $notes ?: null);
+    $result = submit_document_for_review($docId, $reviewerIds, $userId, null, $notes ?: null);
     echo json_encode($result);
     exit;
 }
