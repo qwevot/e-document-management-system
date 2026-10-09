@@ -4,12 +4,15 @@
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
 
-require_login();
-
 header('Content-Type: application/json');
 
-$action = $_REQUEST['action'] ?? '';
 $user = current_user();
+if (!$user) {
+    echo json_encode(['success' => false, 'message' => 'Please log in to perform review actions.']);
+    exit;
+}
+
+$action = $_REQUEST['action'] ?? '';
 $userId = (int)($user['id'] ?? 1);
 
 // 1. Get eligible reviewers
@@ -83,6 +86,22 @@ if ($action === 'submit_verdict' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $result = submit_review_verdict($docId, $userId, $verdict, $comments ?: null);
+    echo json_encode($result);
+    exit;
+}
+
+// 5. Cancel review submission (Hold -> Active)
+if ($action === 'cancel_review' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $rawInput = file_get_contents('php://input');
+    $data = json_decode($rawInput, true) ?: $_POST;
+
+    $docId = isset($data['doc_id']) && is_numeric($data['doc_id']) ? (int)$data['doc_id'] : 0;
+    if ($docId <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Invalid document ID.']);
+        exit;
+    }
+
+    $result = cancel_document_review($docId, $userId);
     echo json_encode($result);
     exit;
 }

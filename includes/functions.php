@@ -7,6 +7,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/converter.php';
 require_once __DIR__ . '/versioning.php';
 require_once __DIR__ . '/review.php';
+require_once __DIR__ . '/contributors.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();

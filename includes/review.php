@@ -185,9 +185,13 @@ function submit_document_for_review(
         $upd = $pdo->prepare("UPDATE dms_nodes SET status = 'hold', updated_at = NOW() WHERE id = :id");
         $upd->execute(['id' => $docId]);
 
-        // 2. Clear any lingering pending reviews for this document version
-        $delOld = $pdo->prepare("DELETE FROM dms_document_reviews WHERE document_id = :doc_id AND version = :ver AND status = 'pending'");
-        $delOld->execute(['doc_id' => $docId, 'ver' => $targetVer]);
+        // Update current version review_status to 'pending'
+        $updVer = $pdo->prepare("UPDATE dms_document_versions SET review_status = 'pending' WHERE document_id = :doc_id AND is_current = 1");
+        $updVer->execute(['doc_id' => $docId]);
+
+        // 2. Clear any prior review assignments for this document so the new submission has a fresh cycle
+        $delOld = $pdo->prepare("DELETE FROM dms_document_reviews WHERE document_id = :doc_id");
+        $delOld->execute(['doc_id' => $docId]);
 
         // 3. Create review assignments
         $ins = $pdo->prepare("
@@ -309,6 +313,10 @@ function submit_review_verdict(
             $updDoc = $pdo->prepare("UPDATE dms_nodes SET status = 'active', updated_at = NOW() WHERE id = :id");
             $updDoc->execute(['id' => $docId]);
 
+            // Mark current version as rejected
+            $updVer = $pdo->prepare("UPDATE dms_document_versions SET review_status = 'rejected' WHERE document_id = :doc_id AND is_current = 1");
+            $updVer->execute(['doc_id' => $docId]);
+
             $pdo->commit();
 
             log_activity('document.review_rejected', 'document', $docId, [
@@ -381,5 +389,72 @@ function submit_review_verdict(
     } catch (\Throwable $e) {
         $pdo->rollBack();
         return ['success' => false, 'message' => 'Failed to record verdict: ' . $e->getMessage()];
+    }
+}
+
+/**
+ * Cancel/revert an ongoing review submission (Transitions status: Hold -> Active).
+ * Can be invoked strictly by the user who submitted the review request (or document author).
+ */
+function cancel_document_review(int $docId, int $userId): array
+{
+    $pdo = db();
+
+    $docStmt = $pdo->prepare("SELECT * FROM dms_nodes WHERE id = :id AND node_type = 'document'");
+    $docStmt->execute(['id' => $docId]);
+    $doc = $docStmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$doc) {
+        return ['success' => false, 'message' => 'Document not found.'];
+    }
+
+    if ($doc['status'] !== 'hold') {
+        return ['success' => false, 'message' => 'Document is not currently on Hold for review.'];
+    }
+
+    // Identify the user who submitted the review request
+    $reqStmt = $pdo->prepare("SELECT requested_by FROM dms_document_reviews WHERE document_id = :doc_id ORDER BY id DESC LIMIT 1");
+    $reqStmt->execute(['doc_id' => $docId]);
+    $reviewRow = $reqStmt->fetch(PDO::FETCH_ASSOC);
+    $requestedBy = $reviewRow ? (int)$reviewRow['requested_by'] : (int)$doc['created_by'];
+
+    $isSubmitter = ($userId === $requestedBy || (int)$doc['created_by'] === $userId);
+    if (!$isSubmitter) {
+        return ['success' => false, 'message' => 'Only the user who submitted the review request can cancel/retract it.'];
+    }
+
+    $userStmt = $pdo->prepare("SELECT full_name FROM users WHERE id = :id");
+    $userStmt->execute(['id' => $userId]);
+    $user = $userStmt->fetch(PDO::FETCH_ASSOC);
+
+    $pdo->beginTransaction();
+    try {
+        // 1. Delete pending review records
+        $del = $pdo->prepare("DELETE FROM dms_document_reviews WHERE document_id = :doc_id AND status = 'pending'");
+        $del->execute(['doc_id' => $docId]);
+
+        // 2. Set document status back to 'active' and reset version status to 'draft'
+        $upd = $pdo->prepare("UPDATE dms_nodes SET status = 'active', updated_at = NOW() WHERE id = :id");
+        $upd->execute(['id' => $docId]);
+
+        $updVer = $pdo->prepare("UPDATE dms_document_versions SET review_status = 'draft' WHERE document_id = :doc_id AND is_current = 1 AND review_status = 'pending'");
+        $updVer->execute(['doc_id' => $docId]);
+
+        $pdo->commit();
+
+        log_activity('document.review_cancelled', 'document', $docId, [
+            'document_name' => $doc['name'],
+            'cancelled_by'  => $userId,
+            'user_name'     => $user['full_name'] ?? 'User'
+        ], 'info', $userId);
+
+        return [
+            'success' => true,
+            'status'  => 'active',
+            'message' => 'Review submission retracted. Document status returned to Active.'
+        ];
+    } catch (\Throwable $e) {
+        $pdo->rollBack();
+        return ['success' => false, 'message' => 'Failed to cancel review: ' . $e->getMessage()];
     }
 }

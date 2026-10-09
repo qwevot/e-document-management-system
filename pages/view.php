@@ -49,12 +49,17 @@ if ($reqVersionId > 0) {
     if ($vDoc) {
         $isHistoricalSnapshot = true;
         $activeVersionName = $vDoc['version_number'];
+        $activeReviewStatus = $vDoc['review_status'] ?? 'draft';
         $doc['file_path'] = $vDoc['file_path'];
         $doc['file_original_name'] = $vDoc['file_original_name'];
         $doc['file_size'] = $vDoc['file_size'];
         $doc['file_extension'] = $vDoc['file_extension'];
         $doc['mime_type'] = $vDoc['mime_type'];
     }
+} else {
+    $curVerStmt = $pdo->prepare("SELECT review_status FROM dms_document_versions WHERE document_id = :did AND is_current = 1 LIMIT 1");
+    $curVerStmt->execute(['did' => $docId]);
+    $activeReviewStatus = $curVerStmt->fetchColumn() ?: ($doc['status'] === 'published' ? 'approved' : ($doc['status'] === 'hold' ? 'pending' : 'draft'));
 }
 
 $ext = strtolower(trim($doc['file_extension'] ?? '', '.'));
@@ -75,6 +80,7 @@ $approvedCount = 0;
 $rejectedCount = 0;
 $pendingCount = 0;
 
+$submittedByUserId = 0;
 foreach ($reviews as $rev) {
     if ($rev['status'] === 'approved') $approvedCount++;
     elseif ($rev['status'] === 'rejected') $rejectedCount++;
@@ -83,10 +89,31 @@ foreach ($reviews as $rev) {
     if ((int)$rev['reviewer_id'] === $userId && $rev['status'] === 'pending') {
         $userPendingReview = $rev;
     }
+    if ($submittedByUserId === 0 && !empty($rev['requested_by'])) {
+        $submittedByUserId = (int)$rev['requested_by'];
+    }
 }
 $allReviewersCount = count($reviews);
+if ($submittedByUserId === 0) {
+    $submittedByUserId = (int)$doc['created_by'];
+}
+
 $isAdmin = in_array(strtolower($currentUser['role'] ?? ''), ['super admin', 'admin'], true);
-$canActOnReview = $isDocHold && ($userPendingReview !== null || $isAdmin);
+$isOwner = ((int)$doc['created_by'] === $userId || $isAdmin);
+$accessMode = $doc['access_mode'] ?? 'restricted';
+$isContributor = is_document_contributor($docId, $userId);
+$canAnnotate = can_user_annotate_document($doc, $userId);
+$canUploadRevision = can_user_upload_revision($doc, $userId);
+$canSubmitReview = ($isDocActive && $isContributor);
+$canManageAccess = $isOwner;
+
+$isSubmitter = ($userId === $submittedByUserId || (int)$doc['created_by'] === $userId);
+
+// Reviewers / Approvers can act on the review (Approve / Request Changes)
+$canActOnReview = $isDocHold && ($userPendingReview !== null || ($isAdmin && !$isSubmitter));
+
+// Only the submitter who requested the review can retract/cancel it
+$canRetractReview = $isDocHold && $isSubmitter;
 $eligibleReviewers = get_eligible_reviewers($userId);
 
 // Check if file type can be rendered in the canvas/preview engine
@@ -133,7 +160,7 @@ if ($action) {
         $layersStmt->execute(['doc_id' => $docId]);
         $dbLayers = $layersStmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // If current user has zero layers for this document, automatically seed their first layer (e.g. "Layer 1")
+        // If current user is allowed to annotate and has zero layers for this document, seed their first layer (e.g. "Layer 1")
         $hasSelfLayer = false;
         foreach ($dbLayers as $dl) {
             if ((int)$dl['user_id'] === $userId) {
@@ -141,7 +168,7 @@ if ($action) {
                 break;
             }
         }
-        if (!$hasSelfLayer) {
+        if ($canAnnotate && !$hasSelfLayer) {
             $insertSeed = $pdo->prepare("
                 INSERT INTO dms_annotation_layers (document_id, user_id, layer_name, color, is_visible)
                 VALUES (:doc_id, :user_id, 'Layer 1', '#16a34a', 1)
@@ -157,7 +184,8 @@ if ($action) {
                 'layer_name'  => 'Layer 1',
                 'color'       => '#16a34a',
                 'is_visible'  => 1,
-                'author_name' => $userName
+                'author_name' => $userName,
+                'user_avatar' => $currentUser['avatar'] ?? null
             ];
         }
 
@@ -201,6 +229,24 @@ if ($action) {
             }
         }
 
+        // Filter layers:
+        // 1. Keep personal layers if $canAnnotate OR if user already has saved strokes
+        // 2. For other users, only include their layer if it has at least 1 stroke
+        $filteredLayers = [];
+        foreach ($layersMap as $lid => $layer) {
+            $isSelf = ($layer['userId'] === $userId);
+            $hasStrokes = !empty($layer['strokes']);
+            if ($isSelf) {
+                if ($canAnnotate || $hasStrokes) {
+                    $filteredLayers[] = $layer;
+                }
+            } else {
+                if ($hasStrokes) {
+                    $filteredLayers[] = $layer;
+                }
+            }
+        }
+
         // Fetch recent annotation history
         $histStmt = $pdo->prepare("
             SELECT h.id, h.user_id, h.action_type, h.tool_type, h.page_number, h.details,
@@ -217,7 +263,7 @@ if ($action) {
 
         echo json_encode([
             'success' => true,
-            'layers'  => array_values($layersMap),
+            'layers'  => $filteredLayers,
             'history' => $historyLogs
         ]);
         exit;
@@ -225,6 +271,11 @@ if ($action) {
 
     // 1b. Create New Layer Group (+ Add Annotation Group)
     if ($action === 'create_layer') {
+        if (!$canAnnotate) {
+            echo json_encode(['success' => false, 'message' => 'You do not have permission to annotate this document.']);
+            exit;
+        }
+
         $rawInput = file_get_contents('php://input');
         $data = json_decode($rawInput, true);
         $customName = trim($data['name'] ?? '');
@@ -269,6 +320,11 @@ if ($action) {
 
     // 2. Save a new stroke / text note
     if ($action === 'save_stroke') {
+        if (!$canAnnotate) {
+            echo json_encode(['success' => false, 'message' => 'You do not have permission to annotate this document.']);
+            exit;
+        }
+
         $rawInput = file_get_contents('php://input');
         $data = json_decode($rawInput, true);
 
@@ -388,6 +444,11 @@ if ($action) {
 
     // 3. Delete single stroke (Undo / Delete key)
     if ($action === 'delete_stroke') {
+        if (!$canAnnotate) {
+            echo json_encode(['success' => false, 'message' => 'You do not have permission to annotate this document.']);
+            exit;
+        }
+
         $rawInput = file_get_contents('php://input');
         $data = json_decode($rawInput, true);
         $annoId = isset($data['id']) ? (int)$data['id'] : (int)($_POST['id'] ?? 0);
@@ -449,6 +510,11 @@ if ($action) {
 
     // 4. Delete current annotation group (removes annotations and layer record)
     if ($action === 'delete_layer_group') {
+        if (!$canAnnotate) {
+            echo json_encode(['success' => false, 'message' => 'You do not have permission to annotate this document.']);
+            exit;
+        }
+
         $rawInput = file_get_contents('php://input');
         $data = json_decode($rawInput, true);
         $reqLayerId = isset($data['layer_id']) && is_numeric($data['layer_id']) ? (int)$data['layer_id'] : 0;
@@ -530,6 +596,11 @@ if ($action) {
 
     // 5. Rename annotation group
     if ($action === 'rename_layer') {
+        if (!$canAnnotate) {
+            echo json_encode(['success' => false, 'message' => 'You do not have permission to annotate this document.']);
+            exit;
+        }
+
         $rawInput = file_get_contents('php://input');
         $data = json_decode($rawInput, true);
         $reqLayerId = isset($data['layer_id']) && is_numeric($data['layer_id']) ? (int)$data['layer_id'] : 0;
@@ -630,6 +701,9 @@ if ($action) {
                 <?php if (!empty($ext)): ?>
                     <span class="workspace-badge badge-type">.<?php echo e($ext); ?></span>
                 <?php endif; ?>
+                <?php if ($accessMode === 'public'): ?>
+                    <span class="workspace-badge" style="background:var(--info-blue-bg); color:var(--info-blue); border:1px solid var(--info-blue-line);" title="Public Document (Anyone can contribute)">Public</span>
+                <?php endif; ?>
                 <?php if ($isHistoricalSnapshot): ?>
                     <span class="workspace-badge" style="background:var(--amber-soft); color:var(--amber-ink); border:1px solid var(--amber-line);" title="Viewing historical version snapshot">Snapshot: <?php echo e($activeVersionName); ?></span>
                     <a href="view.php?id=<?php echo $docId; ?>" class="btn-workspace-action" style="padding: 2px 8px; font-size: 11px; height: 24px;" title="Switch to latest active revision">Latest (<?php echo e($currentVersion); ?>)</a>
@@ -637,6 +711,12 @@ if ($action) {
                     <button type="button" class="workspace-badge badge-version" id="btnBadgeVersion" title="View Revision Lineage" style="cursor:pointer; background: var(--green-tint-surface); border: 1px dashed var(--green-tint-border);">
                         <?php echo e($doc['version'] ?? 'v1.0'); ?>
                     </button>
+                <?php endif; ?>
+
+                <?php if ($activeReviewStatus === 'rejected'): ?>
+                    <span class="workspace-badge" style="background:var(--red-soft); color:var(--red-ink); border:1px solid var(--red-line); font-weight:700; letter-spacing:0.02em;" title="This version was rejected during review">(REJECTED)</span>
+                <?php elseif ($activeReviewStatus === 'approved' || $doc['status'] === 'published'): ?>
+                    <span class="workspace-badge" style="background:var(--success-badge-bg); color:var(--success-ink); border:1px solid var(--success-line); font-weight:700; letter-spacing:0.02em;" title="This version was officially approved and published">(APPROVED)</span>
                 <?php endif; ?>
             </div>
         </div>
@@ -730,54 +810,38 @@ if ($action) {
                 </a>
             <?php endif; ?>
 
-            <?php if ($isDocActive): ?>
+            <?php if ($canManageAccess): ?>
+                <!-- Document Contributor Access & Sharing -->
+                <button type="button" class="btn-workspace-action" id="btnOpenDocAccessModal" title="Manage Document Contributors &amp; Access Mode" style="color: var(--ink);">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+                    <span>Access</span>
+                </button>
+            <?php endif; ?>
+
+            <?php if ($canSubmitReview): ?>
                 <!-- Submit for Review Trigger -->
                 <button type="button" class="btn-workspace-action" id="btnOpenSubmitReviewModal" title="Submit document for review &amp; formal approval" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.4); color: var(--ink);">
                     <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><polyline points="9 15 11 17 15 13"></polyline></svg>
                     <span>Submit Review</span>
                 </button>
+            <?php elseif ($isDocHold): ?>
+                <?php if ($canActOnReview): ?>
+                    <!-- Finish Review Trigger (Replaces Submit Review for Approvers) -->
+                    <button type="button" class="btn-workspace-action is-active" id="btnOpenFinishReviewModal" title="Finish Review &amp; Record Verdict" style="background: var(--green); border-color: var(--green); color: #fff; font-weight: 600;">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <span>Finish Review</span>
+                    </button>
+                <?php endif; ?>
+                <?php if ($canRetractReview): ?>
+                    <!-- Cancel Submission Trigger for Author / Submitter -->
+                    <button type="button" class="btn-workspace-action" id="btnRetractReviewSubmission" title="Retract review submission and return to draft" style="color: var(--red); border-color: var(--red-line); background: var(--surface);">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        <span>Cancel Submission</span>
+                    </button>
+                <?php endif; ?>
             <?php endif; ?>
         </div>
     </header>
-
-    <?php if ($isDocHold): ?>
-        <!-- Review & Verification Workflow Header Bar -->
-        <div class="workspace-review-bar" style="background: var(--amber-soft); border-bottom: 1px solid var(--amber-line); padding: 6px 16px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--amber-ink); z-index: 9;">
-            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                <span style="display: inline-flex; align-items: center; gap: 5px; font-weight: 700; color: var(--amber-ink);">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                    Under Review
-                </span>
-                <span style="color: var(--amber-ink);">Target Release: <strong><?php echo e($nextMajorVer); ?></strong></span>
-                <span style="color: var(--amber);">•</span>
-                <span>Reviewers (<strong><?php echo $approvedCount; ?>/<?php echo max(1, $allReviewersCount); ?> Approved</strong>):</span>
-                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                    <?php foreach ($reviews as $r): ?>
-                        <span class="workspace-badge" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; font-size: 11px; <?php 
-                            if ($r['status'] === 'approved') echo 'background: var(--success-badge-bg); color: var(--success-ink); border: 1px solid var(--success-line);';
-                            elseif ($r['status'] === 'rejected') echo 'background: var(--red-soft); color: var(--red-ink); border: 1px solid var(--red-line);';
-                            else echo 'background: var(--surface-light); color: var(--muted); border: 1px solid var(--border);';
-                        ?>" title="<?php echo e($r['reviewer_name']) . ' (' . ucfirst($r['status']) . ')' . ($r['comments'] ? ': ' . e($r['comments']) : ''); ?>">
-                            <?php if ($r['status'] === 'approved'): ?>✔<?php elseif ($r['status'] === 'rejected'): ?>✖<?php else: ?>⏳<?php endif; ?>
-                            <?php echo e($r['reviewer_name']); ?>
-                        </span>
-                    <?php endforeach; ?>
-                </div>
-            </div>
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <?php if ($canActOnReview): ?>
-                    <button type="button" class="btn btn-primary" id="btnOpenApproveVerdictModal" style="background: var(--green); border-color: var(--green); padding: 3px 12px; font-size: 11.5px; font-weight: 600; cursor: pointer;">
-                        ✔ Approve &amp; Publish
-                    </button>
-                    <button type="button" class="btn btn-secondary" id="btnOpenRejectVerdictModal" style="color: var(--red); border-color: var(--red-line); background: var(--surface); padding: 3px 12px; font-size: 11.5px; font-weight: 600; cursor: pointer;">
-                        ✖ Request Changes
-                    </button>
-                <?php else: ?>
-                    <span style="font-size: 11px; color: var(--amber-ink); font-style: italic;">Awaiting designated reviewer sign-offs</span>
-                <?php endif; ?>
-            </div>
-        </div>
-    <?php endif; ?>
 
     <?php if ($isSupportedViewer): ?>
         <!-- 2. Main Workspace Layout Area (Supported Viewer) -->
@@ -885,10 +949,12 @@ if ($action) {
                     <div id="drawerTabAnnotations" class="drawer-tab-pane">
                         <div class="layer-section-header-row">
                             <div class="layer-section-title" style="margin-bottom: 0;">Contributors</div>
+                            <?php if ($canAnnotate && !$isHistoricalSnapshot && !$isArchived): ?>
                             <button type="button" class="btn-add-layer" id="btnAddLayerGroup" title="Add New Annotation Group">
                                 <?php echo render_icon('plus'); ?>
                                 <span>New Annotation</span>
                             </button>
+                            <?php endif; ?>
                         </div>
                         <div class="layers-list" id="layersList">
                             <!-- Dynamic Layer Items rendered by JS -->
@@ -921,11 +987,17 @@ if ($action) {
                     <!-- 2. Version History Tab Content -->
                     <div id="drawerTabVersions" class="drawer-tab-pane" style="display: none;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-                            <div class="layer-section-title" style="margin-bottom: 0;">Revision Lineage</div>
-                            <button type="button" class="btn btn-primary" id="btnOpenUploadRevisionModal" style="padding: 4px 10px; font-size: 11.5px; display: inline-flex; align-items: center; gap: 4px;">
-                                <?php echo render_icon('plus'); ?>
-                                <span>Upload Revision</span>
-                            </button>
+                            <div class="layer-section-title" style="margin-bottom: 0;">Version History</div>
+                            <?php if ($isDocHold): ?>
+                                <span class="workspace-badge" style="font-size: 10.5px; background: var(--amber-soft); color: var(--amber-ink); border: 1px solid var(--amber-line);" title="Revision uploads frozen while under review">
+                                    Waiting For Review
+                                </span>
+                            <?php elseif ($canUploadRevision && !$isHistoricalSnapshot && !$isArchived): ?>
+                                <button type="button" class="btn btn-primary" id="btnOpenUploadRevisionModal" style="padding: 4px 10px; font-size: 11.5px; display: inline-flex; align-items: center; gap: 4px;">
+                                    <?php echo render_icon('plus'); ?>
+                                    <span>Upload Revision</span>
+                                </button>
+                            <?php endif; ?>
                         </div>
 
                         <!-- Version Timeline Feed -->
@@ -1114,12 +1186,13 @@ if ($action) {
     </div>
 </div>
 
-<!-- 4. Modal: Submit Review Verdict (Approve or Reject) -->
+<!-- 4. Modal: Finish Review & Submit Verdict -->
 <div class="edms-modal-backdrop" id="modalReviewVerdict">
     <div class="edms-modal-dialog" style="max-width: 480px;">
-        <div class="edms-modal-header">
-            <div class="edms-modal-title" id="verdictModalTitle">
-                <span>Record Review Verdict</span>
+        <div class="edms-modal-header" style="padding: 16px 20px; border-bottom: 1px solid var(--border);">
+            <div class="edms-modal-title" style="display: flex; align-items: center; gap: 8px;">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>Finish Document Review</span>
             </div>
             <button type="button" class="btn-modal-close" id="btnCloseVerdictModal" title="Close modal">&times;</button>
         </div>
@@ -1128,22 +1201,107 @@ if ($action) {
             <input type="hidden" name="doc_id" value="<?php echo $docId; ?>">
             <input type="hidden" name="verdict" id="verdictTypeValue" value="approved">
 
-            <div class="edms-modal-body">
-                <div id="verdictModalBanner" style="padding: 10px 12px; border-radius: 6px; font-size: 12.5px; margin-bottom: 12px;">
-                    <!-- Populated dynamically via JS -->
+            <div class="edms-modal-body" style="padding: 18px 20px;">
+                <!-- Specimen Info Strip -->
+                <div style="background: var(--surface-light); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;">
+                    <div>
+                        <div style="font-size: 13px; font-weight: 600; color: var(--ink);"><?php echo e($doc['name']); ?></div>
+                        <div style="font-size: 11px; color: var(--muted);">Version <?php echo e($doc['version'] ?? 'v1.0'); ?> &bull; Sign-Offs: <?php echo $approvedCount; ?>/<?php echo max(1, $allReviewersCount); ?> Approved</div>
+                    </div>
+                    <span class="workspace-badge" style="background: var(--amber-soft); color: var(--amber-ink); border: 1px solid var(--amber-line);">
+                        Hold
+                    </span>
                 </div>
 
-                <div class="form-group">
-                    <label for="verdictComments" class="form-label" id="verdictCommentsLabel">Feedback / Sign-Off Remarks</label>
-                    <textarea id="verdictComments" name="comments" rows="3" class="form-input" placeholder="Enter review remarks..."></textarea>
-                    <span class="form-help" id="verdictCommentsHelp">Comments will be logged permanently in the system audit trail.</span>
+                <!-- Feedback Comments -->
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="verdictComments" class="form-label" style="font-size: 12px; font-weight: 600;">Remarks / Notes (Optional)</label>
+                    <textarea id="verdictComments" name="comments" rows="3" class="form-input" placeholder="Add optional remarks or notes..." style="font-size: 12.5px; resize: vertical; border-radius: 6px;"></textarea>
+                    <span class="form-help" style="font-size: 11px; color: var(--muted); margin-top: 4px; display: block;">Visual canvas annotations made during review remain attached to this version.</span>
                 </div>
             </div>
 
-            <div class="edms-modal-footer">
-                <button type="button" class="btn btn-secondary" id="btnCancelVerdict">Cancel</button>
-                <button type="submit" class="btn btn-primary" id="btnSubmitVerdict">
-                    <span>Confirm Verdict</span>
+            <div class="edms-modal-footer" style="padding: 12px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px;">
+                <button type="button" class="btn btn-secondary" id="btnCancelVerdict" style="padding: 6px 14px; font-size: 12.5px;">Cancel</button>
+                <button type="button" class="btn btn-secondary" id="btnRejectVerdict" style="padding: 6px 14px; font-size: 12.5px; color: var(--red); border-color: var(--red-line); background: var(--surface); font-weight: 600;">
+                    ✖ Reject
+                </button>
+                <button type="button" class="btn btn-primary" id="btnApproveVerdict" style="padding: 6px 16px; font-size: 12.5px; background: var(--green); border-color: var(--green); font-weight: 600;">
+                    ✔ Approve
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 5. Modal: Document Access & Contributors (Google Drive Share Style) -->
+<div class="edms-modal-backdrop" id="modalDocumentAccess">
+    <div class="edms-modal-dialog" style="max-width: 520px;">
+        <div class="edms-modal-header" style="padding: 16px 20px; border-bottom: 1px solid var(--border);">
+            <div class="edms-modal-title" style="display: flex; align-items: center; gap: 8px;">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+                <span>Document Access &amp; Contributors</span>
+            </div>
+            <button type="button" class="btn-modal-close" id="btnCloseAccessModal" title="Close modal">&times;</button>
+        </div>
+        <form id="formDocumentAccess">
+            <input type="hidden" name="action" value="save_access_data">
+            <input type="hidden" name="doc_id" value="<?php echo $docId; ?>">
+
+            <div class="edms-modal-body" style="padding: 18px 20px;">
+                
+                <!-- Access Mode Segmented Switch -->
+                <div style="margin-bottom: 18px;">
+                    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--muted); letter-spacing: 0.05em; margin-bottom: 8px;">
+                        General Access
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--surface);">
+                        <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer;">
+                            <input type="radio" name="access_mode" value="restricted" id="modeRestricted" <?php echo $accessMode === 'restricted' ? 'checked' : ''; ?> style="margin-top: 3px; accent-color: var(--green);">
+                            <div>
+                                <div style="font-size: 13px; font-weight: 600; color: var(--ink);">Restricted</div>
+                                <div style="font-size: 11.5px; color: var(--muted); line-height: 1.3;">Only the Document Owner and invited Contributors can annotate, update versions, and submit reviews.</div>
+                            </div>
+                        </label>
+                        <div style="height: 1px; background: var(--border);"></div>
+                        <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer;">
+                            <input type="radio" name="access_mode" value="public" id="modePublic" <?php echo $accessMode === 'public' ? 'checked' : ''; ?> style="margin-top: 3px; accent-color: var(--green);">
+                            <div>
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span style="font-size: 13px; font-weight: 600; color: var(--ink);">Public (Open Contribution)</span>
+                                    <span class="workspace-badge" style="background: var(--info-blue-bg); color: var(--info-blue); font-size: 9.5px;">Anyone can edit</span>
+                                </div>
+                                <div style="font-size: 11.5px; color: var(--muted); line-height: 1.3;">All authenticated users can annotate, upload revisions, and submit for review.</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Add Contributor Input -->
+                <div id="contributorsManagementSection" style="<?php echo $accessMode === 'public' ? 'opacity: 0.5; pointer-events: none;' : ''; ?>">
+                    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--muted); letter-spacing: 0.05em; margin-bottom: 8px;">
+                        Manage Specific Contributors
+                    </div>
+                    
+                    <div style="position: relative; margin-bottom: 12px;">
+                        <div style="display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; background: var(--surface);">
+                            <span style="color: var(--muted); display: flex; align-items: center;"><?php echo render_icon('search'); ?></span>
+                            <input type="text" id="searchContributorInput" placeholder="Search people to add as contributors..." style="border: none; background: transparent; outline: none; width: 100%; font-size: 13px; color: var(--ink);" autocomplete="off">
+                        </div>
+                    </div>
+
+                    <!-- Contributors List Container -->
+                    <div id="contributorsListContainer" style="max-height: 170px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border); border-radius: 8px; padding: 6px; background: var(--surface);">
+                        <div style="text-align: center; padding: 12px; color: var(--muted); font-size: 12px;">Loading contributors...</div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="edms-modal-footer" style="padding: 12px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px;">
+                <button type="button" class="btn btn-secondary" id="btnCancelAccessModal" style="padding: 6px 14px; font-size: 12.5px;">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="btnSaveAccessSettings" style="padding: 6px 18px; font-size: 12.5px; background: var(--green); border-color: var(--green);">
+                    <span>Save Changes</span>
                 </button>
             </div>
         </form>
@@ -1157,6 +1315,16 @@ window.EDMS_WORKSPACE_CONFIG = {
     docName: <?php echo json_encode($doc['name']); ?>,
     fileExt: <?php echo json_encode($ext); ?>,
     renderMode: <?php echo json_encode($renderMode); ?>,
+    docStatus: <?php echo json_encode($doc['status']); ?>,
+    accessMode: <?php echo json_encode($accessMode); ?>,
+    isDocHold: <?php echo $isDocHold ? 'true' : 'false'; ?>,
+    isDocPublished: <?php echo $isDocPublished ? 'true' : 'false'; ?>,
+    isOwner: <?php echo $isOwner ? 'true' : 'false'; ?>,
+    isContributor: <?php echo $isContributor ? 'true' : 'false'; ?>,
+    canAnnotate: <?php echo $canAnnotate ? 'true' : 'false'; ?>,
+    canUploadRevision: <?php echo $canUploadRevision ? 'true' : 'false'; ?>,
+    canSubmitReview: <?php echo $canSubmitReview ? 'true' : 'false'; ?>,
+    canManageAccess: <?php echo $canManageAccess ? 'true' : 'false'; ?>,
     hasLibreOffice: <?php echo $hasLibreOffice ? 'true' : 'false'; ?>,
     isSupportedViewer: <?php echo $isSupportedViewer ? 'true' : 'false'; ?>,
     streamUrl: <?php echo json_encode($streamUrl); ?>,

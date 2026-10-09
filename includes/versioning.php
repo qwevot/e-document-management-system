@@ -22,6 +22,7 @@ function init_versioning_schema(): void
         `file_hash` CHAR(64) NULL,
         `change_summary` TEXT NULL,
         `is_current` TINYINT(1) NOT NULL DEFAULT 1,
+        `review_status` ENUM('draft', 'pending', 'approved', 'rejected') NOT NULL DEFAULT 'draft',
         `created_by` BIGINT UNSIGNED NULL,
         `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
         INDEX `idx_doc_id` (`document_id`),
@@ -31,6 +32,14 @@ function init_versioning_schema(): void
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     ";
     $pdo->exec($sql);
+
+    // Migration check for review_status column
+    try {
+        $checkCol = $pdo->query("SHOW COLUMNS FROM `dms_document_versions` LIKE 'review_status'");
+        if ($checkCol->rowCount() === 0) {
+            $pdo->exec("ALTER TABLE `dms_document_versions` ADD COLUMN `review_status` ENUM('draft', 'pending', 'approved', 'rejected') NOT NULL DEFAULT 'draft' AFTER `is_current`");
+        }
+    } catch (\Throwable $e) {}
 
     // Baseline seed for existing documents
     $stmt = $pdo->query("SELECT * FROM dms_nodes WHERE node_type = 'document' AND file_path IS NOT NULL AND file_path != ''");
@@ -126,12 +135,23 @@ function create_document_version(
         return ['success' => false, 'message' => 'Document not found.'];
     }
 
+    if ($doc['status'] === 'hold') {
+        return [
+            'success' => false, 
+            'message' => 'Document is currently frozen on Hold for formal review. Retract the review submission or wait for reviewer sign-off before uploading new revisions.'
+        ];
+    }
+
+    if ($doc['status'] === 'obsolete') {
+        return ['success' => false, 'message' => 'Cannot upload revisions to an obsolete document.'];
+    }
+
     // Always increment minor version for regular specimen revisions
     $currentVer = $doc['version'] ?: 'v0.1';
     $nextVer = calculate_next_version($currentVer, 'minor');
     $summary = trim($changeSummary ?? '') ?: ("Revision update to " . $nextVer);
 
-    // If document was published or on hold, new revision sets status to active (working draft)
+    // If document was published, new revision sets status to active (working draft)
     $newStatus = 'active';
 
     $pdo->beginTransaction();
@@ -229,9 +249,9 @@ function publish_document(int $docId, ?string $publishNotes = null, int $userId 
         // Insert new major version record
         $ins = $pdo->prepare("
             INSERT INTO dms_document_versions 
-            (document_id, version_number, file_path, file_original_name, file_size, file_extension, mime_type, file_hash, change_summary, is_current, created_by, created_at)
+            (document_id, version_number, file_path, file_original_name, file_size, file_extension, mime_type, file_hash, change_summary, is_current, review_status, created_by, created_at)
             VALUES 
-            (:document_id, :version_number, :file_path, :file_original_name, :file_size, :file_extension, :mime_type, :file_hash, :change_summary, 1, :created_by, NOW())
+            (:document_id, :version_number, :file_path, :file_original_name, :file_size, :file_extension, :mime_type, :file_hash, :change_summary, 1, 'approved', :created_by, NOW())
         ");
         $ins->execute([
             'document_id'        => $docId,

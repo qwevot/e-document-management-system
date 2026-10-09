@@ -2604,7 +2604,22 @@ body.sidebar-collapsed .main {
     text-transform: uppercase;
     letter-spacing: 0.02em;
     flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
 }
+
+.workspace-badge svg {
+    width: 11px;
+    height: 11px;
+    stroke-width: 2.2;
+    flex-shrink: 0;
+}
+
+svg.icon-xs, .icon-xs svg { width: 11px; height: 11px; flex-shrink: 0; }
+svg.icon-sm, .icon-sm svg { width: 13px; height: 13px; flex-shrink: 0; }
+svg.icon-md, .icon-md svg { width: 16px; height: 16px; flex-shrink: 0; }
+svg.icon-lg, .icon-lg svg { width: 20px; height: 20px; flex-shrink: 0; }
 
 .workspace-badge.badge-type {
     background: var(--info-blue-bg);

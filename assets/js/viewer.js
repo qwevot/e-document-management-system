@@ -37,6 +37,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const strokeButtons = document.querySelectorAll(".tool-stroke-group .stroke-btn");
     const btnUndoStroke = document.getElementById("btnUndoStroke");
     const btnClearMyLayer = document.getElementById("btnClearMyLayer");
+    const btnAddLayerGroup = document.getElementById("btnAddLayerGroup");
     
     // Right Drawer Elements
     const workspaceRightDrawer = document.getElementById("workspaceRightDrawer");
@@ -49,7 +50,19 @@ document.addEventListener("DOMContentLoaded", function () {
     const layersList = document.getElementById("layersList");
     const annotationHistoryFeed = document.getElementById("annotationHistoryFeed");
     const historyCountBadge = document.getElementById("historyCountBadge");
-    const btnToggleHistoryAccordion = document.getElementById("btnToggleHistoryAccordion");
+    // Annotation Lock Rule:
+    // If a document is PUBLISHED, or viewing a historical snapshot, or user is not a contributor:
+    const isDocPublished = Boolean(config.isDocPublished || config.docStatus === 'published');
+    const isHistoricalSnapshot = Boolean(config.isHistoricalSnapshot);
+    const canAnnotate = (typeof config.canAnnotate !== 'undefined') ? Boolean(config.canAnnotate) : true;
+    const isAnnotationLocked = isDocPublished || isHistoricalSnapshot || !canAnnotate;
+
+    function getAnnotationLockMessage() {
+        if (isDocPublished) return "Document is Published. Annotations are locked.";
+        if (isHistoricalSnapshot) return "Viewing historical snapshot (read-only).";
+        if (!canAnnotate) return "You have read-only access (Contributor permissions required).";
+        return "Annotations are locked.";
+    }
 
     // --- State Management ---
     let pdfDocument = null;
@@ -57,7 +70,7 @@ document.addEventListener("DOMContentLoaded", function () {
     let currentVisiblePage = 1;
     let baseScale = 1.25; // Default rendering scale
     let currentZoomPercent = 100; // 100%
-    let activeTool = "pen"; // "pan", "pen", "highlighter", "text"
+    let activeTool = isAnnotationLocked ? "pan" : "pen"; // If locked, force "pan"
     let activeColor = "#16a34a"; // Default Emerald
     let activeStrokeWidth = 2;
     let layerOpacity = 1.0;
@@ -75,6 +88,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // Helper: Get currently active layer object for drawing
     function getActiveSelfLayer() {
+        if (!canAnnotate || isAnnotationLocked) return null;
         if (activeLayerId && annotationLayers[activeLayerId]) {
             return annotationLayers[activeLayerId];
         }
@@ -102,6 +116,7 @@ document.addEventListener("DOMContentLoaded", function () {
                         layerId: lid,
                         userId: layerItem.userId,
                         userName: layerItem.userName,
+                        userAvatar: layerItem.userAvatar || null,
                         layerName: layerItem.layerName || "Layer 1",
                         color: layerItem.color || "#16a34a",
                         visible: layerItem.visible !== false,
@@ -110,12 +125,16 @@ document.addEventListener("DOMContentLoaded", function () {
                     };
                 });
 
-                // Set initial activeLayerId to the most recent personal layer if not already set
-                if (!activeLayerId || !annotationLayers[activeLayerId] || !annotationLayers[activeLayerId].isSelf) {
-                    const selfLayers = Object.values(annotationLayers).filter(l => l.isSelf);
-                    if (selfLayers.length > 0) {
-                        activeLayerId = selfLayers[selfLayers.length - 1].layerId;
+                // Set initial activeLayerId to the most recent personal layer if user is allowed to annotate
+                if (canAnnotate && !isAnnotationLocked) {
+                    if (!activeLayerId || !annotationLayers[activeLayerId] || !annotationLayers[activeLayerId].isSelf) {
+                        const selfLayers = Object.values(annotationLayers).filter(l => l.isSelf);
+                        if (selfLayers.length > 0) {
+                            activeLayerId = selfLayers[selfLayers.length - 1].layerId;
+                        }
                     }
+                } else {
+                    activeLayerId = null;
                 }
 
                 // Load annotation history logs
@@ -494,6 +513,13 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function handleStartDrawing(e, canvas, pageNum) {
+        if (isAnnotationLocked && activeTool !== "pan") {
+            if (typeof window.showBottomToast === "function") {
+                window.showBottomToast(getAnnotationLockMessage(), "warning");
+            }
+            return;
+        }
+
         const selfLayer = getActiveSelfLayer();
         if (!selfLayer || !selfLayer.visible) return;
 
@@ -1164,7 +1190,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
             uGroup.layers.forEach(layer => {
                 const lid = layer.layerId;
-                const isSelected = isSelf && (parseInt(lid, 10) === parseInt(activeLayerId, 10));
+                const canEditSelf = isSelf && canAnnotate && !isAnnotationLocked;
+                const isSelected = canEditSelf && (parseInt(lid, 10) === parseInt(activeLayerId, 10));
                 const strokeCount = layer.strokes ? layer.strokes.length : 0;
 
                 const row = document.createElement("div");
@@ -1178,8 +1205,8 @@ document.addEventListener("DOMContentLoaded", function () {
                         <span class="layer-color-indicator" style="background-color: ${layer.color || '#16a34a'};"></span>
                         <div class="layer-name-info">
                             <div class="layer-group-title-row">
-                                <span class="layer-author" title="${isSelf ? 'Click or double-click to rename' : ''}">${escapeHtml(layer.layerName || 'Layer')}</span>
-                                ${isSelf ? `
+                                <span class="layer-author" title="${canEditSelf ? 'Click or double-click to rename' : ''}">${escapeHtml(layer.layerName || 'Layer')}</span>
+                                ${canEditSelf ? `
                                 <button type="button" class="layer-rename-btn" title="Rename group">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                         <path d="M12 20h9"></path>
@@ -1194,7 +1221,7 @@ document.addEventListener("DOMContentLoaded", function () {
                         <button type="button" class="btn-layer-toggle ${layer.visible ? 'is-visible' : ''}" data-lid="${lid}" title="Toggle Group Visibility">
                             ${eyeIconSvg(layer.visible)}
                         </button>
-                        ${isSelf ? `
+                        ${canEditSelf ? `
                         <button type="button" class="btn-layer-delete" data-lid="${lid}" title="Delete Group">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <polyline points="3 6 5 6 21 6"></polyline>
@@ -1206,7 +1233,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 `;
 
                 // Clicking personal row switches active drawing target to this group
-                if (isSelf) {
+                if (canEditSelf) {
                     const authorSpan = row.querySelector(".layer-author");
                     const renameBtn = row.querySelector(".layer-rename-btn");
                     const titleRow = row.querySelector(".layer-group-title-row");
@@ -1495,8 +1522,57 @@ document.addEventListener("DOMContentLoaded", function () {
     }, { passive: false });
 
     // --- 10. Tool Palette Switching ---
+    if (isAnnotationLocked) {
+        // Enforce Pan mode and disable drawing tools
+        dockButtons.forEach(btn => {
+            if (btn.dataset.tool !== "pan") {
+                btn.disabled = true;
+                btn.style.opacity = "0.35";
+                btn.style.cursor = "not-allowed";
+                btn.title = getAnnotationLockMessage();
+                btn.classList.remove("is-active");
+            } else {
+                btn.classList.add("is-active");
+            }
+        });
+
+        colorSwatches.forEach(swatch => {
+            swatch.style.opacity = "0.35";
+            swatch.style.pointerEvents = "none";
+        });
+
+        strokeButtons.forEach(btn => {
+            btn.disabled = true;
+            btn.style.opacity = "0.35";
+            btn.style.cursor = "not-allowed";
+        });
+
+        if (btnUndoStroke) {
+            btnUndoStroke.disabled = true;
+            btnUndoStroke.style.opacity = "0.35";
+            btnUndoStroke.style.cursor = "not-allowed";
+        }
+        if (btnClearMyLayer) {
+            btnClearMyLayer.disabled = true;
+            btnClearMyLayer.style.opacity = "0.35";
+            btnClearMyLayer.style.cursor = "not-allowed";
+        }
+        if (btnAddLayerGroup) {
+            btnAddLayerGroup.disabled = true;
+            btnAddLayerGroup.style.opacity = "0.35";
+            btnAddLayerGroup.style.cursor = "not-allowed";
+        }
+    }
+
     dockButtons.forEach(btn => {
         btn.addEventListener("click", function () {
+            if (isAnnotationLocked && this.dataset.tool !== "pan") {
+                if (typeof window.showBottomToast === "function") {
+                    window.showBottomToast(getAnnotationLockMessage(), "warning");
+                }
+                return;
+            }
+
             dockButtons.forEach(b => b.classList.remove("is-active"));
             this.classList.add("is-active");
             activeTool = this.dataset.tool || "pen";
@@ -1515,6 +1591,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // Color Swatches
     colorSwatches.forEach(swatch => {
         swatch.addEventListener("click", function () {
+            if (isAnnotationLocked) return;
             colorSwatches.forEach(s => s.classList.remove("is-selected"));
             this.classList.add("is-selected");
             activeColor = this.dataset.color || "#16a34a";
@@ -1527,6 +1604,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // Stroke Widths
     strokeButtons.forEach(btn => {
         btn.addEventListener("click", function () {
+            if (isAnnotationLocked) return;
             strokeButtons.forEach(b => b.classList.remove("is-active"));
             this.classList.add("is-active");
             activeStrokeWidth = parseInt(this.dataset.stroke, 10) || 2;
@@ -1627,9 +1705,15 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // --- 11b. '+ Add Layer Group' Button Handler (Instant auto-iteration Layer X without native prompt) ---
-    const btnAddLayerGroup = document.getElementById("btnAddLayerGroup");
     if (btnAddLayerGroup) {
         btnAddLayerGroup.addEventListener("click", function () {
+            if (isAnnotationLocked || !canAnnotate) {
+                if (typeof window.showBottomToast === "function") {
+                    window.showBottomToast(getAnnotationLockMessage(), "warning");
+                }
+                return;
+            }
+
             // Compute highest existing Layer N to iterate sequentially
             let highestNum = 0;
             Object.values(annotationLayers).forEach(l => {
@@ -2121,10 +2205,21 @@ document.addEventListener("DOMContentLoaded", function () {
 
             const fileSizeFormatted = v.file_size ? `${(v.file_size / 1024).toFixed(1)} KB` : '';
 
+            let statusPill = "";
+            const revStatus = (v.review_status || "").toLowerCase();
+            if (revStatus === "rejected") {
+                statusPill = `<span style="background: var(--red-soft); color: var(--red-ink); font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--red-line); letter-spacing: 0.02em;">REJECTED</span>`;
+            } else if (revStatus === "approved") {
+                statusPill = `<span style="background: var(--success-badge-bg); color: var(--success-ink); font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--success-line); letter-spacing: 0.02em;">APPROVED</span>`;
+            } else if (revStatus === "pending") {
+                statusPill = `<span style="background: var(--amber-soft); color: var(--amber-ink); font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--amber-line); letter-spacing: 0.02em;">PENDING</span>`;
+            }
+
             card.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0;">
+                    <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0;">
                         <span style="font-family: monospace; font-size: 12.5px; font-weight: 700; color: var(--ink);">${escapeHtml(v.version_number)}</span>
+                        ${statusPill}
                         ${isCurrentlyViewed ? `<span style="background: var(--success-badge-bg); color: var(--success-ink); font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--success-line);">Viewing</span>` : (isHeadCurrent ? `<span style="background: var(--slate-soft); color: var(--slate-ink); font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border);">Latest</span>` : '')}
                         <span style="font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(v.author_name || 'System')} • ${escapeHtml(v.created_at || '')}</span>
                     </div>
@@ -2319,60 +2414,18 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    // Verdict Handling (Approve / Reject)
+    // --- 17. Finish Review & Verdict Handling ---
     const modalReviewVerdict = document.getElementById("modalReviewVerdict");
-    const btnOpenApproveVerdictModal = document.getElementById("btnOpenApproveVerdictModal");
-    const btnOpenRejectVerdictModal = document.getElementById("btnOpenRejectVerdictModal");
+    const btnOpenFinishReviewModal = document.getElementById("btnOpenFinishReviewModal");
     const btnCloseVerdictModal = document.getElementById("btnCloseVerdictModal");
     const btnCancelVerdict = document.getElementById("btnCancelVerdict");
-    const formReviewVerdict = document.getElementById("formReviewVerdict");
-    const verdictModalTitle = document.getElementById("verdictModalTitle");
-    const verdictModalBanner = document.getElementById("verdictModalBanner");
-    const verdictTypeValue = document.getElementById("verdictTypeValue");
-    const verdictCommentsLabel = document.getElementById("verdictCommentsLabel");
+    const btnRejectVerdict = document.getElementById("btnRejectVerdict");
+    const btnApproveVerdict = document.getElementById("btnApproveVerdict");
     const verdictComments = document.getElementById("verdictComments");
-    const btnSubmitVerdict = document.getElementById("btnSubmitVerdict");
 
-    function openVerdictModal(verdictType) {
+    function openVerdictModal() {
         if (!modalReviewVerdict) return;
-        verdictTypeValue.value = verdictType;
         if (verdictComments) verdictComments.value = "";
-
-        if (verdictType === "approved") {
-            if (verdictModalTitle) verdictModalTitle.innerHTML = `<span>Approve Document &amp; Publish</span>`;
-            if (verdictModalBanner) {
-                verdictModalBanner.style.background = "var(--success-badge-bg)";
-                verdictModalBanner.style.color = "var(--success-ink)";
-                verdictModalBanner.style.border = "1px solid var(--success-line)";
-                verdictModalBanner.innerHTML = `<strong>Verification Sign-Off</strong>: Confirming approval indicates this specimen fulfills technical and policy criteria. If all approvers sign off, the document will officially transition to <strong>PUBLISHED</strong>.`;
-            }
-            if (verdictCommentsLabel) verdictCommentsLabel.textContent = "Sign-Off Remarks (Optional)";
-            if (verdictComments) verdictComments.placeholder = "e.g. Verified and approved for production release.";
-            if (btnSubmitVerdict) {
-                btnSubmitVerdict.className = "btn btn-primary";
-                btnSubmitVerdict.style.background = "var(--green)";
-                btnSubmitVerdict.style.borderColor = "var(--green)";
-                btnSubmitVerdict.innerHTML = `<span>Approve Document</span>`;
-            }
-        } else {
-            if (verdictModalTitle) verdictModalTitle.innerHTML = `<span>Request Changes (Reject)</span>`;
-            if (verdictModalBanner) {
-                verdictModalBanner.style.background = "var(--red-soft)";
-                verdictModalBanner.style.color = "var(--red-ink)";
-                verdictModalBanner.style.border = "1px solid var(--red-line)";
-                verdictModalBanner.innerHTML = `<strong>Revision Required</strong>: Requesting changes will return this document to <strong>ACTIVE (Draft)</strong> status so the author can address your notes.`;
-            }
-            if (verdictCommentsLabel) verdictCommentsLabel.textContent = "Deficiency Feedback (Required)";
-            if (verdictComments) verdictComments.placeholder = "Detail the changes or corrections required...";
-            if (btnSubmitVerdict) {
-                btnSubmitVerdict.className = "btn btn-secondary";
-                btnSubmitVerdict.style.background = "var(--red)";
-                btnSubmitVerdict.style.borderColor = "var(--red)";
-                btnSubmitVerdict.style.color = "var(--surface)";
-                btnSubmitVerdict.innerHTML = `<span>Return for Revision</span>`;
-            }
-        }
-
         modalReviewVerdict.classList.add("is-open");
     }
 
@@ -2381,11 +2434,8 @@ document.addEventListener("DOMContentLoaded", function () {
         modalReviewVerdict.classList.remove("is-open");
     }
 
-    if (btnOpenApproveVerdictModal) {
-        btnOpenApproveVerdictModal.addEventListener("click", () => openVerdictModal("approved"));
-    }
-    if (btnOpenRejectVerdictModal) {
-        btnOpenRejectVerdictModal.addEventListener("click", () => openVerdictModal("rejected"));
+    if (btnOpenFinishReviewModal) {
+        btnOpenFinishReviewModal.addEventListener("click", openVerdictModal);
     }
     if (btnCloseVerdictModal) btnCloseVerdictModal.addEventListener("click", closeVerdictModal);
     if (btnCancelVerdict) btnCancelVerdict.addEventListener("click", closeVerdictModal);
@@ -2396,25 +2446,319 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    if (formReviewVerdict) {
-        formReviewVerdict.addEventListener("submit", function (e) {
-            e.preventDefault();
+    function executeReviewVerdict(verdict) {
+        const comments = verdictComments?.value.trim() || "";
 
-            const verdict = verdictTypeValue.value || "approved";
-            const comments = verdictComments?.value.trim() || "";
+        if (btnApproveVerdict) btnApproveVerdict.disabled = true;
+        if (btnRejectVerdict) btnRejectVerdict.disabled = true;
+        if (btnCancelVerdict) btnCancelVerdict.disabled = true;
 
-            if (verdict === "rejected" && !comments) {
-                alert("Please provide feedback explaining the changes required.");
-                if (verdictComments) verdictComments.focus();
+        const activeBtn = (verdict === "approved") ? btnApproveVerdict : btnRejectVerdict;
+        const origText = activeBtn ? activeBtn.innerHTML : "";
+        if (activeBtn) activeBtn.innerHTML = `<span>Processing...</span>`;
+
+        fetch("../actions/review-handler.php?action=submit_verdict", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Requested-With": "XMLHttpRequest"
+            },
+            body: JSON.stringify({
+                doc_id: docId,
+                verdict: verdict,
+                comments: comments
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                window.location.href = `view.php?id=${docId}`;
+            } else {
+                alert(data.message || "Failed to record verdict.");
+                if (btnApproveVerdict) {
+                    btnApproveVerdict.disabled = false;
+                    btnApproveVerdict.innerHTML = "✔ Approve";
+                }
+                if (btnRejectVerdict) {
+                    btnRejectVerdict.disabled = false;
+                    btnRejectVerdict.innerHTML = "✖ Reject";
+                }
+                if (btnCancelVerdict) btnCancelVerdict.disabled = false;
+            }
+        })
+        .catch(err => {
+            console.error("Error submitting verdict:", err);
+            alert("Network error while recording verdict.");
+            if (btnApproveVerdict) {
+                btnApproveVerdict.disabled = false;
+                btnApproveVerdict.innerHTML = "✔ Approve";
+            }
+            if (btnRejectVerdict) {
+                btnRejectVerdict.disabled = false;
+                btnRejectVerdict.innerHTML = "✖ Reject";
+            }
+            if (btnCancelVerdict) btnCancelVerdict.disabled = false;
+        });
+    }
+
+    if (btnApproveVerdict) {
+        btnApproveVerdict.addEventListener("click", () => executeReviewVerdict("approved"));
+    }
+    if (btnRejectVerdict) {
+        btnRejectVerdict.addEventListener("click", () => executeReviewVerdict("rejected"));
+    }
+
+    // Retract Review Submission Handler (Revert Hold -> Active)
+    const btnRetractReviewSubmission = document.getElementById("btnRetractReviewSubmission");
+    if (btnRetractReviewSubmission) {
+        btnRetractReviewSubmission.addEventListener("click", function () {
+            if (!confirm("Are you sure you want to retract this review submission? The document will return to Active (Draft) status.")) {
                 return;
             }
 
-            if (btnSubmitVerdict) {
-                btnSubmitVerdict.disabled = true;
-                btnSubmitVerdict.innerHTML = `<span>Recording verdict...</span>`;
+            btnRetractReviewSubmission.disabled = true;
+            btnRetractReviewSubmission.textContent = "Retracting...";
+
+            fetch("../actions/review-handler.php?action=cancel_review", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Requested-With": "XMLHttpRequest"
+                },
+                body: JSON.stringify({ doc_id: docId })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.href = `view.php?id=${docId}`;
+                } else {
+                    alert(data.message || "Failed to retract review submission.");
+                    btnRetractReviewSubmission.disabled = false;
+                    btnRetractReviewSubmission.textContent = "↺ Retract Submission";
+                }
+            })
+            .catch(err => {
+                console.error("Error retracting review submission:", err);
+                alert("Network error while retracting review submission.");
+                btnRetractReviewSubmission.disabled = false;
+                btnRetractReviewSubmission.textContent = "↺ Retract Submission";
+            });
+        });
+    }
+
+    // --- 18. Document Access & Contributors Management ---
+    const modalDocumentAccess = document.getElementById("modalDocumentAccess");
+    const btnOpenDocAccessModal = document.getElementById("btnOpenDocAccessModal");
+    const btnCloseAccessModal = document.getElementById("btnCloseAccessModal");
+    const btnCancelAccessModal = document.getElementById("btnCancelAccessModal");
+    const formDocumentAccess = document.getElementById("formDocumentAccess");
+    const modeRestricted = document.getElementById("modeRestricted");
+    const modePublic = document.getElementById("modePublic");
+    const contributorsManagementSection = document.getElementById("contributorsManagementSection");
+    const searchContributorInput = document.getElementById("searchContributorInput");
+    const contributorsListContainer = document.getElementById("contributorsListContainer");
+    const btnSaveAccessSettings = document.getElementById("btnSaveAccessSettings");
+
+    let accessData = {
+        access_mode: config.accessMode || 'restricted',
+        owner: null,
+        contributors: [],
+        contributor_ids: [],
+        eligible_users: []
+    };
+
+    function updateAccessModeUI(mode) {
+        if (mode === "public") {
+            if (modePublic) modePublic.checked = true;
+            if (contributorsManagementSection) {
+                contributorsManagementSection.style.opacity = "0.45";
+                contributorsManagementSection.style.pointerEvents = "none";
+            }
+        } else {
+            if (modeRestricted) modeRestricted.checked = true;
+            if (contributorsManagementSection) {
+                contributorsManagementSection.style.opacity = "1";
+                contributorsManagementSection.style.pointerEvents = "auto";
+            }
+        }
+    }
+
+    if (modeRestricted) {
+        modeRestricted.addEventListener("change", () => updateAccessModeUI("restricted"));
+    }
+    if (modePublic) {
+        modePublic.addEventListener("change", () => updateAccessModeUI("public"));
+    }
+
+    function renderContributorsList(searchQuery = "") {
+        if (!contributorsListContainer) return;
+
+        const q = searchQuery.trim().toLowerCase();
+        let html = "";
+
+        // 1. Render Document Owner
+        if (accessData.owner) {
+            const o = accessData.owner;
+            html += `
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; background: var(--surface-light);">
+                    <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                        <div style="width: 28px; height: 28px; border-radius: 50%; background: var(--slate-soft); color: var(--ink); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0;">
+                            ${escapeHtml(o.name ? o.name.charAt(0).toUpperCase() : 'O')}
+                        </div>
+                        <div style="min-width: 0;">
+                            <div style="font-size: 12.5px; font-weight: 600; color: var(--ink);">${escapeHtml(o.name)}</div>
+                            <div style="font-size: 10.5px; color: var(--muted);">@${escapeHtml(o.username || '')}</div>
+                        </div>
+                    </div>
+                    <span class="workspace-badge" style="font-size: 9.5px; background: var(--slate-soft); color: var(--slate-ink);">Owner</span>
+                </div>
+            `;
+        }
+
+        // 2. Render Existing Contributors
+        const currentContribs = (accessData.eligible_users || []).filter(u => (accessData.contributor_ids || []).includes(parseInt(u.id, 10)));
+        
+        currentContribs.forEach(u => {
+            const uId = parseInt(u.id, 10);
+            html += `
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; background: var(--surface);">
+                    <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                        <div style="width: 28px; height: 28px; border-radius: 50%; background: var(--success-badge-bg); color: var(--green-ink); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0;">
+                            ${escapeHtml(u.full_name ? u.full_name.charAt(0).toUpperCase() : 'U')}
+                        </div>
+                        <div style="min-width: 0;">
+                            <div style="font-size: 12.5px; font-weight: 600; color: var(--ink);">${escapeHtml(u.full_name || u.username)}</div>
+                            <div style="font-size: 10.5px; color: var(--muted);">@${escapeHtml(u.username)} &bull; ${escapeHtml(u.department || 'Staff')}</div>
+                        </div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span class="workspace-badge" style="font-size: 9.5px; background: var(--green-soft); color: var(--green-ink);">Contributor</span>
+                        <button type="button" class="btn-remove-contributor" data-uid="${uId}" style="border: none; background: transparent; color: var(--red); cursor: pointer; padding: 2px 6px; font-size: 14px; font-weight: 700;" title="Remove Contributor">&times;</button>
+                    </div>
+                </div>
+            `;
+        });
+
+        // 3. Search suggestions if user typed something
+        if (q) {
+            const nonContribs = (accessData.eligible_users || []).filter(u => {
+                const isAlready = (accessData.contributor_ids || []).includes(parseInt(u.id, 10));
+                if (isAlready) return false;
+                const name = (u.full_name || "").toLowerCase();
+                const uname = (u.username || "").toLowerCase();
+                return name.includes(q) || uname.includes(q);
+            });
+
+            if (nonContribs.length > 0) {
+                html += `<div style="font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: var(--muted); margin: 6px 0 2px 4px;">Click to Add:</div>`;
+                nonContribs.forEach(u => {
+                    const uId = parseInt(u.id, 10);
+                    html += `
+                        <div class="user-add-item" data-uid="${uId}" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; border: 1px dashed var(--border); background: var(--surface-light); cursor: pointer; transition: all 0.12s ease;">
+                            <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                                <div style="width: 26px; height: 26px; border-radius: 50%; background: var(--slate-soft); color: var(--ink); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0;">
+                                    ${escapeHtml(u.full_name ? u.full_name.charAt(0).toUpperCase() : '+')}
+                                </div>
+                                <div style="min-width: 0;">
+                                    <div style="font-size: 12px; font-weight: 600; color: var(--ink);">${escapeHtml(u.full_name || u.username)}</div>
+                                    <div style="font-size: 10px; color: var(--muted);">@${escapeHtml(u.username)}</div>
+                                </div>
+                            </div>
+                            <span style="font-size: 11px; font-weight: 600; color: var(--green);">+ Add</span>
+                        </div>
+                    `;
+                });
+            } else if (currentContribs.length === 0) {
+                html += `<div style="text-align: center; padding: 12px; color: var(--muted); font-size: 12px;">No matching users found.</div>`;
+            }
+        } else if (currentContribs.length === 0) {
+            html += `<div style="text-align: center; padding: 10px; color: var(--muted); font-size: 11.5px; font-style: italic;">No additional contributors invited yet. Use the search bar above to invite people.</div>`;
+        }
+
+        contributorsListContainer.innerHTML = html;
+
+        // Bind remove buttons
+        contributorsListContainer.querySelectorAll(".btn-remove-contributor").forEach(btn => {
+            btn.addEventListener("click", function (e) {
+                e.stopPropagation();
+                const uid = parseInt(this.dataset.uid, 10);
+                accessData.contributor_ids = accessData.contributor_ids.filter(id => id !== uid);
+                renderContributorsList(searchContributorInput ? searchContributorInput.value : "");
+            });
+        });
+
+        // Bind add buttons
+        contributorsListContainer.querySelectorAll(".user-add-item").forEach(item => {
+            item.addEventListener("click", function () {
+                const uid = parseInt(this.dataset.uid, 10);
+                if (!accessData.contributor_ids.includes(uid)) {
+                    accessData.contributor_ids.push(uid);
+                }
+                if (searchContributorInput) searchContributorInput.value = "";
+                renderContributorsList("");
+            });
+        });
+    }
+
+    if (searchContributorInput) {
+        searchContributorInput.addEventListener("input", function () {
+            renderContributorsList(this.value);
+        });
+    }
+
+    function openDocumentAccessModal() {
+        if (!modalDocumentAccess) return;
+        modalDocumentAccess.classList.add("is-open");
+
+        if (contributorsListContainer) {
+            contributorsListContainer.innerHTML = `<div style="text-align:center; padding:12px; color:var(--muted); font-size:12px;">Loading access settings...</div>`;
+        }
+
+        fetch(`../actions/contributors-handler.php?action=get_access_data&doc_id=${docId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    accessData = data;
+                    updateAccessModeUI(data.access_mode || 'restricted');
+                    renderContributorsList("");
+                } else {
+                    if (contributorsListContainer) {
+                        contributorsListContainer.innerHTML = `<div style="color:var(--red); padding:10px; text-align:center;">Failed to load access settings.</div>`;
+                    }
+                }
+            })
+            .catch(err => {
+                console.error("Error fetching access data:", err);
+            });
+    }
+
+    function closeDocumentAccessModal() {
+        if (!modalDocumentAccess) return;
+        modalDocumentAccess.classList.remove("is-open");
+    }
+
+    if (btnOpenDocAccessModal) btnOpenDocAccessModal.addEventListener("click", openDocumentAccessModal);
+    if (btnCloseAccessModal) btnCloseAccessModal.addEventListener("click", closeDocumentAccessModal);
+    if (btnCancelAccessModal) btnCancelAccessModal.addEventListener("click", closeDocumentAccessModal);
+
+    if (modalDocumentAccess) {
+        modalDocumentAccess.addEventListener("click", function (e) {
+            if (e.target === modalDocumentAccess) closeDocumentAccessModal();
+        });
+    }
+
+    if (formDocumentAccess) {
+        formDocumentAccess.addEventListener("submit", function (e) {
+            e.preventDefault();
+
+            const selectedMode = modePublic && modePublic.checked ? "public" : "restricted";
+
+            if (btnSaveAccessSettings) {
+                btnSaveAccessSettings.disabled = true;
+                btnSaveAccessSettings.textContent = "Saving...";
             }
 
-            fetch("../actions/review-handler.php?action=submit_verdict", {
+            fetch("../actions/contributors-handler.php?action=save_access_data", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -2422,8 +2766,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 },
                 body: JSON.stringify({
                     doc_id: docId,
-                    verdict: verdict,
-                    comments: comments
+                    access_mode: selectedMode,
+                    contributor_ids: accessData.contributor_ids
                 })
             })
             .then(res => res.json())
@@ -2431,19 +2775,19 @@ document.addEventListener("DOMContentLoaded", function () {
                 if (data.success) {
                     window.location.href = `view.php?id=${docId}`;
                 } else {
-                    alert(data.message || "Failed to record verdict.");
-                    if (btnSubmitVerdict) {
-                        btnSubmitVerdict.disabled = false;
-                        btnSubmitVerdict.innerHTML = `<span>Confirm Verdict</span>`;
+                    alert(data.message || "Failed to save access settings.");
+                    if (btnSaveAccessSettings) {
+                        btnSaveAccessSettings.disabled = false;
+                        btnSaveAccessSettings.textContent = "Save Changes";
                     }
                 }
             })
             .catch(err => {
-                console.error("Error submitting verdict:", err);
-                alert("Network error while recording verdict.");
-                if (btnSubmitVerdict) {
-                    btnSubmitVerdict.disabled = false;
-                    btnSubmitVerdict.innerHTML = `<span>Confirm Verdict</span>`;
+                console.error("Error saving access settings:", err);
+                alert("Network error while saving access settings.");
+                if (btnSaveAccessSettings) {
+                    btnSaveAccessSettings.disabled = false;
+                    btnSaveAccessSettings.textContent = "Save Changes";
                 }
             });
         });
