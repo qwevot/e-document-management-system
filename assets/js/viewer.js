@@ -1691,7 +1691,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const drawerTabAnnotations = document.getElementById("drawerTabAnnotations");
     const drawerTabVersions = document.getElementById("drawerTabVersions");
 
-    function switchSidePanelTab(tabName) {
+    function switchSidePanelTab(tabName, persist = true) {
         if (tabName === "versions") {
             if (tabBtnVersions) tabBtnVersions.classList.add("active");
             if (tabBtnAnnotations) tabBtnAnnotations.classList.remove("active");
@@ -1706,6 +1706,13 @@ document.addEventListener("DOMContentLoaded", function () {
             if (drawerTabVersions) drawerTabVersions.style.display = "none";
             if (workspaceRightDrawer) workspaceRightDrawer.classList.add("is-open");
         }
+
+        if (persist && docId) {
+            try {
+                sessionStorage.setItem(`edms_drawer_tab_${docId}`, tabName);
+                sessionStorage.setItem(`edms_drawer_open_${docId}`, "true");
+            } catch (e) {}
+        }
     }
 
     if (tabBtnAnnotations) tabBtnAnnotations.addEventListener("click", () => switchSidePanelTab("annotations"));
@@ -1715,9 +1722,15 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function toggleRightDrawer() {
         if (workspaceRightDrawer) {
-            workspaceRightDrawer.classList.toggle("is-open");
+            const willBeOpen = !workspaceRightDrawer.classList.contains("is-open");
+            workspaceRightDrawer.classList.toggle("is-open", willBeOpen);
             if (btnToggleRightDrawer) {
-                btnToggleRightDrawer.classList.toggle("is-active", workspaceRightDrawer.classList.contains("is-open"));
+                btnToggleRightDrawer.classList.toggle("is-active", willBeOpen);
+            }
+            if (docId) {
+                try {
+                    sessionStorage.setItem(`edms_drawer_open_${docId}`, willBeOpen ? "true" : "false");
+                } catch (e) {}
             }
         }
     }
@@ -1734,8 +1747,36 @@ document.addEventListener("DOMContentLoaded", function () {
         btnCloseRightDrawer.addEventListener("click", function () {
             if (workspaceRightDrawer) workspaceRightDrawer.classList.remove("is-open");
             if (btnToggleRightDrawer) btnToggleRightDrawer.classList.remove("is-active");
+            if (docId) {
+                try {
+                    sessionStorage.setItem(`edms_drawer_open_${docId}`, "false");
+                } catch (e) {}
+            }
         });
     }
+
+    // Restore Persistent Drawer & Tab State for this Document
+    (function restoreDrawerState() {
+        if (!docId) return;
+        try {
+            const savedTab = sessionStorage.getItem(`edms_drawer_tab_${docId}`);
+            const savedOpen = sessionStorage.getItem(`edms_drawer_open_${docId}`);
+
+            // If we are viewing a historical snapshot, or if the user previously had the versions tab open
+            const isHistorical = Boolean(config.isHistoricalSnapshot);
+            if (savedTab === "versions" || isHistorical) {
+                switchSidePanelTab("versions", false);
+            }
+
+            if (savedOpen === "false") {
+                if (workspaceRightDrawer) workspaceRightDrawer.classList.remove("is-open");
+                if (btnToggleRightDrawer) btnToggleRightDrawer.classList.remove("is-active");
+            } else if (savedOpen === "true" || isHistorical) {
+                if (workspaceRightDrawer) workspaceRightDrawer.classList.add("is-open");
+                if (btnToggleRightDrawer) btnToggleRightDrawer.classList.add("is-active");
+            }
+        } catch (e) {}
+    })();
 
     // Opacity Slider
     if (layerOpacitySlider) {
