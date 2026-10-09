@@ -41,6 +41,64 @@ function init_versioning_schema(): void
         }
     } catch (\Throwable $e) {}
 
+    // Migration check for version_id in annotation tables
+    try {
+        $checkLCol = $pdo->query("SHOW COLUMNS FROM `dms_annotation_layers` LIKE 'version_id'");
+        if ($checkLCol->rowCount() === 0) {
+            $pdo->exec("ALTER TABLE `dms_annotation_layers` ADD COLUMN `version_id` BIGINT UNSIGNED NULL AFTER `document_id`, ADD INDEX `idx_layer_doc_ver` (`document_id`, `version_id`)");
+            $pdo->exec("
+                UPDATE dms_annotation_layers l
+                JOIN (
+                    SELECT document_id, MIN(id) AS first_ver_id
+                    FROM dms_document_versions
+                    GROUP BY document_id
+                ) v ON l.document_id = v.document_id
+                SET l.version_id = v.first_ver_id
+                WHERE l.version_id IS NULL
+            ");
+        }
+    } catch (\Throwable $e) {}
+
+    try {
+        $checkACol = $pdo->query("SHOW COLUMNS FROM `dms_annotations` LIKE 'version_id'");
+        if ($checkACol->rowCount() === 0) {
+            $pdo->exec("ALTER TABLE `dms_annotations` ADD COLUMN `version_id` BIGINT UNSIGNED NULL AFTER `document_id`, ADD INDEX `idx_anno_doc_ver` (`document_id`, `version_id`)");
+            $pdo->exec("
+                UPDATE dms_annotations a
+                JOIN dms_annotation_layers l ON a.layer_id = l.id
+                SET a.version_id = l.version_id
+                WHERE a.version_id IS NULL AND l.version_id IS NOT NULL
+            ");
+            $pdo->exec("
+                UPDATE dms_annotations a
+                JOIN (
+                    SELECT document_id, MIN(id) AS first_ver_id
+                    FROM dms_document_versions
+                    GROUP BY document_id
+                ) v ON a.document_id = v.document_id
+                SET a.version_id = v.first_ver_id
+                WHERE a.version_id IS NULL
+            ");
+        }
+    } catch (\Throwable $e) {}
+
+    try {
+        $checkHCol = $pdo->query("SHOW COLUMNS FROM `dms_annotation_history` LIKE 'version_id'");
+        if ($checkHCol->rowCount() === 0) {
+            $pdo->exec("ALTER TABLE `dms_annotation_history` ADD COLUMN `version_id` BIGINT UNSIGNED NULL AFTER `document_id`, ADD INDEX `idx_hist_doc_ver` (`document_id`, `version_id`)");
+            $pdo->exec("
+                UPDATE dms_annotation_history h
+                JOIN (
+                    SELECT document_id, MIN(id) AS first_ver_id
+                    FROM dms_document_versions
+                    GROUP BY document_id
+                ) v ON h.document_id = v.document_id
+                SET h.version_id = v.first_ver_id
+                WHERE h.version_id IS NULL
+            ");
+        }
+    } catch (\Throwable $e) {}
+
     // Baseline seed for existing documents
     $stmt = $pdo->query("SELECT * FROM dms_nodes WHERE node_type = 'document' AND file_path IS NOT NULL AND file_path != ''");
     $docs = $stmt->fetchAll(PDO::FETCH_ASSOC);

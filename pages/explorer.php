@@ -910,9 +910,6 @@ function render_card_list_html($items, $viewMode, $parentId, $currentNode, $brea
                                 <?php echo e($item['name']); ?>
                             </a>
                         <?php endif; ?>
-                        <?php if (!$isFolder && !empty($item['file_extension'])): ?>
-                            <span class="item-type-badge">.<?php echo e(ltrim(strtolower($item['file_extension']), '.')); ?></span>
-                        <?php endif; ?>
                         <?php if (!$isFolder && !empty($item['version'])): ?>
                             <span class="version-badge"><?php echo e($item['version']); ?></span>
                         <?php endif; ?>

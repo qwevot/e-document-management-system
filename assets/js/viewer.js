@@ -85,6 +85,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // { [layerId]: { layerId, userId, userName, layerName, color, visible: true, isSelf: bool, strokes: [] } }
     let annotationLayers = {};
     let activeLayerId = null;
+    const versionQueryParam = config.activeVersionId ? `&version_id=${config.activeVersionId}` : '';
 
     // Helper: Get currently active layer object for drawing
     function getActiveSelfLayer() {
@@ -103,7 +104,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // --- 1. Fetch & Hydrate Saved Database Annotations ---
     function fetchDatabaseAnnotations() {
-        fetch(`view.php?action=get_annotations&id=${docId}`, {
+        fetch(`view.php?action=get_annotations&id=${docId}${versionQueryParam}`, {
             headers: { "X-Requested-With": "XMLHttpRequest" }
         })
         .then(res => res.json())
@@ -360,33 +361,33 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
 
-    // --- 3. Render All Pages Sequentially in Continuous Scroll ---
-    async function renderAllPdfPages() {
-        if (!pdfDocument || !pdfPagesFeed) return;
+    // --- 3. Render Pages Lazily with Viewport Observer ---
+    const renderedPdfPages = new Set();
+    let lazyPageObserver = null;
 
-        if (workspaceDocLoading) workspaceDocLoading.classList.remove("is-hidden");
-        if (loadingStatusText) loadingStatusText.textContent = "Rendering specimen pages...";
+    async function renderSinglePdfPage(pageNum) {
+        if (!pdfDocument || renderedPdfPages.has(pageNum)) return;
+        renderedPdfPages.add(pageNum);
 
-        pdfPagesFeed.innerHTML = "";
-        const dpr = window.devicePixelRatio || 1;
-        const scale = (currentZoomPercent / 100) * baseScale;
+        const pageWrapper = document.getElementById(`pageWrapper_${pageNum}`);
+        if (!pageWrapper) return;
 
-        for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+        try {
             const page = await pdfDocument.getPage(pageNum);
+            const scale = (currentZoomPercent / 100) * baseScale;
             const viewport = page.getViewport({ scale: scale });
+            const dpr = window.devicePixelRatio || 1;
 
-            // Create Page Container
-            const pageWrapper = document.createElement("div");
-            pageWrapper.className = "pdf-page-wrapper";
-            pageWrapper.id = `pageWrapper_${pageNum}`;
-            pageWrapper.dataset.page = pageNum;
             pageWrapper.style.width = Math.round(viewport.width) + "px";
             pageWrapper.style.height = Math.round(viewport.height) + "px";
 
-            // Base Document Render Canvas
-            const baseCanvas = document.createElement("canvas");
-            baseCanvas.className = "pdf-base-canvas";
-            baseCanvas.id = `baseCanvas_${pageNum}`;
+            let baseCanvas = document.getElementById(`baseCanvas_${pageNum}`);
+            if (!baseCanvas) {
+                baseCanvas = document.createElement("canvas");
+                baseCanvas.className = "pdf-base-canvas";
+                baseCanvas.id = `baseCanvas_${pageNum}`;
+                pageWrapper.appendChild(baseCanvas);
+            }
             baseCanvas.width = Math.round(viewport.width * dpr);
             baseCanvas.height = Math.round(viewport.height * dpr);
             baseCanvas.style.width = Math.round(viewport.width) + "px";
@@ -395,34 +396,89 @@ document.addEventListener("DOMContentLoaded", function () {
             const baseCtx = baseCanvas.getContext("2d");
             baseCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-            // Transparent Synchronized Annotation Overlay Canvas
-            const annoCanvas = document.createElement("canvas");
-            annoCanvas.className = "pdf-annotation-canvas";
-            annoCanvas.id = `annoCanvas_${pageNum}`;
-            annoCanvas.dataset.page = pageNum;
+            let annoCanvas = document.getElementById(`annoCanvas_${pageNum}`);
+            if (!annoCanvas) {
+                annoCanvas = document.createElement("canvas");
+                annoCanvas.className = "pdf-annotation-canvas";
+                annoCanvas.id = `annoCanvas_${pageNum}`;
+                annoCanvas.dataset.page = pageNum;
+                attachDrawingListeners(annoCanvas, pageNum);
+                pageWrapper.appendChild(annoCanvas);
+            }
             annoCanvas.width = Math.round(viewport.width * dpr);
             annoCanvas.height = Math.round(viewport.height * dpr);
             annoCanvas.style.width = Math.round(viewport.width) + "px";
             annoCanvas.style.height = Math.round(viewport.height) + "px";
             annoCanvas.style.opacity = layerOpacity.toString();
 
-            // Bind Drawing Listeners to this page canvas
-            attachDrawingListeners(annoCanvas, pageNum);
-
-            pageWrapper.appendChild(baseCanvas);
-            pageWrapper.appendChild(annoCanvas);
-            pdfPagesFeed.appendChild(pageWrapper);
-
             // Render PDF Page onto base canvas
-            const renderContext = {
+            await page.render({
                 canvasContext: baseCtx,
                 viewport: viewport
-            };
-            await page.render(renderContext).promise;
+            }).promise;
 
             // Composite any existing annotations on this page
             renderPageAnnotations(pageNum);
+        } catch (err) {
+            console.error(`Error rendering page ${pageNum}:`, err);
+            renderedPdfPages.delete(pageNum);
         }
+    }
+
+    async function renderAllPdfPages() {
+        if (!pdfDocument || !pdfPagesFeed) return;
+
+        if (workspaceDocLoading) workspaceDocLoading.classList.remove("is-hidden");
+        if (loadingStatusText) loadingStatusText.textContent = "Rendering specimen pages...";
+
+        if (lazyPageObserver) {
+            lazyPageObserver.disconnect();
+            lazyPageObserver = null;
+        }
+        renderedPdfPages.clear();
+        pdfPagesFeed.innerHTML = "";
+
+        const scale = (currentZoomPercent / 100) * baseScale;
+        const firstPage = await pdfDocument.getPage(1);
+        const defaultViewport = firstPage.getViewport({ scale: scale });
+        const defaultWidth = Math.round(defaultViewport.width);
+        const defaultHeight = Math.round(defaultViewport.height);
+
+        // Build lightweight DOM placeholders for all pages
+        for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+            const pageWrapper = document.createElement("div");
+            pageWrapper.className = "pdf-page-wrapper";
+            pageWrapper.id = `pageWrapper_${pageNum}`;
+            pageWrapper.dataset.page = pageNum;
+            pageWrapper.style.width = defaultWidth + "px";
+            pageWrapper.style.height = defaultHeight + "px";
+            pdfPagesFeed.appendChild(pageWrapper);
+        }
+
+        // Preload visible/approaching pages via IntersectionObserver
+        if (window.IntersectionObserver && workspaceCenterStage) {
+            lazyPageObserver = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const pageNum = parseInt(entry.target.dataset.page, 10);
+                        if (pageNum && !renderedPdfPages.has(pageNum)) {
+                            renderSinglePdfPage(pageNum);
+                        }
+                    }
+                });
+            }, {
+                root: workspaceCenterStage,
+                rootMargin: "300px 0px 300px 0px",
+                threshold: 0.01
+            });
+
+            document.querySelectorAll(".pdf-page-wrapper").forEach(pageEl => {
+                lazyPageObserver.observe(pageEl);
+            });
+        }
+
+        // Render immediate initial page for instantaneous display
+        await renderSinglePdfPage(currentVisiblePage || 1);
 
         if (workspaceDocLoading) workspaceDocLoading.classList.add("is-hidden");
         setupScrollObserver();
@@ -435,15 +491,25 @@ document.addEventListener("DOMContentLoaded", function () {
     let dragInitialPoints = null;
     let dragInitialTextPos = null;
     let hasDragged = false;
+    let drawRafId = null;
+
+    function schedulePageAnnotationRender(pageNum) {
+        if (drawRafId) return;
+        drawRafId = requestAnimationFrame(() => {
+            drawRafId = null;
+            renderPageAnnotations(pageNum);
+        });
+    }
+
+    // Attach global stop-drawing handlers once
+    window.addEventListener("mouseup", handleStopDrawing);
+    window.addEventListener("touchend", handleStopDrawing);
 
     function attachDrawingListeners(canvas, pageNum) {
         canvas.addEventListener("mousedown", (e) => handleStartDrawing(e, canvas, pageNum));
         canvas.addEventListener("mousemove", (e) => handleDrawMove(e, canvas, pageNum));
-        window.addEventListener("mouseup", handleStopDrawing);
-
         canvas.addEventListener("touchstart", (e) => handleStartDrawing(e, canvas, pageNum), { passive: true });
         canvas.addEventListener("touchmove", (e) => handleDrawMove(e, canvas, pageNum), { passive: true });
-        window.addEventListener("touchend", handleStopDrawing);
     }
 
     function getRelativePageCoords(e, canvas) {
@@ -598,7 +664,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     });
                 }
 
-                renderPageAnnotations(pageNum);
+                schedulePageAnnotationRender(pageNum);
             } else {
                 // Hover hit-test to change cursor
                 const hit = hitTestAnnotation(pageNum, coords.xRel, coords.yRel, rect.width, rect.height);
@@ -610,10 +676,15 @@ document.addEventListener("DOMContentLoaded", function () {
         // --- DRAWING FREEHAND / HIGHLIGHTER ---
         if (!isDrawing || !currentStroke || activeDrawingPage !== pageNum) return;
         currentStroke.points.push(coords);
-        renderPageAnnotations(pageNum);
+        schedulePageAnnotationRender(pageNum);
     }
 
     function handleStopDrawing() {
+        if (drawRafId) {
+            cancelAnimationFrame(drawRafId);
+            drawRafId = null;
+        }
+
         if (activeTool === "pan") {
             if (isDraggingObject) {
                 isDraggingObject = false;
@@ -621,6 +692,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 if (canvas) canvas.style.cursor = "grab";
 
                 if (hasDragged && selectedAnnotation) {
+                    renderPageAnnotations(activeDrawingPage);
                     persistStrokeToDatabase(selectedAnnotation);
                 }
             }
@@ -657,7 +729,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     renderPageAnnotations(deleted.page);
                 }
                 if (deleted && deleted.id) {
-                    fetch(`view.php?action=delete_stroke&id=${docId}`, {
+                    fetch(`view.php?action=delete_stroke&id=${docId}${versionQueryParam}`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
                         body: JSON.stringify({ id: deleted.id })
@@ -788,7 +860,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // --- 5. Backend Persistence Calls ---
     function persistStrokeToDatabase(strokeObj) {
-        fetch(`view.php?action=save_stroke&id=${docId}`, {
+        fetch(`view.php?action=save_stroke&id=${docId}${versionQueryParam}`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -1264,7 +1336,7 @@ document.addEventListener("DOMContentLoaded", function () {
                             if (val !== currentName) {
                                 layer.layerName = val;
                                 authorSpan.textContent = val;
-                                fetch(`view.php?action=rename_layer&id=${docId}`, {
+                                fetch(`view.php?action=rename_layer&id=${docId}${versionQueryParam}`, {
                                     method: "POST",
                                     headers: {
                                         "Content-Type": "application/json",
@@ -1595,8 +1667,9 @@ document.addEventListener("DOMContentLoaded", function () {
             colorSwatches.forEach(s => s.classList.remove("is-selected"));
             this.classList.add("is-selected");
             activeColor = this.dataset.color || "#16a34a";
-            if (annotationLayers[currentUserId]) {
-                annotationLayers[currentUserId].color = activeColor;
+            const selfLayer = getActiveSelfLayer();
+            if (selfLayer) {
+                selfLayer.color = activeColor;
             }
         });
     });
@@ -1626,7 +1699,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
                 // Delete from backend database
                 if (popped && popped.id) {
-                    fetch(`view.php?action=delete_stroke&id=${docId}`, {
+                    fetch(`view.php?action=delete_stroke&id=${docId}${versionQueryParam}`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
                         body: JSON.stringify({ id: popped.id })
@@ -1647,7 +1720,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function executeDeleteLayerGroup(targetLid) {
         if (!targetLid) return;
 
-        fetch(`view.php?action=delete_layer_group&id=${docId}`, {
+        fetch(`view.php?action=delete_layer_group&id=${docId}${versionQueryParam}`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
             body: JSON.stringify({ layer_id: targetLid })
@@ -1730,7 +1803,7 @@ document.addEventListener("DOMContentLoaded", function () {
             const nextLayerNum = Math.max(highestNum + 1, selfCount + 1);
             const groupName = `Layer ${nextLayerNum}`;
 
-            fetch(`view.php?action=create_layer&id=${docId}`, {
+            fetch(`view.php?action=create_layer&id=${docId}${versionQueryParam}`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -2220,7 +2293,6 @@ document.addEventListener("DOMContentLoaded", function () {
                     <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0;">
                         <span style="font-family: monospace; font-size: 12.5px; font-weight: 700; color: var(--ink);">${escapeHtml(v.version_number)}</span>
                         ${statusPill}
-                        ${isCurrentlyViewed ? `<span style="background: var(--success-badge-bg); color: var(--success-ink); font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--success-line);">Viewing</span>` : (isHeadCurrent ? `<span style="background: var(--slate-soft); color: var(--slate-ink); font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border);">Latest</span>` : '')}
                         <span style="font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(v.author_name || 'System')} • ${escapeHtml(v.created_at || '')}</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 2px; flex-shrink: 0;">

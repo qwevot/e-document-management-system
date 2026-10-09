@@ -41,13 +41,15 @@ $nextMajorVer = calculate_next_version($currentVersion, 'major');
 $reqVersionId = isset($_GET['version_id']) && is_numeric($_GET['version_id']) ? (int)$_GET['version_id'] : 0;
 $isHistoricalSnapshot = false;
 $activeVersionName = $currentVersion;
+$activeVersionId = 0;
 
 if ($reqVersionId > 0) {
     $vStmt = $pdo->prepare("SELECT * FROM dms_document_versions WHERE id = :vid AND document_id = :did");
     $vStmt->execute(['vid' => $reqVersionId, 'did' => $docId]);
     $vDoc = $vStmt->fetch(PDO::FETCH_ASSOC);
     if ($vDoc) {
-        $isHistoricalSnapshot = true;
+        $activeVersionId = (int)$vDoc['id'];
+        $isHistoricalSnapshot = ((int)$vDoc['is_current'] !== 1);
         $activeVersionName = $vDoc['version_number'];
         $activeReviewStatus = $vDoc['review_status'] ?? 'draft';
         $doc['file_path'] = $vDoc['file_path'];
@@ -57,9 +59,23 @@ if ($reqVersionId > 0) {
         $doc['mime_type'] = $vDoc['mime_type'];
     }
 } else {
-    $curVerStmt = $pdo->prepare("SELECT review_status FROM dms_document_versions WHERE document_id = :did AND is_current = 1 LIMIT 1");
+    $curVerStmt = $pdo->prepare("SELECT id, review_status, version_number FROM dms_document_versions WHERE document_id = :did AND is_current = 1 LIMIT 1");
     $curVerStmt->execute(['did' => $docId]);
-    $activeReviewStatus = $curVerStmt->fetchColumn() ?: ($doc['status'] === 'published' ? 'approved' : ($doc['status'] === 'hold' ? 'pending' : 'draft'));
+    $curVerRow = $curVerStmt->fetch(PDO::FETCH_ASSOC);
+    if ($curVerRow) {
+        $activeVersionId = (int)$curVerRow['id'];
+        $activeVersionName = $curVerRow['version_number'];
+        $activeReviewStatus = $curVerRow['review_status'] ?? ($doc['status'] === 'published' ? 'approved' : ($doc['status'] === 'hold' ? 'pending' : 'draft'));
+    } else {
+        $latestVerStmt = $pdo->prepare("SELECT id, review_status, version_number FROM dms_document_versions WHERE document_id = :did ORDER BY id DESC LIMIT 1");
+        $latestVerStmt->execute(['did' => $docId]);
+        $latestVerRow = $latestVerStmt->fetch(PDO::FETCH_ASSOC);
+        if ($latestVerRow) {
+            $activeVersionId = (int)$latestVerRow['id'];
+            $activeVersionName = $latestVerRow['version_number'];
+            $activeReviewStatus = $latestVerRow['review_status'] ?? 'draft';
+        }
+    }
 }
 
 $ext = strtolower(trim($doc['file_extension'] ?? '', '.'));
@@ -146,21 +162,38 @@ $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTT
 if ($action) {
     header('Content-Type: application/json');
 
-    // 1. Fetch all annotations & layers for this document (grouped by user and layer)
+    $ajaxVersionId = isset($_REQUEST['version_id']) && is_numeric($_REQUEST['version_id']) && (int)$_REQUEST['version_id'] > 0
+        ? (int)$_REQUEST['version_id']
+        : ($activeVersionId > 0 ? $activeVersionId : null);
+
+    // 1. Fetch all annotations & layers for this document and version (grouped by user and layer)
     if ($action === 'get_annotations') {
-        $layersStmt = $pdo->prepare("
-            SELECT l.id, l.user_id, l.layer_name, l.color, l.is_visible,
-                   COALESCE(u.full_name, u.username, 'Collaborator') AS author_name,
-                   u.avatar AS user_avatar
-            FROM dms_annotation_layers l
-            LEFT JOIN users u ON l.user_id = u.id
-            WHERE l.document_id = :doc_id
-            ORDER BY l.id ASC
-        ");
-        $layersStmt->execute(['doc_id' => $docId]);
+        if ($ajaxVersionId) {
+            $layersStmt = $pdo->prepare("
+                SELECT l.id, l.user_id, l.layer_name, l.color, l.is_visible,
+                       COALESCE(u.full_name, u.username, 'Collaborator') AS author_name,
+                       u.avatar AS user_avatar
+                FROM dms_annotation_layers l
+                LEFT JOIN users u ON l.user_id = u.id
+                WHERE l.document_id = :doc_id AND l.version_id = :ver_id
+                ORDER BY l.id ASC
+            ");
+            $layersStmt->execute(['doc_id' => $docId, 'ver_id' => $ajaxVersionId]);
+        } else {
+            $layersStmt = $pdo->prepare("
+                SELECT l.id, l.user_id, l.layer_name, l.color, l.is_visible,
+                       COALESCE(u.full_name, u.username, 'Collaborator') AS author_name,
+                       u.avatar AS user_avatar
+                FROM dms_annotation_layers l
+                LEFT JOIN users u ON l.user_id = u.id
+                WHERE l.document_id = :doc_id
+                ORDER BY l.id ASC
+            ");
+            $layersStmt->execute(['doc_id' => $docId]);
+        }
         $dbLayers = $layersStmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // If current user is allowed to annotate and has zero layers for this document, seed their first layer (e.g. "Layer 1")
+        // If current user is allowed to annotate and has zero layers for this version, seed their first layer (e.g. "Layer 1")
         $hasSelfLayer = false;
         foreach ($dbLayers as $dl) {
             if ((int)$dl['user_id'] === $userId) {
@@ -168,13 +201,14 @@ if ($action) {
                 break;
             }
         }
-        if ($canAnnotate && !$hasSelfLayer) {
+        if ($canAnnotate && !$isHistoricalSnapshot && !$hasSelfLayer) {
             $insertSeed = $pdo->prepare("
-                INSERT INTO dms_annotation_layers (document_id, user_id, layer_name, color, is_visible)
-                VALUES (:doc_id, :user_id, 'Layer 1', '#16a34a', 1)
+                INSERT INTO dms_annotation_layers (document_id, version_id, user_id, layer_name, color, is_visible)
+                VALUES (:doc_id, :ver_id, :user_id, 'Layer 1', '#16a34a', 1)
             ");
             $insertSeed->execute([
                 'doc_id'  => $docId,
+                'ver_id'  => $ajaxVersionId,
                 'user_id' => $userId
             ]);
             $seedLayerId = (int)$pdo->lastInsertId();
@@ -189,13 +223,23 @@ if ($action) {
             ];
         }
 
-        $annosStmt = $pdo->prepare("
-            SELECT id, layer_id, page_number, tool_type, payload_json, created_at
-            FROM dms_annotations
-            WHERE document_id = :doc_id
-            ORDER BY id ASC
-        ");
-        $annosStmt->execute(['doc_id' => $docId]);
+        if ($ajaxVersionId) {
+            $annosStmt = $pdo->prepare("
+                SELECT id, layer_id, page_number, tool_type, payload_json, created_at
+                FROM dms_annotations
+                WHERE document_id = :doc_id AND (version_id = :ver_id OR (version_id IS NULL AND layer_id IN (SELECT id FROM dms_annotation_layers WHERE version_id = :ver_id)))
+                ORDER BY id ASC
+            ");
+            $annosStmt->execute(['doc_id' => $docId, 'ver_id' => $ajaxVersionId]);
+        } else {
+            $annosStmt = $pdo->prepare("
+                SELECT id, layer_id, page_number, tool_type, payload_json, created_at
+                FROM dms_annotations
+                WHERE document_id = :doc_id
+                ORDER BY id ASC
+            ");
+            $annosStmt->execute(['doc_id' => $docId]);
+        }
         $dbAnnos = $annosStmt->fetchAll(PDO::FETCH_ASSOC);
 
         $layersMap = [];
@@ -237,7 +281,7 @@ if ($action) {
             $isSelf = ($layer['userId'] === $userId);
             $hasStrokes = !empty($layer['strokes']);
             if ($isSelf) {
-                if ($canAnnotate || $hasStrokes) {
+                if (($canAnnotate && !$isHistoricalSnapshot) || $hasStrokes) {
                     $filteredLayers[] = $layer;
                 }
             } else {
@@ -247,18 +291,32 @@ if ($action) {
             }
         }
 
-        // Fetch recent annotation history
-        $histStmt = $pdo->prepare("
-            SELECT h.id, h.user_id, h.action_type, h.tool_type, h.page_number, h.details,
-                   DATE_FORMAT(h.created_at, '%b %d, %H:%i') AS formatted_time,
-                   COALESCE(u.full_name, u.username, 'Collaborator') AS author_name
-            FROM dms_annotation_history h
-            LEFT JOIN users u ON h.user_id = u.id
-            WHERE h.document_id = :doc_id
-            ORDER BY h.id DESC
-            LIMIT 50
-        ");
-        $histStmt->execute(['doc_id' => $docId]);
+        // Fetch recent annotation history for this version
+        if ($ajaxVersionId) {
+            $histStmt = $pdo->prepare("
+                SELECT h.id, h.user_id, h.action_type, h.tool_type, h.page_number, h.details,
+                       DATE_FORMAT(h.created_at, '%b %d, %H:%i') AS formatted_time,
+                       COALESCE(u.full_name, u.username, 'Collaborator') AS author_name
+                FROM dms_annotation_history h
+                LEFT JOIN users u ON h.user_id = u.id
+                WHERE h.document_id = :doc_id AND (h.version_id = :ver_id OR h.version_id IS NULL)
+                ORDER BY h.id DESC
+                LIMIT 50
+            ");
+            $histStmt->execute(['doc_id' => $docId, 'ver_id' => $ajaxVersionId]);
+        } else {
+            $histStmt = $pdo->prepare("
+                SELECT h.id, h.user_id, h.action_type, h.tool_type, h.page_number, h.details,
+                       DATE_FORMAT(h.created_at, '%b %d, %H:%i') AS formatted_time,
+                       COALESCE(u.full_name, u.username, 'Collaborator') AS author_name
+                FROM dms_annotation_history h
+                LEFT JOIN users u ON h.user_id = u.id
+                WHERE h.document_id = :doc_id
+                ORDER BY h.id DESC
+                LIMIT 50
+            ");
+            $histStmt->execute(['doc_id' => $docId]);
+        }
         $historyLogs = $histStmt->fetchAll(PDO::FETCH_ASSOC);
 
         echo json_encode([
@@ -271,8 +329,8 @@ if ($action) {
 
     // 1b. Create New Layer Group (+ Add Annotation Group)
     if ($action === 'create_layer') {
-        if (!$canAnnotate) {
-            echo json_encode(['success' => false, 'message' => 'You do not have permission to annotate this document.']);
+        if (!$canAnnotate || $isHistoricalSnapshot) {
+            echo json_encode(['success' => false, 'message' => 'You do not have permission to annotate this version.']);
             exit;
         }
 
@@ -283,18 +341,24 @@ if ($action) {
 
         // Determine layer number if name is default
         if ($customName === '') {
-            $cntStmt = $pdo->prepare("SELECT COUNT(*) FROM dms_annotation_layers WHERE document_id = :doc_id AND user_id = :user_id");
-            $cntStmt->execute(['doc_id' => $docId, 'user_id' => $userId]);
+            if ($ajaxVersionId) {
+                $cntStmt = $pdo->prepare("SELECT COUNT(*) FROM dms_annotation_layers WHERE document_id = :doc_id AND version_id = :ver_id AND user_id = :user_id");
+                $cntStmt->execute(['doc_id' => $docId, 'ver_id' => $ajaxVersionId, 'user_id' => $userId]);
+            } else {
+                $cntStmt = $pdo->prepare("SELECT COUNT(*) FROM dms_annotation_layers WHERE document_id = :doc_id AND user_id = :user_id");
+                $cntStmt->execute(['doc_id' => $docId, 'user_id' => $userId]);
+            }
             $count = (int)$cntStmt->fetchColumn();
             $customName = 'Layer ' . ($count + 1);
         }
 
         $ins = $pdo->prepare("
-            INSERT INTO dms_annotation_layers (document_id, user_id, layer_name, color, is_visible)
-            VALUES (:doc_id, :user_id, :name, :color, 1)
+            INSERT INTO dms_annotation_layers (document_id, version_id, user_id, layer_name, color, is_visible)
+            VALUES (:doc_id, :ver_id, :user_id, :name, :color, 1)
         ");
         $ins->execute([
             'doc_id'  => $docId,
+            'ver_id'  => $ajaxVersionId,
             'user_id' => $userId,
             'name'    => $customName,
             'color'   => $layerColor
@@ -320,8 +384,8 @@ if ($action) {
 
     // 2. Save a new stroke / text note
     if ($action === 'save_stroke') {
-        if (!$canAnnotate) {
-            echo json_encode(['success' => false, 'message' => 'You do not have permission to annotate this document.']);
+        if (!$canAnnotate || $isHistoricalSnapshot) {
+            echo json_encode(['success' => false, 'message' => 'You do not have permission to annotate this version.']);
             exit;
         }
 
@@ -374,14 +438,20 @@ if ($action) {
 
         // Fallback: Use latest active layer of user or create Layer 1
         if ($layerId === 0) {
-            $layerStmt = $pdo->prepare("SELECT id FROM dms_annotation_layers WHERE document_id = :doc_id AND user_id = :user_id ORDER BY id DESC LIMIT 1");
-            $layerStmt->execute(['doc_id' => $docId, 'user_id' => $userId]);
+            if ($ajaxVersionId) {
+                $layerStmt = $pdo->prepare("SELECT id FROM dms_annotation_layers WHERE document_id = :doc_id AND version_id = :ver_id AND user_id = :user_id ORDER BY id DESC LIMIT 1");
+                $layerStmt->execute(['doc_id' => $docId, 'ver_id' => $ajaxVersionId, 'user_id' => $userId]);
+            } else {
+                $layerStmt = $pdo->prepare("SELECT id FROM dms_annotation_layers WHERE document_id = :doc_id AND user_id = :user_id ORDER BY id DESC LIMIT 1");
+                $layerStmt->execute(['doc_id' => $docId, 'user_id' => $userId]);
+            }
             $existingLayer = $layerStmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$existingLayer) {
-                $insertLayer = $pdo->prepare("INSERT INTO dms_annotation_layers (document_id, user_id, layer_name, color, is_visible) VALUES (:doc_id, :user_id, 'Layer 1', :color, 1)");
+                $insertLayer = $pdo->prepare("INSERT INTO dms_annotation_layers (document_id, version_id, user_id, layer_name, color, is_visible) VALUES (:doc_id, :ver_id, :user_id, 'Layer 1', :color, 1)");
                 $insertLayer->execute([
                     'doc_id'  => $docId,
+                    'ver_id'  => $ajaxVersionId,
                     'user_id' => $userId,
                     'color'   => $color
                 ]);
@@ -392,12 +462,13 @@ if ($action) {
         }
 
         $insertAnno = $pdo->prepare("
-            INSERT INTO dms_annotations (layer_id, document_id, page_number, tool_type, payload_json)
-            VALUES (:layer_id, :doc_id, :page, :tool, :payload)
+            INSERT INTO dms_annotations (layer_id, document_id, version_id, page_number, tool_type, payload_json)
+            VALUES (:layer_id, :doc_id, :ver_id, :page, :tool, :payload)
         ");
         $insertAnno->execute([
             'layer_id' => $layerId,
             'doc_id'   => $docId,
+            'ver_id'   => $ajaxVersionId,
             'page'     => $page,
             'tool'     => $tool,
             'payload'  => json_encode($data)
@@ -413,11 +484,12 @@ if ($action) {
             : (($tool === 'highlighter') ? 'Highlighted section' : 'Drawn freehand');
 
         $logStmt = $pdo->prepare("
-            INSERT INTO dms_annotation_history (document_id, user_id, action_type, tool_type, page_number, details)
-            VALUES (:doc_id, :user_id, 'create', :tool, :page, :details)
+            INSERT INTO dms_annotation_history (document_id, version_id, user_id, action_type, tool_type, page_number, details)
+            VALUES (:doc_id, :ver_id, :user_id, 'create', :tool, :page, :details)
         ");
         $logStmt->execute([
             'doc_id'  => $docId,
+            'ver_id'  => $ajaxVersionId,
             'user_id' => $userId,
             'tool'    => $tool,
             'page'    => $page,
@@ -444,8 +516,8 @@ if ($action) {
 
     // 3. Delete single stroke (Undo / Delete key)
     if ($action === 'delete_stroke') {
-        if (!$canAnnotate) {
-            echo json_encode(['success' => false, 'message' => 'You do not have permission to annotate this document.']);
+        if (!$canAnnotate || $isHistoricalSnapshot) {
+            echo json_encode(['success' => false, 'message' => 'You do not have permission to annotate this version.']);
             exit;
         }
 
@@ -477,11 +549,12 @@ if ($action) {
             }
 
             $logStmt = $pdo->prepare("
-                INSERT INTO dms_annotation_history (document_id, user_id, action_type, tool_type, page_number, details)
-                VALUES (:doc_id, :user_id, 'delete', :tool, :page, :details)
+                INSERT INTO dms_annotation_history (document_id, version_id, user_id, action_type, tool_type, page_number, details)
+                VALUES (:doc_id, :ver_id, :user_id, 'delete', :tool, :page, :details)
             ");
             $logStmt->execute([
                 'doc_id'  => $docId,
+                'ver_id'  => $ajaxVersionId,
                 'user_id' => $userId,
                 'tool'    => $delTool,
                 'page'    => $delPage,
@@ -510,8 +583,8 @@ if ($action) {
 
     // 4. Delete current annotation group (removes annotations and layer record)
     if ($action === 'delete_layer_group') {
-        if (!$canAnnotate) {
-            echo json_encode(['success' => false, 'message' => 'You do not have permission to annotate this document.']);
+        if (!$canAnnotate || $isHistoricalSnapshot) {
+            echo json_encode(['success' => false, 'message' => 'You do not have permission to annotate this version.']);
             exit;
         }
 
@@ -540,9 +613,14 @@ if ($action) {
         $delAnno = $pdo->prepare("DELETE FROM dms_annotations WHERE layer_id = :lid AND document_id = :doc_id");
         $delAnno->execute(['lid' => $reqLayerId, 'doc_id' => $docId]);
 
-        // Check how many layers user has on this document
-        $cntStmt = $pdo->prepare("SELECT COUNT(*) FROM dms_annotation_layers WHERE document_id = :doc_id AND user_id = :uid");
-        $cntStmt->execute(['doc_id' => $docId, 'uid' => $userId]);
+        // Check how many layers user has on this document/version
+        if ($ajaxVersionId) {
+            $cntStmt = $pdo->prepare("SELECT COUNT(*) FROM dms_annotation_layers WHERE document_id = :doc_id AND version_id = :ver_id AND user_id = :uid");
+            $cntStmt->execute(['doc_id' => $docId, 'ver_id' => $ajaxVersionId, 'uid' => $userId]);
+        } else {
+            $cntStmt = $pdo->prepare("SELECT COUNT(*) FROM dms_annotation_layers WHERE document_id = :doc_id AND user_id = :uid");
+            $cntStmt->execute(['doc_id' => $docId, 'uid' => $userId]);
+        }
         $userLayerCount = (int)$cntStmt->fetchColumn();
 
         $seededNewLayer = null;
@@ -567,11 +645,12 @@ if ($action) {
         }
 
         $logStmt = $pdo->prepare("
-            INSERT INTO dms_annotation_history (document_id, user_id, action_type, tool_type, page_number, details)
-            VALUES (:doc_id, :user_id, 'clear', NULL, 1, :details)
+            INSERT INTO dms_annotation_history (document_id, version_id, user_id, action_type, tool_type, page_number, details)
+            VALUES (:doc_id, :ver_id, :user_id, 'clear', NULL, 1, :details)
         ");
         $logStmt->execute([
             'doc_id'  => $docId,
+            'ver_id'  => $ajaxVersionId,
             'user_id' => $userId,
             'details' => 'Deleted annotation group: "' . $groupName . '"'
         ]);
@@ -596,8 +675,8 @@ if ($action) {
 
     // 5. Rename annotation group
     if ($action === 'rename_layer') {
-        if (!$canAnnotate) {
-            echo json_encode(['success' => false, 'message' => 'You do not have permission to annotate this document.']);
+        if (!$canAnnotate || $isHistoricalSnapshot) {
+            echo json_encode(['success' => false, 'message' => 'You do not have permission to annotate this version.']);
             exit;
         }
 
@@ -639,11 +718,12 @@ if ($action) {
         // History record if name changed
         if ($oldName !== $newName) {
             $logStmt = $pdo->prepare("
-                INSERT INTO dms_annotation_history (document_id, user_id, action_type, tool_type, page_number, details)
-                VALUES (:doc_id, :user_id, 'edit', NULL, 1, :details)
+                INSERT INTO dms_annotation_history (document_id, version_id, user_id, action_type, tool_type, page_number, details)
+                VALUES (:doc_id, :ver_id, :user_id, 'edit', NULL, 1, :details)
             ");
             $logStmt->execute([
                 'doc_id'  => $docId,
+                'ver_id'  => $ajaxVersionId,
                 'user_id' => $userId,
                 'details' => 'Renamed group "' . $oldName . '" to "' . $newName . '"'
             ]);
@@ -689,34 +769,31 @@ if ($action) {
                 <span class="workspace-doc-title" title="<?php echo e($doc['name']); ?>">
                     <?php echo e($doc['name']); ?>
                 </span>
-                <?php if ($isArchived): ?>
-                    <span class="workspace-badge" style="background:var(--slate-soft); color:var(--slate-ink); border:1px solid var(--slate-line);">Obsolete</span>
-                <?php elseif ($doc['status'] === 'published'): ?>
-                    <span class="workspace-badge" style="background:var(--success-badge-bg); color:var(--success-ink); border:1px solid var(--success-line);">Published</span>
-                <?php elseif ($doc['status'] === 'hold'): ?>
-                    <span class="workspace-badge" style="background:var(--amber-soft); color:var(--amber-ink); border:1px solid var(--amber-line);">Under Review (Hold)</span>
-                <?php elseif ($doc['status'] === 'suspend'): ?>
-                    <span class="workspace-badge" style="background:var(--red-soft); color:var(--red-ink); border:1px solid var(--red-line);">Suspended</span>
-                <?php endif; ?>
-                <?php if (!empty($ext)): ?>
-                    <span class="workspace-badge badge-type">.<?php echo e($ext); ?></span>
-                <?php endif; ?>
+
                 <?php if ($accessMode === 'public'): ?>
                     <span class="workspace-badge" style="background:var(--info-blue-bg); color:var(--info-blue); border:1px solid var(--info-blue-line);" title="Public Document (Anyone can contribute)">Public</span>
                 <?php endif; ?>
+
                 <?php if ($isHistoricalSnapshot): ?>
                     <span class="workspace-badge" style="background:var(--amber-soft); color:var(--amber-ink); border:1px solid var(--amber-line);" title="Viewing historical version snapshot">Snapshot: <?php echo e($activeVersionName); ?></span>
                     <a href="view.php?id=<?php echo $docId; ?>" class="btn-workspace-action" style="padding: 2px 8px; font-size: 11px; height: 24px;" title="Switch to latest active revision">Latest (<?php echo e($currentVersion); ?>)</a>
                 <?php else: ?>
-                    <button type="button" class="workspace-badge badge-version" id="btnBadgeVersion" title="View Revision Lineage" style="cursor:pointer; background: var(--green-tint-surface); border: 1px dashed var(--green-tint-border);">
-                        <?php echo e($doc['version'] ?? 'v1.0'); ?>
+                    <button type="button" class="workspace-badge badge-version" id="btnBadgeVersion" title="View Revision Lineage" style="cursor:pointer; background: var(--green-tint-surface); border: 1px dashed var(--green-tint-border); display: inline-flex; align-items: center; gap: 4px;">
+                        <span><?php echo e($doc['version'] ?? 'v1.0'); ?></span>
+                        <?php if ($activeReviewStatus === 'rejected'): ?>
+                            <span style="color:var(--red); font-weight:700;">(REJECTED)</span>
+                        <?php elseif ($activeReviewStatus === 'approved' || $doc['status'] === 'published'): ?>
+                            <span style="color:var(--green); font-weight:700;">(APPROVED)</span>
+                        <?php elseif ($doc['status'] === 'hold'): ?>
+                            <span style="color:var(--amber-ink); font-weight:700;">(UNDER REVIEW)</span>
+                        <?php endif; ?>
                     </button>
                 <?php endif; ?>
 
-                <?php if ($activeReviewStatus === 'rejected'): ?>
-                    <span class="workspace-badge" style="background:var(--red-soft); color:var(--red-ink); border:1px solid var(--red-line); font-weight:700; letter-spacing:0.02em;" title="This version was rejected during review">(REJECTED)</span>
-                <?php elseif ($activeReviewStatus === 'approved' || $doc['status'] === 'published'): ?>
-                    <span class="workspace-badge" style="background:var(--success-badge-bg); color:var(--success-ink); border:1px solid var(--success-line); font-weight:700; letter-spacing:0.02em;" title="This version was officially approved and published">(APPROVED)</span>
+                <?php if ($isArchived): ?>
+                    <span class="workspace-badge" style="background:var(--slate-soft); color:var(--slate-ink); border:1px solid var(--slate-line);">Obsolete</span>
+                <?php elseif ($doc['status'] === 'suspend'): ?>
+                    <span class="workspace-badge" style="background:var(--red-soft); color:var(--red-ink); border:1px solid var(--red-line);">Suspended</span>
                 <?php endif; ?>
             </div>
         </div>
@@ -1268,8 +1345,7 @@ if ($action) {
                             <input type="radio" name="access_mode" value="public" id="modePublic" <?php echo $accessMode === 'public' ? 'checked' : ''; ?> style="margin-top: 3px; accent-color: var(--green);">
                             <div>
                                 <div style="display: flex; align-items: center; gap: 6px;">
-                                    <span style="font-size: 13px; font-weight: 600; color: var(--ink);">Public (Open Contribution)</span>
-                                    <span class="workspace-badge" style="background: var(--info-blue-bg); color: var(--info-blue); font-size: 9.5px;">Anyone can edit</span>
+                                    <span style="font-size: 13px; font-weight: 600; color: var(--ink);">Public (Anyone can Edit)</span>
                                 </div>
                                 <div style="font-size: 11.5px; color: var(--muted); line-height: 1.3;">All authenticated users can annotate, upload revisions, and submit for review.</div>
                             </div>
@@ -1332,7 +1408,7 @@ window.EDMS_WORKSPACE_CONFIG = {
     currentUserId: <?php echo (int)$currentUser['id']; ?>,
     currentUserName: <?php echo json_encode($currentUser['full_name']); ?>,
     currentUserAvatar: <?php echo json_encode($currentUser['avatar'] ?? null); ?>,
-    activeVersionId: <?php echo (int)$reqVersionId; ?>,
+    activeVersionId: <?php echo (int)$activeVersionId; ?>,
     activeVersionName: <?php echo json_encode($activeVersionName); ?>,
     isHistoricalSnapshot: <?php echo $isHistoricalSnapshot ? 'true' : 'false'; ?>
 };

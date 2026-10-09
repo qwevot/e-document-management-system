@@ -7,6 +7,8 @@ require_once __DIR__ . '/../includes/functions.php';
 
 require_login();
 $pdo = db();
+$currentUser = current_user();
+$isSuperAdmin = is_super_admin($currentUser);
 
 $isAjax = (isset($_GET['ajax']) && $_GET['ajax'] === '1') || 
           (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest');
@@ -132,8 +134,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    // 2. Permanently Delete Item (Hard delete from database & disk)
+    // 2. Permanently Delete Item (Hard delete from database & disk) — Super Admin only
     if ($action === 'purge_node') {
+        if (!$isSuperAdmin) {
+            if ($isAjax) {
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'message' => 'Unauthorized. Only Super Administrators can permanently delete archived items.']);
+                exit;
+            }
+            redirect_to('archives', 'error', 'Unauthorized. Only Super Administrators can permanently delete archived items.');
+        }
+
         $nodeId = isset($_POST['id']) && is_numeric($_POST['id']) ? (int)$_POST['id'] : 0;
         if ($nodeId <= 0) {
             if ($isAjax) {
@@ -186,8 +197,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // 2B. Batch Permanently Delete Items
+    // 2B. Batch Permanently Delete Items — Super Admin only
     if ($action === 'batch_purge') {
+        if (!$isSuperAdmin) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Unauthorized. Only Super Administrators can permanently delete archived items.']);
+            exit;
+        }
+
         $postIds = isset($_POST['ids']) ? (is_array($_POST['ids']) ? $_POST['ids'] : explode(',', (string)$_POST['ids'])) : [];
         $nodeIds = array_values(array_unique(array_filter(array_map('intval', $postIds))));
 
@@ -687,11 +704,13 @@ include __DIR__ . '/../includes/header.php';
         <?php echo render_icon('refresh'); ?>
         <span id="popoverArchiveRestoreLabel">Restore to Workspace</span>
     </button>
-    <div class="popover-divider"></div>
-    <button type="button" class="popover-item is-danger" id="popoverArchivePurge">
-        <?php echo render_icon('trash'); ?>
-        <span id="popoverArchivePurgeLabel">Permanently Delete</span>
-    </button>
+    <?php if ($isSuperAdmin): ?>
+        <div class="popover-divider"></div>
+        <button type="button" class="popover-item is-danger" id="popoverArchivePurge">
+            <?php echo render_icon('trash'); ?>
+            <span id="popoverArchivePurgeLabel">Permanently Delete</span>
+        </button>
+    <?php endif; ?>
 </div>
 
 <!-- Modal: Restore Confirmation (Identical Modal Style to explorer.php) -->
@@ -727,6 +746,7 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
+<?php if ($isSuperAdmin): ?>
 <!-- Modal: Permanently Delete Confirmation (Identical Modal Style to explorer.php) -->
 <div class="edms-modal-backdrop" id="modalPurgeDoc">
     <div class="edms-modal-dialog">
@@ -759,6 +779,7 @@ include __DIR__ . '/../includes/header.php';
         </form>
     </div>
 </div>
+<?php endif; ?>
 
 <script>
 let archivesSearchTimer = null;
