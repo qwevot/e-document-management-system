@@ -1684,18 +1684,64 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    // --- 12. Layer Drawer & Visibility Controls ---
-    if (btnToggleLayerDrawer) {
-        btnToggleLayerDrawer.addEventListener("click", function () {
-            workspaceRightDrawer.classList.toggle("is-open");
-            btnToggleLayerDrawer.classList.toggle("is-active", workspaceRightDrawer.classList.contains("is-open"));
+    // --- 12. Right Side Panel & Tab Switching ---
+    const btnToggleRightDrawer = document.getElementById("btnToggleRightDrawer") || document.getElementById("btnToggleLayerDrawer");
+    const tabBtnAnnotations = document.getElementById("tabBtnAnnotations");
+    const tabBtnVersions = document.getElementById("tabBtnVersions");
+    const drawerTabAnnotations = document.getElementById("drawerTabAnnotations");
+    const drawerTabVersions = document.getElementById("drawerTabVersions");
+
+    function switchSidePanelTab(tabName) {
+        if (tabName === "versions") {
+            if (tabBtnVersions) {
+                tabBtnVersions.style.background = "var(--surface, #ffffff)";
+                tabBtnVersions.style.color = "var(--ink)";
+                tabBtnVersions.style.boxShadow = "0 1px 2px rgba(0,0,0,0.05)";
+            }
+            if (tabBtnAnnotations) {
+                tabBtnAnnotations.style.background = "transparent";
+                tabBtnAnnotations.style.color = "var(--muted)";
+                tabBtnAnnotations.style.boxShadow = "none";
+            }
+            if (drawerTabVersions) drawerTabVersions.style.display = "block";
+            if (drawerTabAnnotations) drawerTabAnnotations.style.display = "none";
+            if (workspaceRightDrawer) workspaceRightDrawer.classList.add("is-open");
+            if (btnToggleRightDrawer) btnToggleRightDrawer.classList.add("is-active");
+            loadVersionHistory();
+        } else {
+            if (tabBtnAnnotations) {
+                tabBtnAnnotations.style.background = "var(--surface, #ffffff)";
+                tabBtnAnnotations.style.color = "var(--ink)";
+                tabBtnAnnotations.style.boxShadow = "0 1px 2px rgba(0,0,0,0.05)";
+            }
+            if (tabBtnVersions) {
+                tabBtnVersions.style.background = "transparent";
+                tabBtnVersions.style.color = "var(--muted)";
+                tabBtnVersions.style.boxShadow = "none";
+            }
+            if (drawerTabAnnotations) drawerTabAnnotations.style.display = "block";
+            if (drawerTabVersions) drawerTabVersions.style.display = "none";
+            if (workspaceRightDrawer) workspaceRightDrawer.classList.add("is-open");
+            if (btnToggleRightDrawer) btnToggleRightDrawer.classList.add("is-active");
+        }
+    }
+
+    if (tabBtnAnnotations) tabBtnAnnotations.addEventListener("click", () => switchSidePanelTab("annotations"));
+    if (tabBtnVersions) tabBtnVersions.addEventListener("click", () => switchSidePanelTab("versions"));
+
+    if (btnToggleRightDrawer) {
+        btnToggleRightDrawer.addEventListener("click", function () {
+            if (workspaceRightDrawer) {
+                workspaceRightDrawer.classList.toggle("is-open");
+                btnToggleRightDrawer.classList.toggle("is-active", workspaceRightDrawer.classList.contains("is-open"));
+            }
         });
     }
 
     if (btnCloseRightDrawer) {
         btnCloseRightDrawer.addEventListener("click", function () {
-            workspaceRightDrawer.classList.remove("is-open");
-            if (btnToggleLayerDrawer) btnToggleLayerDrawer.classList.remove("is-active");
+            if (workspaceRightDrawer) workspaceRightDrawer.classList.remove("is-open");
+            if (btnToggleRightDrawer) btnToggleRightDrawer.classList.remove("is-active");
         });
     }
 
@@ -1874,10 +1920,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // --- 14. Version History & Revision Lineage Controller ---
-    const versionHistoryModal = document.getElementById("versionHistoryModal");
-    const btnOpenVersionHistoryModal = document.getElementById("btnOpenVersionHistoryModal");
     const btnBadgeVersion = document.getElementById("btnBadgeVersion");
-    const btnCloseVersionModal = document.getElementById("btnCloseVersionModal");
     const versionTimelineContainer = document.getElementById("versionTimelineContainer");
 
     // Upload Revision Modal Elements (Matches explorer.php style)
@@ -1894,31 +1937,15 @@ document.addEventListener("DOMContentLoaded", function () {
     const btnClearSelectedFileRevision = document.getElementById("btnClearSelectedFileRevision");
     const btnSubmitRevision = document.getElementById("btnSubmitRevision");
 
-    function openVersionModal() {
-        if (!versionHistoryModal) return;
-        versionHistoryModal.classList.add("is-open");
-        loadVersionHistory();
-    }
-
-    function closeVersionModal() {
-        if (!versionHistoryModal) return;
-        versionHistoryModal.classList.remove("is-open");
-    }
-
-    if (btnOpenVersionHistoryModal) btnOpenVersionHistoryModal.addEventListener("click", openVersionModal);
-    if (btnBadgeVersion) btnBadgeVersion.addEventListener("click", openVersionModal);
-    if (btnCloseVersionModal) btnCloseVersionModal.addEventListener("click", closeVersionModal);
-
-    if (versionHistoryModal) {
-        versionHistoryModal.addEventListener("click", function (e) {
-            if (e.target === versionHistoryModal) closeVersionModal();
+    if (btnBadgeVersion) {
+        btnBadgeVersion.addEventListener("click", function () {
+            switchSidePanelTab("versions");
         });
     }
 
     function openUploadRevisionModal() {
         if (!modalUploadRevision) return;
         modalUploadRevision.classList.add("is-open");
-        if (versionHistoryModal) versionHistoryModal.classList.remove("is-open");
     }
 
     function closeUploadRevisionModal() {

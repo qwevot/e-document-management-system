@@ -673,13 +673,6 @@ if ($action) {
 
         <!-- Right Controls: Active Collaborators, Submit Review, Version History, Layer Drawer Toggle, Download -->
         <div class="workspace-nav-right">
-            <?php if ($isDocActive): ?>
-                <!-- Submit for Review Trigger -->
-                <button type="button" class="btn-workspace-action" id="btnOpenSubmitReviewModal" title="Submit document for review &amp; formal approval" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.4); color: var(--ink);">
-                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><polyline points="9 15 11 17 15 13"></polyline></svg>
-                    <span>Submit Review</span>
-                </button>
-            <?php endif; ?>
 
             <?php if ($isSupportedViewer): ?>
                 <!-- Active Collaborator Presence Indicator -->
@@ -689,16 +682,10 @@ if ($action) {
                     </div>
                 </div>
 
-                <!-- Version History Trigger -->
-                <button type="button" class="btn-workspace-action" id="btnOpenVersionHistoryModal" title="Version Lineage & Upload Revision">
-                    <?php echo render_icon('history'); ?>
-                    <span>Versions</span>
-                </button>
-
-                <!-- Layer Panel Toggle -->
-                <button type="button" class="btn-workspace-action is-active" id="btnToggleLayerDrawer" title="Toggle Annotation Layers">
+                <!-- Side Panel Toggle -->
+                <button type="button" class="btn-workspace-action is-active" id="btnToggleRightDrawer" title="Toggle Side Panel">
                     <?php echo render_icon('layers'); ?>
-                    <span>Annotation Layers</span>
+                    <span>Side Panel</span>
                 </button>
 
                 <!-- Download Dropdown Menu for All Supported Formats -->
@@ -747,6 +734,14 @@ if ($action) {
                     <?php echo render_icon('download'); ?>
                     <span>Download</span>
                 </a>
+            <?php endif; ?>
+
+            <?php if ($isDocActive): ?>
+                <!-- Submit for Review Trigger -->
+                <button type="button" class="btn-workspace-action" id="btnOpenSubmitReviewModal" title="Submit document for review &amp; formal approval" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.4); color: var(--ink);">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><polyline points="9 15 11 17 15 13"></polyline></svg>
+                    <span>Submit Review</span>
+                </button>
             <?php endif; ?>
         </div>
     </header>
@@ -870,48 +865,76 @@ if ($action) {
 
             </main>
 
-            <!-- Right Side Drawer: Layer Management & Activity -->
+            <!-- Right Side Drawer: Annotation Layers & Version Lineage Tabs -->
             <aside class="workspace-right-drawer is-open" id="workspaceRightDrawer">
-                <div class="drawer-header">
-                    <div class="drawer-title">
-                        <span>Annotation</span>
+                <div class="drawer-header" style="padding: 10px 14px; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 4px; background: var(--surface-light, #f1f5f9); padding: 3px; border-radius: 6px; border: 1px solid var(--border); flex: 1;">
+                        <button type="button" class="btn-drawer-tab is-active" id="tabBtnAnnotations" style="flex: 1; padding: 5px 8px; font-size: 11.5px; font-weight: 600; border: none; border-radius: 4px; background: var(--surface, #ffffff); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.05); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                            <?php echo render_icon('layers'); ?>
+                            <span>Layers</span>
+                        </button>
+                        <button type="button" class="btn-drawer-tab" id="tabBtnVersions" style="flex: 1; padding: 5px 8px; font-size: 11.5px; font-weight: 600; border: none; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                            <?php echo render_icon('history'); ?>
+                            <span>Versions</span>
+                        </button>
                     </div>
                     <button type="button" class="btn-drawer-close" id="btnCloseRightDrawer" title="Collapse Drawer">&times;</button>
                 </div>
 
                 <div class="drawer-body">
                     
-                    <div class="layer-section-header-row">
-                        <div class="layer-section-title" style="margin-bottom: 0;">Contributors</div>
-                        <button type="button" class="btn-add-layer" id="btnAddLayerGroup" title="Add New Annotation Group">
-                            <?php echo render_icon('plus'); ?>
-                            <span>New Annotation</span>
-                        </button>
-                    </div>
-                    <div class="layers-list" id="layersList">
-                        <!-- Dynamic Layer Items rendered by JS -->
+                    <!-- 1. Annotations Tab Content -->
+                    <div id="drawerTabAnnotations" class="drawer-tab-pane">
+                        <div class="layer-section-header-row">
+                            <div class="layer-section-title" style="margin-bottom: 0;">Contributors</div>
+                            <button type="button" class="btn-add-layer" id="btnAddLayerGroup" title="Add New Annotation Group">
+                                <?php echo render_icon('plus'); ?>
+                                <span>New Annotation</span>
+                            </button>
+                        </div>
+                        <div class="layers-list" id="layersList">
+                            <!-- Dynamic Layer Items rendered by JS -->
+                        </div>
+
+                        <div class="layer-section-title" style="margin-top: 24px;">Layer Transparency</div>
+                        <div class="layer-opacity-box">
+                            <div class="opacity-label-row">
+                                <span>Overlay Opacity</span>
+                                <span id="opacityDisplayVal">100%</span>
+                            </div>
+                            <input type="range" id="layerOpacitySlider" min="0" max="100" value="100" class="layer-opacity-slider">
+                        </div>
+
+                        <div class="history-accordion-header" id="btnToggleHistoryAccordion" title="Toggle Annotation History">
+                            <div class="history-accordion-title">
+                                <span class="history-accordion-arrow" id="historyAccordionArrow">
+                                    <?php echo render_icon('chevron-right'); ?>
+                                </span>
+                                <span>Annotation History</span>
+                            </div>
+                        </div>
+                        <div class="annotation-history-feed is-collapsed" id="annotationHistoryFeed">
+                            <div class="history-empty-state" id="historyEmptyState">
+                                <span>No annotation events recorded yet.</span>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="layer-section-title" style="margin-top: 24px;">Layer Transparency</div>
-                    <div class="layer-opacity-box">
-                        <div class="opacity-label-row">
-                            <span>Overlay Opacity</span>
-                            <span id="opacityDisplayVal">100%</span>
+                    <!-- 2. Version History Tab Content -->
+                    <div id="drawerTabVersions" class="drawer-tab-pane" style="display: none;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                            <div class="layer-section-title" style="margin-bottom: 0;">Revision Lineage</div>
+                            <button type="button" class="btn btn-primary" id="btnOpenUploadRevisionModal" style="padding: 4px 10px; font-size: 11.5px; display: inline-flex; align-items: center; gap: 4px;">
+                                <?php echo render_icon('plus'); ?>
+                                <span>Upload Revision</span>
+                            </button>
                         </div>
-                        <input type="range" id="layerOpacitySlider" min="0" max="100" value="100" class="layer-opacity-slider">
-                    </div>
 
-                    <div class="history-accordion-header" id="btnToggleHistoryAccordion" title="Toggle Annotation History">
-                        <div class="history-accordion-title">
-                            <span class="history-accordion-arrow" id="historyAccordionArrow">
-                                <?php echo render_icon('chevron-right'); ?>
-                            </span>
-                            <span>Annotation History</span>
-                        </div>
-                    </div>
-                    <div class="annotation-history-feed is-collapsed" id="annotationHistoryFeed">
-                        <div class="history-empty-state" id="historyEmptyState">
-                            <span>No annotation events recorded yet.</span>
+                        <!-- Version Timeline Feed -->
+                        <div id="versionTimelineContainer" style="display: flex; flex-direction: column; gap: 8px;">
+                            <div style="text-align: center; padding: 20px; color: var(--slate-muted); font-size: 13px;">
+                                Loading version history...
+                            </div>
                         </div>
                     </div>
 
@@ -943,35 +966,6 @@ if ($action) {
         </main>
     <?php endif; ?>
 
-</div>
-
-<!-- 1. Version History Modal (Clean Minimalist Accordion List) -->
-<div class="edms-modal-backdrop" id="versionHistoryModal">
-    <div class="edms-modal-dialog" style="max-width: 580px;">
-        <div class="edms-modal-header">
-            <div class="edms-modal-title">
-                <?php echo render_icon('history'); ?>
-                <span>Version History</span>
-            </div>
-            <button type="button" class="btn-modal-close" id="btnCloseVersionModal" title="Close">&times;</button>
-        </div>
-        <div class="edms-modal-body" style="max-height: 70vh; overflow-y: auto; padding: 16px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-                <span style="font-size: 13px; font-weight: 600; color: var(--ink);">Revisions for this document</span>
-                <button type="button" class="btn btn-primary" id="btnOpenUploadRevisionModal" style="padding: 5px 12px; font-size: 12px;">
-                    <?php echo render_icon('plus'); ?>
-                    <span>Upload Revision</span>
-                </button>
-            </div>
-
-            <!-- Version Timeline Feed (Clean Compact Cards) -->
-            <div id="versionTimelineContainer" style="display: flex; flex-direction: column; gap: 8px;">
-                <div style="text-align: center; padding: 20px; color: var(--slate-muted); font-size: 13px;">
-                    Loading version history...
-                </div>
-            </div>
-        </div>
-    </div>
 </div>
 
 <!-- 2. Modal: Upload Document Revision (Matches explorer.php style) -->
