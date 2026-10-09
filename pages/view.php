@@ -870,7 +870,7 @@ if ($action) {
                     <div class="pill-tabs" style="display: flex; flex: 1; justify-content: stretch;">
                         <button type="button" class="pill-tab active" id="tabBtnAnnotations" style="flex: 1; justify-content: center; border: none; cursor: pointer;">
                             <?php echo render_icon('layers'); ?>
-                            <span>Layers</span>
+                            <span>Annotations</span>
                         </button>
                         <button type="button" class="pill-tab" id="tabBtnVersions" style="flex: 1; justify-content: center; border: none; cursor: pointer;">
                             <?php echo render_icon('history'); ?>
