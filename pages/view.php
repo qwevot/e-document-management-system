@@ -621,17 +621,17 @@ if ($action) {
                 <?php if ($isArchived): ?>
                     <span class="workspace-badge" style="background:var(--slate-soft); color:var(--slate-ink); border:1px solid var(--slate-line);">Obsolete</span>
                 <?php elseif ($doc['status'] === 'published'): ?>
-                    <span class="workspace-badge" style="background:#dcfce7; color:#15803d; border:1px solid #86efac;">Published</span>
+                    <span class="workspace-badge" style="background:var(--success-badge-bg); color:var(--success-ink); border:1px solid var(--success-line);">Published</span>
                 <?php elseif ($doc['status'] === 'hold'): ?>
-                    <span class="workspace-badge" style="background:#fef3c7; color:#92400e; border:1px solid #fde68a;">Under Review (Hold)</span>
+                    <span class="workspace-badge" style="background:var(--amber-soft); color:var(--amber-ink); border:1px solid var(--amber-line);">Under Review (Hold)</span>
                 <?php elseif ($doc['status'] === 'suspend'): ?>
-                    <span class="workspace-badge" style="background:#fee2e2; color:#b91c1c; border:1px solid #fca5a5;">Suspended</span>
+                    <span class="workspace-badge" style="background:var(--red-soft); color:var(--red-ink); border:1px solid var(--red-line);">Suspended</span>
                 <?php endif; ?>
                 <?php if (!empty($ext)): ?>
                     <span class="workspace-badge badge-type">.<?php echo e($ext); ?></span>
                 <?php endif; ?>
                 <?php if ($isHistoricalSnapshot): ?>
-                    <span class="workspace-badge" style="background:#fef3c7; color:#92400e; border:1px solid #fde68a;" title="Viewing historical version snapshot">Snapshot: <?php echo e($activeVersionName); ?></span>
+                    <span class="workspace-badge" style="background:var(--amber-soft); color:var(--amber-ink); border:1px solid var(--amber-line);" title="Viewing historical version snapshot">Snapshot: <?php echo e($activeVersionName); ?></span>
                     <a href="view.php?id=<?php echo $docId; ?>" class="btn-workspace-action" style="padding: 2px 8px; font-size: 11px; height: 24px;" title="Switch to latest active revision">Latest (<?php echo e($currentVersion); ?>)</a>
                 <?php else: ?>
                     <button type="button" class="workspace-badge badge-version" id="btnBadgeVersion" title="View Revision Lineage" style="cursor:pointer; background: var(--green-tint-surface); border: 1px dashed var(--green-tint-border);">
@@ -742,21 +742,21 @@ if ($action) {
 
     <?php if ($isDocHold): ?>
         <!-- Review & Verification Workflow Header Bar -->
-        <div class="workspace-review-bar" style="background: #fffbeb; border-bottom: 1px solid #fde68a; padding: 6px 16px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #92400e; z-index: 9;">
+        <div class="workspace-review-bar" style="background: var(--amber-soft); border-bottom: 1px solid var(--amber-line); padding: 6px 16px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--amber-ink); z-index: 9;">
             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                <span style="display: inline-flex; align-items: center; gap: 5px; font-weight: 700; color: #b45309;">
+                <span style="display: inline-flex; align-items: center; gap: 5px; font-weight: 700; color: var(--amber-ink);">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
                     Under Review
                 </span>
-                <span style="color: #78350f;">Target Release: <strong><?php echo e($nextMajorVer); ?></strong></span>
-                <span style="color: #d97706;">•</span>
+                <span style="color: var(--amber-ink);">Target Release: <strong><?php echo e($nextMajorVer); ?></strong></span>
+                <span style="color: var(--amber);">•</span>
                 <span>Reviewers (<strong><?php echo $approvedCount; ?>/<?php echo max(1, $allReviewersCount); ?> Approved</strong>):</span>
                 <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                     <?php foreach ($reviews as $r): ?>
                         <span class="workspace-badge" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; font-size: 11px; <?php 
-                            if ($r['status'] === 'approved') echo 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;';
-                            elseif ($r['status'] === 'rejected') echo 'background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5;';
-                            else echo 'background: #f8fafc; color: #64748b; border: 1px solid #cbd5e1;';
+                            if ($r['status'] === 'approved') echo 'background: var(--success-badge-bg); color: var(--success-ink); border: 1px solid var(--success-line);';
+                            elseif ($r['status'] === 'rejected') echo 'background: var(--red-soft); color: var(--red-ink); border: 1px solid var(--red-line);';
+                            else echo 'background: var(--surface-light); color: var(--muted); border: 1px solid var(--border);';
                         ?>" title="<?php echo e($r['reviewer_name']) . ' (' . ucfirst($r['status']) . ')' . ($r['comments'] ? ': ' . e($r['comments']) : ''); ?>">
                             <?php if ($r['status'] === 'approved'): ?>✔<?php elseif ($r['status'] === 'rejected'): ?>✖<?php else: ?>⏳<?php endif; ?>
                             <?php echo e($r['reviewer_name']); ?>
@@ -766,14 +766,14 @@ if ($action) {
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
                 <?php if ($canActOnReview): ?>
-                    <button type="button" class="btn btn-primary" id="btnOpenApproveVerdictModal" style="background: #16a34a; border-color: #16a34a; padding: 3px 12px; font-size: 11.5px; font-weight: 600; cursor: pointer;">
+                    <button type="button" class="btn btn-primary" id="btnOpenApproveVerdictModal" style="background: var(--green); border-color: var(--green); padding: 3px 12px; font-size: 11.5px; font-weight: 600; cursor: pointer;">
                         ✔ Approve &amp; Publish
                     </button>
-                    <button type="button" class="btn btn-secondary" id="btnOpenRejectVerdictModal" style="color: #dc2626; border-color: #fca5a5; background: #fff; padding: 3px 12px; font-size: 11.5px; font-weight: 600; cursor: pointer;">
+                    <button type="button" class="btn btn-secondary" id="btnOpenRejectVerdictModal" style="color: var(--red); border-color: var(--red-line); background: var(--surface); padding: 3px 12px; font-size: 11.5px; font-weight: 600; cursor: pointer;">
                         ✖ Request Changes
                     </button>
                 <?php else: ?>
-                    <span style="font-size: 11px; color: #92400e; font-style: italic;">Awaiting designated reviewer sign-offs</span>
+                    <span style="font-size: 11px; color: var(--amber-ink); font-style: italic;">Awaiting designated reviewer sign-offs</span>
                 <?php endif; ?>
             </div>
         </div>
@@ -804,12 +804,12 @@ if ($action) {
 
                 <!-- Color Palette Swatches -->
                 <div class="tool-color-palette" id="toolColorPalette">
-                    <button type="button" class="color-swatch is-selected" data-color="#16a34a" style="--swatch-color: #16a34a;" title="Emerald Green"></button>
-                    <button type="button" class="color-swatch" data-color="#f59e0b" style="--swatch-color: #f59e0b;" title="Amber Warning"></button>
-                    <button type="button" class="color-swatch" data-color="#dc2626" style="--swatch-color: #dc2626;" title="Crimson Red"></button>
-                    <button type="button" class="color-swatch" data-color="#2563eb" style="--swatch-color: #2563eb;" title="Sky Blue"></button>
-                    <button type="button" class="color-swatch" data-color="#7c3aed" style="--swatch-color: #7c3aed;" title="Purple"></button>
-                    <button type="button" class="color-swatch" data-color="#0f172a" style="--swatch-color: #0f172a;" title="Ink Dark"></button>
+                    <button type="button" class="color-swatch is-selected" data-color="#16a34a" style="--swatch-color: var(--green);" title="Emerald Green"></button>
+                    <button type="button" class="color-swatch" data-color="#f59e0b" style="--swatch-color: var(--amber);" title="Amber Warning"></button>
+                    <button type="button" class="color-swatch" data-color="#dc2626" style="--swatch-color: var(--red);" title="Crimson Red"></button>
+                    <button type="button" class="color-swatch" data-color="#2563eb" style="--swatch-color: var(--info-blue);" title="Sky Blue"></button>
+                    <button type="button" class="color-swatch" data-color="#7c3aed" style="--swatch-color: var(--cad-purple);" title="Purple"></button>
+                    <button type="button" class="color-swatch" data-color="#0f172a" style="--swatch-color: var(--ink);" title="Ink Dark"></button>
                 </div>
 
                 <!-- Stroke Width Options -->
@@ -1066,31 +1066,31 @@ if ($action) {
                                 $rInitials = get_initials($rName);
                                 $rAvatar = !empty($r['avatar']) && is_file(__DIR__ . '/../' . $r['avatar']) ? BASE_URL . '/' . e($r['avatar']) : null;
                             ?>
-                                <label class="reviewer-item-row" data-name="<?php echo e(mb_strtolower($rName)); ?>" data-username="<?php echo e(mb_strtolower($r['username'])); ?>" style="display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; border-radius: 6px; cursor: pointer; transition: background 0.12s ease;" onmouseover="this.style.background='var(--surface-light, #f8fafc)'" onmouseout="this.style.background='transparent'">
+                                <label class="reviewer-item-row" data-name="<?php echo e(mb_strtolower($rName)); ?>" data-username="<?php echo e(mb_strtolower($r['username'])); ?>" style="display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; border-radius: 6px; cursor: pointer; transition: background 0.12s ease;" onmouseover="this.style.background='var(--surface-light)'" onmouseout="this.style.background='transparent'">
                                     <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
                                         <!-- Avatar Circle -->
-                                        <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--slate-soft, #e2e8f0); color: var(--ink); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; overflow: hidden;">
+                                        <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--slate-soft); color: var(--ink); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; overflow: hidden;">
                                             <?php if ($rAvatar): ?>
-                                                <img src="<?php echo $rAvatar; ?>" alt="<?php echo e($rName); ?>" style="width: 100%; height: 100%; object-fit: cover;">
+                                                 <img src="<?php echo $rAvatar; ?>" alt="<?php echo e($rName); ?>" style="width: 100%; height: 100%; object-fit: cover;">
                                             <?php else: ?>
-                                                <span><?php echo e($rInitials); ?></span>
+                                                 <span><?php echo e($rInitials); ?></span>
                                             <?php endif; ?>
                                         </div>
                                         <div style="min-width: 0;">
                                             <div style="font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                                <?php echo e($rName); ?>
+                                                 <?php echo e($rName); ?>
                                             </div>
                                             <div style="font-size: 11px; color: var(--muted); line-height: 1.2;">
-                                                @<?php echo e($r['username']); ?> &bull; <?php echo e($r['department'] ?? 'Engineering'); ?>
+                                                 @<?php echo e($r['username']); ?> &bull; <?php echo e($r['department'] ?? 'Engineering'); ?>
                                             </div>
                                         </div>
                                     </div>
                                     
                                     <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
                                         <span class="workspace-badge" style="font-size: 10.5px; background: var(--slate-soft); color: var(--slate-ink);">
-                                            <?php echo ucfirst(e($r['role'])); ?>
+                                             <?php echo ucfirst(e($r['role'])); ?>
                                         </span>
-                                        <input type="checkbox" name="reviewer_ids[]" value="<?php echo $r['id']; ?>" checked style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--green, #10b981);">
+                                        <input type="checkbox" name="reviewer_ids[]" value="<?php echo $r['id']; ?>" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--green);">
                                     </div>
                                 </label>
                             <?php endforeach; ?>

@@ -90,12 +90,12 @@ function get_ws_status_badge(string $status): string {
     <!-- Quick Stats Grid -->
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 24px;">
         <!-- Card 1: Awaiting My Review -->
-        <div class="explorer-filter-card" style="padding: 16px; display: flex; align-items: center; justify-content: space-between; <?php echo $pendingReviewCount > 0 ? 'border-left: 3px solid var(--amber, #f59e0b);' : ''; ?>">
+        <div class="explorer-filter-card" style="padding: 16px; display: flex; align-items: center; justify-content: space-between; <?php echo $pendingReviewCount > 0 ? 'border-left: 3px solid var(--amber);' : ''; ?>">
             <div>
                 <span style="font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase;">Awaiting My Review</span>
-                <h3 style="font-size: 24px; font-weight: 800; color: <?php echo $pendingReviewCount > 0 ? 'var(--amber-dark, #b45309)' : 'var(--ink)'; ?>; margin: 4px 0 0;"><?php echo $pendingReviewCount; ?></h3>
+                <h3 style="font-size: 24px; font-weight: 800; color: <?php echo $pendingReviewCount > 0 ? 'var(--amber-ink)' : 'var(--ink)'; ?>; margin: 4px 0 0;"><?php echo $pendingReviewCount; ?></h3>
             </div>
-            <div style="width: 38px; height: 38px; border-radius: 8px; background: var(--amber-soft, #fef3c7); display: flex; align-items: center; justify-content: center; color: var(--amber-ink, #92400e);">
+            <div style="width: 38px; height: 38px; border-radius: 8px; background: var(--amber-soft); display: flex; align-items: center; justify-content: center; color: var(--amber-ink);">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
             </div>
         </div>
@@ -106,7 +106,7 @@ function get_ws_status_badge(string $status): string {
                 <span style="font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase;">My Submissions in Review</span>
                 <h3 style="font-size: 24px; font-weight: 800; color: var(--ink); margin: 4px 0 0;"><?php echo $mySubmissionsCount; ?></h3>
             </div>
-            <div style="width: 38px; height: 38px; border-radius: 8px; background: var(--info-blue-soft, #eff6ff); display: flex; align-items: center; justify-content: center; color: var(--info-blue-dark, #1d4ed8);">
+            <div style="width: 38px; height: 38px; border-radius: 8px; background: var(--info-blue-soft); display: flex; align-items: center; justify-content: center; color: var(--info-blue-dark);">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><polyline points="9 15 11 17 15 13"></polyline></svg>
             </div>
         </div>
@@ -117,7 +117,7 @@ function get_ws_status_badge(string $status): string {
                 <span style="font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase;">Active Drafts</span>
                 <h3 style="font-size: 24px; font-weight: 800; color: var(--ink); margin: 4px 0 0;"><?php echo $statDrafts; ?></h3>
             </div>
-            <div style="width: 38px; height: 38px; border-radius: 8px; background: var(--slate-soft, #f1f5f9); display: flex; align-items: center; justify-content: center; color: var(--slate-ink, #334155);">
+            <div style="width: 38px; height: 38px; border-radius: 8px; background: var(--slate-soft); display: flex; align-items: center; justify-content: center; color: var(--slate-ink);">
                 <?php echo render_icon('edit'); ?>
             </div>
         </div>
@@ -126,9 +126,9 @@ function get_ws_status_badge(string $status): string {
         <div class="explorer-filter-card" style="padding: 16px; display: flex; align-items: center; justify-content: space-between;">
             <div>
                 <span style="font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase;">Published Standards</span>
-                <h3 style="font-size: 24px; font-weight: 800; color: var(--success-ink, #15803d); margin: 4px 0 0;"><?php echo $statPublished; ?></h3>
+                <h3 style="font-size: 24px; font-weight: 800; color: var(--success-ink); margin: 4px 0 0;"><?php echo $statPublished; ?></h3>
             </div>
-            <div style="width: 38px; height: 38px; border-radius: 8px; background: var(--success-soft, #dcfce7); display: flex; align-items: center; justify-content: center; color: var(--success-ink, #15803d);">
+            <div style="width: 38px; height: 38px; border-radius: 8px; background: var(--success-soft); display: flex; align-items: center; justify-content: center; color: var(--success-ink);">
                 <?php echo render_icon('check'); ?>
             </div>
         </div>
@@ -139,7 +139,7 @@ function get_ws_status_badge(string $status): string {
         <div class="explorer-filter-card" style="margin-bottom: 24px; padding: 18px;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; border-bottom: 1px solid var(--card-border); padding-bottom: 10px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #f59e0b; display: inline-block;"></span>
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: var(--amber); display: inline-block;"></span>
                     <h3 style="font-size: 15px; font-weight: 700; color: var(--ink); margin: 0;">Documents Awaiting Your Review (<?php echo $pendingReviewCount; ?>)</h3>
                 </div>
                 <span style="font-size: 12px; color: var(--muted);">Immediate verification requested</span>
@@ -206,7 +206,7 @@ function get_ws_status_badge(string $status): string {
                                 <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">
                                     <span>Version: <?php echo e($ms['current_version']); ?></span>
                                     <span>&bull;</span>
-                                    <span style="color: #b45309; font-weight: 600;"><?php echo (int)$ms['approved_count']; ?>/<?php echo (int)$ms['total_reviewers']; ?> Approved</span>
+                                    <span style="color: var(--amber-ink); font-weight: 600;"><?php echo (int)$ms['approved_count']; ?>/<?php echo (int)$ms['total_reviewers']; ?> Approved</span>
                                 </div>
                             </div>
                             <a href="view.php?id=<?php echo $ms['document_id']; ?>" class="btn-action" title="View Document">

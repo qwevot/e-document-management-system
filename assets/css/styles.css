@@ -79,6 +79,8 @@
     /* Purple / Technical CAD */
     --cad-purple: #7c3aed;
     --cad-purple-soft: #ede9fe;
+    --cad-purple-line: #ddd6fe;
+    --cad-purple-ink: #6d28d9;
 
     /* Slate / Neutral / Obsolete */
     --slate-ink: #64748b;
@@ -499,13 +501,13 @@ body.sidebar-collapsed .main {
 .flash.success {
     background: var(--green-soft);
     color: var(--green-ink);
-    border-color: #bbf7d0;
+    border-color: var(--green-line);
 }
 
 .flash.error {
     background: var(--red-soft);
     color: var(--red-ink);
-    border-color: #fecaca;
+    border-color: var(--red-line);
 }
 
 
@@ -2741,7 +2743,7 @@ body.sidebar-collapsed .main {
     top: calc(100% + 6px);
     right: 0;
     min-width: 230px;
-    background: #ffffff;
+    background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: 0 10px 25px rgba(15, 23, 42, 0.15);
@@ -3008,7 +3010,7 @@ body.sidebar-collapsed .main {
 }
 
 .docx-render-host section.docx {
-    background: #ffffff !important;
+    background: var(--surface) !important;
     box-shadow: var(--shadow-lg) !important;
     margin-bottom: 24px !important;
     position: relative !important;
@@ -3043,7 +3045,7 @@ body.sidebar-collapsed .main {
     font-size: 13px;
     font-weight: 600;
     line-height: 1.4;
-    background: #ffffff;
+    background: var(--surface);
     color: var(--anno-color, var(--green));
     border: 1.5px solid var(--anno-color, var(--green));
     border-radius: var(--radius-sm);
@@ -3091,7 +3093,7 @@ body.sidebar-collapsed .main {
 }
 
 .workspace-unsupported-card {
-    background: #ffffff;
+    background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-sm);
@@ -3149,7 +3151,7 @@ body.sidebar-collapsed .main {
     padding: 9px 18px;
     font-size: 13px;
     font-weight: 600;
-    color: #ffffff;
+    color: var(--surface);
     background: var(--green);
     border: 1px solid var(--green);
     border-radius: var(--radius);
@@ -3159,7 +3161,7 @@ body.sidebar-collapsed .main {
 
 .btn-unsupported-download:hover {
     background: var(--green-hover);
-    color: #ffffff;
+    color: var(--surface);
 }
 
 .btn-unsupported-download svg {
@@ -3211,14 +3213,14 @@ body.sidebar-collapsed .main {
     top: 14px;
     width: 26px;
     height: 36px;
-    background: var(--surface, #ffffff);
-    border: 1px solid var(--border, #cbd5e1);
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-right: none;
     border-radius: 6px 0 0 6px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--ink, #1e293b);
+    color: var(--ink);
     cursor: pointer;
     box-shadow: -2px 1px 4px rgba(0, 0, 0, 0.06);
     z-index: 25;
@@ -3227,8 +3229,8 @@ body.sidebar-collapsed .main {
 }
 
 .drawer-edge-toggle:hover {
-    background: var(--surface-light, #f8fafc);
-    color: var(--green, #10b981);
+    background: var(--surface-light);
+    color: var(--green);
 }
 
 .drawer-edge-toggle svg {
@@ -3319,7 +3321,7 @@ body.sidebar-collapsed .main {
 
 .btn-add-layer:hover {
     background: var(--green);
-    color: #ffffff;
+    color: var(--surface);
     border-color: var(--green);
 }
 
@@ -3569,7 +3571,7 @@ body.sidebar-collapsed .main {
     font-size: 12px;
     font-weight: 500;
     color: var(--ink);
-    background: #ffffff;
+    background: var(--surface);
     border: 1px solid var(--green);
     border-radius: 4px;
     padding: 1px 5px;
@@ -3777,11 +3779,11 @@ body.sidebar-collapsed .main {
 }
 
 .history-action-text.is-write {
-    color: #16a34a; /* Green */
+    color: var(--green);
 }
 
 .history-action-text.is-erase {
-    color: #dc2626; /* Red */
+    color: var(--red);
 }
 
 .history-meta-line {
@@ -3859,7 +3861,7 @@ body.sidebar-collapsed .main {
 .login-error {
     background: var(--red-soft);
     color: var(--red-ink);
-    border: 1px solid #fecaca;
+    border: 1px solid var(--red-line);
     border-radius: var(--radius-sm, 4px);
     padding: 11px 14px;
     font-size: 13px;
@@ -3918,7 +3920,7 @@ body.sidebar-collapsed .main {
     height: 42px;
     margin-top: 6px;
     background: var(--green);
-    color: #ffffff;
+    color: var(--surface);
 }
 
 .login-form .btn.primary:hover {
@@ -3946,8 +3948,8 @@ body.sidebar-collapsed .main {
 .page-loader .spinner {
     width: 34px;
     height: 34px;
-    border: 4px solid #bfdbfe;
-    border-top-color: #446abb;
+    border: 4px solid var(--info-blue-line);
+    border-top-color: var(--green);
     border-radius: 50%;
     animation: loader-spin 0.8s linear infinite;
 }
@@ -3997,7 +3999,7 @@ body.sidebar-collapsed .main {
 }
 
 .profile-sidebar-card {
-    background: #ffffff;
+    background: var(--surface);
     border-radius: var(--radius);
     border: 1px solid var(--border);
     padding: 24px 20px;
@@ -4015,7 +4017,7 @@ body.sidebar-collapsed .main {
     border-radius: 50%;
     margin: 0 auto 16px;
     background: linear-gradient(135deg, var(--blue), var(--blue-dark));
-    color: #ffffff;
+    color: var(--surface);
     font-size: 32px;
     font-weight: 700;
     display: flex;
@@ -4023,7 +4025,7 @@ body.sidebar-collapsed .main {
     justify-content: center;
     overflow: hidden;
     box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
-    border: 3px solid #ffffff;
+    border: 3px solid var(--surface);
     flex-shrink: 0;
 }
 
@@ -4090,7 +4092,7 @@ body.sidebar-collapsed .main {
 }
 
 .profile-card {
-    background: #ffffff;
+    background: var(--surface);
     border-radius: var(--radius);
     border: 1px solid var(--border);
     padding: 24px;
@@ -4124,9 +4126,9 @@ body.sidebar-collapsed .main {
     gap: 16px;
     margin-bottom: 20px;
     padding: 16px;
-    background: #f8fafc;
+    background: var(--surface-light);
     border-radius: var(--radius-sm);
-    border: 1px dashed #cbd5e1;
+    border: 1px dashed var(--slate-line);
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
@@ -4136,14 +4138,14 @@ body.sidebar-collapsed .main {
     width: 64px;
     height: 64px;
     border-radius: 50%;
-    background: #e2e8f0;
+    background: var(--border);
     display: flex;
     align-items: center;
     justify-content: center;
     overflow: hidden;
     flex-shrink: 0;
     font-weight: 700;
-    color: #64748b;
+    color: var(--muted);
     font-size: 20px;
 }
 
@@ -4284,7 +4286,7 @@ input.input-error, select.input-error, textarea.input-error {
 
 .btn.primary {
     background: var(--green);
-    color: #ffffff;
+    color: var(--surface);
     border: none;
 }
 
@@ -4316,7 +4318,7 @@ input.input-error, select.input-error, textarea.input-error {
 
 .btn.danger {
     background: var(--red);
-    color: #ffffff;
+    color: var(--surface);
     border: none;
 }
 
@@ -4548,9 +4550,9 @@ input.input-error, select.input-error, textarea.input-error {
 }
 
 .role-badge.engineer {
-    background: #fdf4ff;
-    color: #86198f;
-    border: 1px solid #f5d0fe;
+    background: var(--cad-purple-soft);
+    color: var(--cad-purple-ink);
+    border: 1px solid var(--cad-purple-line);
 }
 
 .role-badge.technician {

@@ -2026,12 +2026,12 @@ document.addEventListener("DOMContentLoaded", function () {
             if (data.success && Array.isArray(data.versions)) {
                 renderVersionTimeline(data.versions);
             } else {
-                versionTimelineContainer.innerHTML = `<div style="text-align:center; padding: 20px; color: #ef4444;">${escapeHtml(data.message || 'Failed to load versions.')}</div>`;
+                versionTimelineContainer.innerHTML = `<div style="text-align:center; padding: 20px; color: var(--red);">${escapeHtml(data.message || 'Failed to load versions.')}</div>`;
             }
         })
         .catch(err => {
             console.error("Error fetching version lineage:", err);
-            versionTimelineContainer.innerHTML = `<div style="text-align:center; padding: 20px; color: #ef4444;">Error loading versions.</div>`;
+            versionTimelineContainer.innerHTML = `<div style="text-align:center; padding: 20px; color: var(--red);">Error loading versions.</div>`;
         });
     }
 
@@ -2039,7 +2039,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function renderVersionTimeline(versions) {
         if (!versionTimelineContainer) return;
         if (versions.length === 0) {
-            versionTimelineContainer.innerHTML = `<div style="text-align:center; padding: 24px 16px; color: var(--slate-muted); font-size: 13px;">No revision records found.</div>`;
+            versionTimelineContainer.innerHTML = `<div style="text-align:center; padding: 24px 16px; color: var(--muted); font-size: 13px;">No revision records found.</div>`;
             return;
         }
 
@@ -2049,9 +2049,9 @@ document.addEventListener("DOMContentLoaded", function () {
             const isCurrent = Boolean(parseInt(v.is_current, 10) === 1);
             const card = document.createElement("div");
             card.style.cssText = `
-                background: ${isCurrent ? 'rgba(16, 185, 129, 0.04)' : 'var(--surface)'};
-                border: 1px solid ${isCurrent ? '#86efac' : 'var(--border)'};
-                border-left: ${isCurrent ? '3px solid #10b981' : '1px solid var(--border)'};
+                background: ${isCurrent ? 'var(--green-soft)' : 'var(--surface)'};
+                border: 1px solid ${isCurrent ? 'var(--green-line)' : 'var(--border)'};
+                border-left: ${isCurrent ? '3px solid var(--green)' : '1px solid var(--border)'};
                 border-radius: 6px;
                 padding: 9px 12px;
                 transition: all 0.15s ease;
@@ -2063,7 +2063,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                     <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                         <span style="font-family: monospace; font-size: 12.5px; font-weight: 700; color: var(--ink);">${escapeHtml(v.version_number)}</span>
-                        ${isCurrent ? `<span style="background: #dcfce7; color: #15803d; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; border: 1px solid #bbf7d0;">Active</span>` : ''}
+                        ${isCurrent ? `<span style="background: var(--success-badge-bg); color: var(--success-ink); font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--success-line);">Active</span>` : ''}
                         <span style="font-size: 11.5px; color: var(--muted);">${escapeHtml(v.author_name || 'System')} • ${escapeHtml(v.created_at || '')}</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 2px;">
@@ -2278,34 +2278,34 @@ document.addEventListener("DOMContentLoaded", function () {
         if (verdictType === "approved") {
             if (verdictModalTitle) verdictModalTitle.innerHTML = `<span>Approve Document &amp; Publish</span>`;
             if (verdictModalBanner) {
-                verdictModalBanner.style.background = "#dcfce7";
-                verdictModalBanner.style.color = "#15803d";
-                verdictModalBanner.style.border = "1px solid #86efac";
+                verdictModalBanner.style.background = "var(--success-badge-bg)";
+                verdictModalBanner.style.color = "var(--success-ink)";
+                verdictModalBanner.style.border = "1px solid var(--success-line)";
                 verdictModalBanner.innerHTML = `<strong>Verification Sign-Off</strong>: Confirming approval indicates this specimen fulfills technical and policy criteria. If all approvers sign off, the document will officially transition to <strong>PUBLISHED</strong>.`;
             }
             if (verdictCommentsLabel) verdictCommentsLabel.textContent = "Sign-Off Remarks (Optional)";
             if (verdictComments) verdictComments.placeholder = "e.g. Verified and approved for production release.";
             if (btnSubmitVerdict) {
                 btnSubmitVerdict.className = "btn btn-primary";
-                btnSubmitVerdict.style.background = "#16a34a";
-                btnSubmitVerdict.style.borderColor = "#16a34a";
+                btnSubmitVerdict.style.background = "var(--green)";
+                btnSubmitVerdict.style.borderColor = "var(--green)";
                 btnSubmitVerdict.innerHTML = `<span>Approve Document</span>`;
             }
         } else {
             if (verdictModalTitle) verdictModalTitle.innerHTML = `<span>Request Changes (Reject)</span>`;
             if (verdictModalBanner) {
-                verdictModalBanner.style.background = "#fee2e2";
-                verdictModalBanner.style.color = "#b91c1c";
-                verdictModalBanner.style.border = "1px solid #fca5a5";
+                verdictModalBanner.style.background = "var(--red-soft)";
+                verdictModalBanner.style.color = "var(--red-ink)";
+                verdictModalBanner.style.border = "1px solid var(--red-line)";
                 verdictModalBanner.innerHTML = `<strong>Revision Required</strong>: Requesting changes will return this document to <strong>ACTIVE (Draft)</strong> status so the author can address your notes.`;
             }
             if (verdictCommentsLabel) verdictCommentsLabel.textContent = "Deficiency Feedback (Required)";
             if (verdictComments) verdictComments.placeholder = "Detail the changes or corrections required...";
             if (btnSubmitVerdict) {
                 btnSubmitVerdict.className = "btn btn-secondary";
-                btnSubmitVerdict.style.background = "#dc2626";
-                btnSubmitVerdict.style.borderColor = "#dc2626";
-                btnSubmitVerdict.style.color = "#ffffff";
+                btnSubmitVerdict.style.background = "var(--red)";
+                btnSubmitVerdict.style.borderColor = "var(--red)";
+                btnSubmitVerdict.style.color = "var(--surface)";
                 btnSubmitVerdict.innerHTML = `<span>Return for Revision</span>`;
             }
         }
