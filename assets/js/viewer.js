@@ -1755,29 +1755,6 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    // Restore Persistent Drawer & Tab State for this Document
-    (function restoreDrawerState() {
-        if (!docId) return;
-        try {
-            const savedTab = sessionStorage.getItem(`edms_drawer_tab_${docId}`);
-            const savedOpen = sessionStorage.getItem(`edms_drawer_open_${docId}`);
-
-            // If we are viewing a historical snapshot, or if the user previously had the versions tab open
-            const isHistorical = Boolean(config.isHistoricalSnapshot);
-            if (savedTab === "versions" || isHistorical) {
-                switchSidePanelTab("versions", false);
-            }
-
-            if (savedOpen === "false") {
-                if (workspaceRightDrawer) workspaceRightDrawer.classList.remove("is-open");
-                if (btnToggleRightDrawer) btnToggleRightDrawer.classList.remove("is-active");
-            } else if (savedOpen === "true" || isHistorical) {
-                if (workspaceRightDrawer) workspaceRightDrawer.classList.add("is-open");
-                if (btnToggleRightDrawer) btnToggleRightDrawer.classList.add("is-active");
-            }
-        } catch (e) {}
-    })();
-
     // Opacity Slider
     if (layerOpacitySlider) {
         layerOpacitySlider.addEventListener("input", function () {
@@ -2477,5 +2454,30 @@ document.addEventListener("DOMContentLoaded", function () {
         div.textContent = text || "";
         return div.innerHTML;
     }
+
+    // --- 16. Initialize Persistent Drawer & Tab State for this Document ---
+    (function restoreDrawerState() {
+        if (!docId) return;
+        try {
+            const savedTab = sessionStorage.getItem(`edms_drawer_tab_${docId}`);
+            const savedOpen = sessionStorage.getItem(`edms_drawer_open_${docId}`);
+
+            // If we are viewing a historical snapshot, or if the user previously had the versions tab open
+            const isHistorical = Boolean(config.isHistoricalSnapshot);
+            if (savedTab === "versions" || isHistorical) {
+                switchSidePanelTab("versions", false);
+            }
+
+            if (savedOpen === "false") {
+                if (workspaceRightDrawer) workspaceRightDrawer.classList.remove("is-open");
+                if (btnToggleRightDrawer) btnToggleRightDrawer.classList.remove("is-active");
+            } else if (savedOpen === "true" || isHistorical) {
+                if (workspaceRightDrawer) workspaceRightDrawer.classList.add("is-open");
+                if (btnToggleRightDrawer) btnToggleRightDrawer.classList.add("is-active");
+            }
+        } catch (e) {
+            console.error("Error restoring drawer state:", e);
+        }
+    })();
 });
 
