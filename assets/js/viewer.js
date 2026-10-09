@@ -2143,9 +2143,223 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
+    // --- 15. Document Review & Approval Workflow Controller ---
+    const modalSubmitReview = document.getElementById("modalSubmitReview");
+    const btnOpenSubmitReviewModal = document.getElementById("btnOpenSubmitReviewModal");
+    const btnCloseSubmitReviewModal = document.getElementById("btnCloseSubmitReviewModal");
+    const btnCancelSubmitReview = document.getElementById("btnCancelSubmitReview");
+    const formSubmitReview = document.getElementById("formSubmitReview");
+    const btnSubmitReviewAction = document.getElementById("btnSubmitReviewAction");
+
+    function openSubmitReviewModal() {
+        if (!modalSubmitReview) return;
+        modalSubmitReview.classList.add("is-open");
+    }
+
+    function closeSubmitReviewModal() {
+        if (!modalSubmitReview) return;
+        modalSubmitReview.classList.remove("is-open");
+    }
+
+    if (btnOpenSubmitReviewModal) btnOpenSubmitReviewModal.addEventListener("click", openSubmitReviewModal);
+    if (btnCloseSubmitReviewModal) btnCloseSubmitReviewModal.addEventListener("click", closeSubmitReviewModal);
+    if (btnCancelSubmitReview) btnCancelSubmitReview.addEventListener("click", closeSubmitReviewModal);
+
+    if (modalSubmitReview) {
+        modalSubmitReview.addEventListener("click", function (e) {
+            if (e.target === modalSubmitReview) closeSubmitReviewModal();
+        });
+    }
+
+    if (formSubmitReview) {
+        formSubmitReview.addEventListener("submit", function (e) {
+            e.preventDefault();
+
+            const checkedReviewers = formSubmitReview.querySelectorAll('input[name="reviewer_ids[]"]:checked');
+            if (checkedReviewers.length === 0) {
+                alert("Please select at least one reviewer.");
+                return;
+            }
+
+            const reviewerIds = Array.from(checkedReviewers).map(cb => parseInt(cb.value, 10));
+            const targetVersion = formSubmitReview.querySelector('select[name="target_version"]')?.value || "";
+            const notes = formSubmitReview.querySelector('textarea[name="notes"]')?.value || "";
+
+            if (btnSubmitReviewAction) {
+                btnSubmitReviewAction.disabled = true;
+                btnSubmitReviewAction.innerHTML = `<span>Submitting...</span>`;
+            }
+
+            fetch("../actions/review-handler.php?action=submit_review", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Requested-With": "XMLHttpRequest"
+                },
+                body: JSON.stringify({
+                    doc_id: docId,
+                    reviewer_ids: reviewerIds,
+                    target_version: targetVersion,
+                    notes: notes
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.href = `view.php?id=${docId}`;
+                } else {
+                    alert(data.message || "Failed to submit for review.");
+                    if (btnSubmitReviewAction) {
+                        btnSubmitReviewAction.disabled = false;
+                        btnSubmitReviewAction.innerHTML = `<span>Place on Hold &amp; Submit</span>`;
+                    }
+                }
+            })
+            .catch(err => {
+                console.error("Error submitting review:", err);
+                alert("Network error while submitting review.");
+                if (btnSubmitReviewAction) {
+                    btnSubmitReviewAction.disabled = false;
+                    btnSubmitReviewAction.innerHTML = `<span>Place on Hold &amp; Submit</span>`;
+                }
+            });
+        });
+    }
+
+    // Verdict Handling (Approve / Reject)
+    const modalReviewVerdict = document.getElementById("modalReviewVerdict");
+    const btnOpenApproveVerdictModal = document.getElementById("btnOpenApproveVerdictModal");
+    const btnOpenRejectVerdictModal = document.getElementById("btnOpenRejectVerdictModal");
+    const btnCloseVerdictModal = document.getElementById("btnCloseVerdictModal");
+    const btnCancelVerdict = document.getElementById("btnCancelVerdict");
+    const formReviewVerdict = document.getElementById("formReviewVerdict");
+    const verdictModalTitle = document.getElementById("verdictModalTitle");
+    const verdictModalBanner = document.getElementById("verdictModalBanner");
+    const verdictTypeValue = document.getElementById("verdictTypeValue");
+    const verdictCommentsLabel = document.getElementById("verdictCommentsLabel");
+    const verdictComments = document.getElementById("verdictComments");
+    const btnSubmitVerdict = document.getElementById("btnSubmitVerdict");
+
+    function openVerdictModal(verdictType) {
+        if (!modalReviewVerdict) return;
+        verdictTypeValue.value = verdictType;
+        if (verdictComments) verdictComments.value = "";
+
+        if (verdictType === "approved") {
+            if (verdictModalTitle) verdictModalTitle.innerHTML = `<span>Approve Document &amp; Publish</span>`;
+            if (verdictModalBanner) {
+                verdictModalBanner.style.background = "#dcfce7";
+                verdictModalBanner.style.color = "#15803d";
+                verdictModalBanner.style.border = "1px solid #86efac";
+                verdictModalBanner.innerHTML = `<strong>Verification Sign-Off</strong>: Confirming approval indicates this specimen fulfills technical and policy criteria. If all approvers sign off, the document will officially transition to <strong>PUBLISHED</strong>.`;
+            }
+            if (verdictCommentsLabel) verdictCommentsLabel.textContent = "Sign-Off Remarks (Optional)";
+            if (verdictComments) verdictComments.placeholder = "e.g. Verified and approved for production release.";
+            if (btnSubmitVerdict) {
+                btnSubmitVerdict.className = "btn btn-primary";
+                btnSubmitVerdict.style.background = "#16a34a";
+                btnSubmitVerdict.style.borderColor = "#16a34a";
+                btnSubmitVerdict.innerHTML = `<span>Approve Document</span>`;
+            }
+        } else {
+            if (verdictModalTitle) verdictModalTitle.innerHTML = `<span>Request Changes (Reject)</span>`;
+            if (verdictModalBanner) {
+                verdictModalBanner.style.background = "#fee2e2";
+                verdictModalBanner.style.color = "#b91c1c";
+                verdictModalBanner.style.border = "1px solid #fca5a5";
+                verdictModalBanner.innerHTML = `<strong>Revision Required</strong>: Requesting changes will return this document to <strong>ACTIVE (Draft)</strong> status so the author can address your notes.`;
+            }
+            if (verdictCommentsLabel) verdictCommentsLabel.textContent = "Deficiency Feedback (Required)";
+            if (verdictComments) verdictComments.placeholder = "Detail the changes or corrections required...";
+            if (btnSubmitVerdict) {
+                btnSubmitVerdict.className = "btn btn-secondary";
+                btnSubmitVerdict.style.background = "#dc2626";
+                btnSubmitVerdict.style.borderColor = "#dc2626";
+                btnSubmitVerdict.style.color = "#ffffff";
+                btnSubmitVerdict.innerHTML = `<span>Return for Revision</span>`;
+            }
+        }
+
+        modalReviewVerdict.classList.add("is-open");
+    }
+
+    function closeVerdictModal() {
+        if (!modalReviewVerdict) return;
+        modalReviewVerdict.classList.remove("is-open");
+    }
+
+    if (btnOpenApproveVerdictModal) {
+        btnOpenApproveVerdictModal.addEventListener("click", () => openVerdictModal("approved"));
+    }
+    if (btnOpenRejectVerdictModal) {
+        btnOpenRejectVerdictModal.addEventListener("click", () => openVerdictModal("rejected"));
+    }
+    if (btnCloseVerdictModal) btnCloseVerdictModal.addEventListener("click", closeVerdictModal);
+    if (btnCancelVerdict) btnCancelVerdict.addEventListener("click", closeVerdictModal);
+
+    if (modalReviewVerdict) {
+        modalReviewVerdict.addEventListener("click", function (e) {
+            if (e.target === modalReviewVerdict) closeVerdictModal();
+        });
+    }
+
+    if (formReviewVerdict) {
+        formReviewVerdict.addEventListener("submit", function (e) {
+            e.preventDefault();
+
+            const verdict = verdictTypeValue.value || "approved";
+            const comments = verdictComments?.value.trim() || "";
+
+            if (verdict === "rejected" && !comments) {
+                alert("Please provide feedback explaining the changes required.");
+                if (verdictComments) verdictComments.focus();
+                return;
+            }
+
+            if (btnSubmitVerdict) {
+                btnSubmitVerdict.disabled = true;
+                btnSubmitVerdict.innerHTML = `<span>Recording verdict...</span>`;
+            }
+
+            fetch("../actions/review-handler.php?action=submit_verdict", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Requested-With": "XMLHttpRequest"
+                },
+                body: JSON.stringify({
+                    doc_id: docId,
+                    verdict: verdict,
+                    comments: comments
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.href = `view.php?id=${docId}`;
+                } else {
+                    alert(data.message || "Failed to record verdict.");
+                    if (btnSubmitVerdict) {
+                        btnSubmitVerdict.disabled = false;
+                        btnSubmitVerdict.innerHTML = `<span>Confirm Verdict</span>`;
+                    }
+                }
+            })
+            .catch(err => {
+                console.error("Error submitting verdict:", err);
+                alert("Network error while recording verdict.");
+                if (btnSubmitVerdict) {
+                    btnSubmitVerdict.disabled = false;
+                    btnSubmitVerdict.innerHTML = `<span>Confirm Verdict</span>`;
+                }
+            });
+        });
+    }
+
     function escapeHtml(text) {
         const div = document.createElement("div");
         div.textContent = text || "";
         return div.innerHTML;
     }
 });
+

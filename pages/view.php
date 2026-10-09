@@ -64,6 +64,31 @@ $currentUser = current_user() ?? ['id' => 1, 'full_name' => 'Dr. Ruan Mei'];
 $userId = (int)($currentUser['id'] ?? 1);
 $userName = $currentUser['full_name'] ?? 'Collaborator';
 
+// Review and workflow query
+$reviews = get_document_reviews($docId);
+$isDocHold = ($doc['status'] === 'hold');
+$isDocActive = ($doc['status'] === 'active');
+$isDocPublished = ($doc['status'] === 'published');
+
+$userPendingReview = null;
+$approvedCount = 0;
+$rejectedCount = 0;
+$pendingCount = 0;
+
+foreach ($reviews as $rev) {
+    if ($rev['status'] === 'approved') $approvedCount++;
+    elseif ($rev['status'] === 'rejected') $rejectedCount++;
+    else $pendingCount++;
+
+    if ((int)$rev['reviewer_id'] === $userId && $rev['status'] === 'pending') {
+        $userPendingReview = $rev;
+    }
+}
+$allReviewersCount = count($reviews);
+$isAdmin = in_array(strtolower($currentUser['role'] ?? ''), ['super admin', 'admin'], true);
+$canActOnReview = $isDocHold && ($userPendingReview !== null || $isAdmin);
+$eligibleReviewers = get_eligible_reviewers($userId);
+
 // Check if file type can be rendered in the canvas/preview engine
 $imageExtensions = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'ico'];
 $officeExtensions = ['docx', 'doc', 'rtf', 'odt', 'xlsx', 'xls', 'csv', 'pptx', 'ppt', 'txt'];
@@ -595,6 +620,12 @@ if ($action) {
                 </span>
                 <?php if ($isArchived): ?>
                     <span class="workspace-badge" style="background:var(--slate-soft); color:var(--slate-ink); border:1px solid var(--slate-line);">Obsolete</span>
+                <?php elseif ($doc['status'] === 'published'): ?>
+                    <span class="workspace-badge" style="background:#dcfce7; color:#15803d; border:1px solid #86efac;">Published</span>
+                <?php elseif ($doc['status'] === 'hold'): ?>
+                    <span class="workspace-badge" style="background:#fef3c7; color:#92400e; border:1px solid #fde68a;">Under Review (Hold)</span>
+                <?php elseif ($doc['status'] === 'suspend'): ?>
+                    <span class="workspace-badge" style="background:#fee2e2; color:#b91c1c; border:1px solid #fca5a5;">Suspended</span>
                 <?php endif; ?>
                 <?php if (!empty($ext)): ?>
                     <span class="workspace-badge badge-type">.<?php echo e($ext); ?></span>
@@ -640,8 +671,16 @@ if ($action) {
             <?php endif; ?>
         </div>
 
-        <!-- Right Controls: Active Collaborators, Version History, Layer Drawer Toggle, Download -->
+        <!-- Right Controls: Active Collaborators, Submit Review, Version History, Layer Drawer Toggle, Download -->
         <div class="workspace-nav-right">
+            <?php if ($isDocActive): ?>
+                <!-- Submit for Review Trigger -->
+                <button type="button" class="btn-workspace-action" id="btnOpenSubmitReviewModal" title="Submit document for review &amp; formal approval" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.4); color: var(--ink);">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><polyline points="9 15 11 17 15 13"></polyline></svg>
+                    <span>Submit Review</span>
+                </button>
+            <?php endif; ?>
+
             <?php if ($isSupportedViewer): ?>
                 <!-- Active Collaborator Presence Indicator -->
                 <div class="collaborator-presence-strip" title="Active Collaborators">
@@ -711,6 +750,45 @@ if ($action) {
             <?php endif; ?>
         </div>
     </header>
+
+    <?php if ($isDocHold): ?>
+        <!-- Review & Verification Workflow Header Bar -->
+        <div class="workspace-review-bar" style="background: #fffbeb; border-bottom: 1px solid #fde68a; padding: 6px 16px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #92400e; z-index: 9;">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <span style="display: inline-flex; align-items: center; gap: 5px; font-weight: 700; color: #b45309;">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                    Under Review
+                </span>
+                <span style="color: #78350f;">Target Release: <strong><?php echo e($nextMajorVer); ?></strong></span>
+                <span style="color: #d97706;">•</span>
+                <span>Reviewers (<strong><?php echo $approvedCount; ?>/<?php echo max(1, $allReviewersCount); ?> Approved</strong>):</span>
+                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                    <?php foreach ($reviews as $r): ?>
+                        <span class="workspace-badge" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; font-size: 11px; <?php 
+                            if ($r['status'] === 'approved') echo 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;';
+                            elseif ($r['status'] === 'rejected') echo 'background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5;';
+                            else echo 'background: #f8fafc; color: #64748b; border: 1px solid #cbd5e1;';
+                        ?>" title="<?php echo e($r['reviewer_name']) . ' (' . ucfirst($r['status']) . ')' . ($r['comments'] ? ': ' . e($r['comments']) : ''); ?>">
+                            <?php if ($r['status'] === 'approved'): ?>✔<?php elseif ($r['status'] === 'rejected'): ?>✖<?php else: ?>⏳<?php endif; ?>
+                            <?php echo e($r['reviewer_name']); ?>
+                        </span>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <?php if ($canActOnReview): ?>
+                    <button type="button" class="btn btn-primary" id="btnOpenApproveVerdictModal" style="background: #16a34a; border-color: #16a34a; padding: 3px 12px; font-size: 11.5px; font-weight: 600; cursor: pointer;">
+                        ✔ Approve &amp; Publish
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="btnOpenRejectVerdictModal" style="color: #dc2626; border-color: #fca5a5; background: #fff; padding: 3px 12px; font-size: 11.5px; font-weight: 600; cursor: pointer;">
+                        ✖ Request Changes
+                    </button>
+                <?php else: ?>
+                    <span style="font-size: 11px; color: #92400e; font-style: italic;">Awaiting designated reviewer sign-offs</span>
+                <?php endif; ?>
+            </div>
+        </div>
+    <?php endif; ?>
 
     <?php if ($isSupportedViewer): ?>
         <!-- 2. Main Workspace Layout Area (Supported Viewer) -->
@@ -949,6 +1027,106 @@ if ($action) {
                 <button type="submit" class="btn btn-primary" id="btnSubmitRevision">
                     <?php echo render_icon('cloud-upload'); ?>
                     <span>Upload Revision (<?php echo e($nextMinorVer); ?>)</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 3. Modal: Submit for Review & Approval -->
+<div class="edms-modal-backdrop" id="modalSubmitReview">
+    <div class="edms-modal-dialog" style="max-width: 520px;">
+        <div class="edms-modal-header">
+            <div class="edms-modal-title">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><polyline points="9 15 11 17 15 13"></polyline></svg>
+                <span>Submit for Review &amp; Approval</span>
+            </div>
+            <button type="button" class="btn-modal-close" id="btnCloseSubmitReviewModal" title="Close modal">&times;</button>
+        </div>
+        <form id="formSubmitReview">
+            <input type="hidden" name="action" value="submit_review">
+            <input type="hidden" name="doc_id" value="<?php echo $docId; ?>">
+
+            <div class="edms-modal-body">
+                <p style="font-size: 13px; color: var(--muted); margin-bottom: 14px; line-height: 1.5;">
+                    Submitting this document transitions its status to <strong>HOLD</strong>, locking direct modifications until designated reviewers verify and approve the revision.
+                </p>
+
+                <div class="form-group" style="margin-bottom: 14px;">
+                    <label class="form-label" for="targetPublishVersion">Target Publication Release</label>
+                    <select id="targetPublishVersion" name="target_version" class="form-input">
+                        <option value="<?php echo e($nextMajorVer); ?>">Next Major Release: <?php echo e($nextMajorVer); ?> (Recommended for standard release)</option>
+                        <option value="<?php echo e($nextMinorVer); ?>">Next Minor Release: <?php echo e($nextMinorVer); ?></option>
+                    </select>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 14px;">
+                    <label class="form-label">Assign Reviewers &amp; Approvers</label>
+                    <div style="max-height: 160px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--surface);">
+                        <?php if (empty($eligibleReviewers)): ?>
+                            <span style="font-size: 12px; color: var(--muted); padding: 8px; text-align: center;">No other eligible reviewers found (requires Admin or Engineer role).</span>
+                        <?php else: ?>
+                            <?php foreach ($eligibleReviewers as $r): ?>
+                                <label style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 4px; cursor: pointer; transition: background 0.1s; font-size: 12.5px;" onmouseover="this.style.background='var(--slate-soft)'" onmouseout="this.style.background='transparent'">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <input type="checkbox" name="reviewer_ids[]" value="<?php echo $r['id']; ?>" checked style="cursor: pointer;">
+                                        <span style="font-weight: 600; color: var(--ink);"><?php echo e($r['full_name']); ?></span>
+                                        <span style="font-size: 11px; color: var(--muted);">@<?php echo e($r['username']); ?></span>
+                                    </div>
+                                    <span class="workspace-badge" style="font-size: 10.5px; background: var(--slate-soft); color: var(--slate-ink);"><?php echo ucfirst(e($r['role'])); ?></span>
+                                </label>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+                    <span class="form-help">Selected reviewers will receive this document in their workspace review queue.</span>
+                </div>
+
+                <div class="form-group">
+                    <label for="reviewSubmissionNotes" class="form-label">Submission Notes / Instructions (Optional)</label>
+                    <textarea id="reviewSubmissionNotes" name="notes" rows="2" class="form-input" placeholder="e.g. Please review architectural section 3."></textarea>
+                </div>
+            </div>
+
+            <div class="edms-modal-footer">
+                <button type="button" class="btn btn-secondary" id="btnCancelSubmitReview">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="btnSubmitReviewAction">
+                    <span>Place on Hold &amp; Submit</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 4. Modal: Submit Review Verdict (Approve or Reject) -->
+<div class="edms-modal-backdrop" id="modalReviewVerdict">
+    <div class="edms-modal-dialog" style="max-width: 480px;">
+        <div class="edms-modal-header">
+            <div class="edms-modal-title" id="verdictModalTitle">
+                <span>Record Review Verdict</span>
+            </div>
+            <button type="button" class="btn-modal-close" id="btnCloseVerdictModal" title="Close modal">&times;</button>
+        </div>
+        <form id="formReviewVerdict">
+            <input type="hidden" name="action" value="submit_verdict">
+            <input type="hidden" name="doc_id" value="<?php echo $docId; ?>">
+            <input type="hidden" name="verdict" id="verdictTypeValue" value="approved">
+
+            <div class="edms-modal-body">
+                <div id="verdictModalBanner" style="padding: 10px 12px; border-radius: 6px; font-size: 12.5px; margin-bottom: 12px;">
+                    <!-- Populated dynamically via JS -->
+                </div>
+
+                <div class="form-group">
+                    <label for="verdictComments" class="form-label" id="verdictCommentsLabel">Feedback / Sign-Off Remarks</label>
+                    <textarea id="verdictComments" name="comments" rows="3" class="form-input" placeholder="Enter review remarks..."></textarea>
+                    <span class="form-help" id="verdictCommentsHelp">Comments will be logged permanently in the system audit trail.</span>
+                </div>
+            </div>
+
+            <div class="edms-modal-footer">
+                <button type="button" class="btn btn-secondary" id="btnCancelVerdict">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="btnSubmitVerdict">
+                    <span>Confirm Verdict</span>
                 </button>
             </div>
         </form>
