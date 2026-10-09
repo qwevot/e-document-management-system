@@ -1163,7 +1163,10 @@ window.EDMS_WORKSPACE_CONFIG = {
     downloadUrl: <?php echo json_encode($downloadUrl); ?>,
     currentUserId: <?php echo (int)$currentUser['id']; ?>,
     currentUserName: <?php echo json_encode($currentUser['full_name']); ?>,
-    currentUserAvatar: <?php echo json_encode($currentUser['avatar'] ?? null); ?>
+    currentUserAvatar: <?php echo json_encode($currentUser['avatar'] ?? null); ?>,
+    activeVersionId: <?php echo (int)$reqVersionId; ?>,
+    activeVersionName: <?php echo json_encode($activeVersionName); ?>,
+    isHistoricalSnapshot: <?php echo $isHistoricalSnapshot ? 'true' : 'false'; ?>
 };
 </script>
 <?php if ($isSupportedViewer): ?>

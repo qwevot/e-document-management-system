@@ -2045,29 +2045,73 @@ document.addEventListener("DOMContentLoaded", function () {
 
         versionTimelineContainer.innerHTML = "";
 
+        const activeVersionId = parseInt(config.activeVersionId, 10) || 0;
+        const activeVersionName = config.activeVersionName || "";
+
         versions.forEach(v => {
-            const isCurrent = Boolean(parseInt(v.is_current, 10) === 1);
+            const vId = parseInt(v.id, 10);
+            const isHeadCurrent = Boolean(parseInt(v.is_current, 10) === 1);
+            
+            // Determine if THIS version is the currently viewed/opened document page
+            let isCurrentlyViewed = false;
+            if (activeVersionId > 0) {
+                isCurrentlyViewed = (vId === activeVersionId);
+            } else {
+                // If viewing main/latest revision
+                isCurrentlyViewed = isHeadCurrent || (v.version_number === activeVersionName);
+            }
+
+            const targetUrl = isHeadCurrent && activeVersionId === 0 
+                ? `view.php?id=${docId}` 
+                : `view.php?id=${docId}&version_id=${v.id}`;
+
             const card = document.createElement("div");
+            card.className = "version-timeline-card" + (isCurrentlyViewed ? " is-currently-viewed" : "");
             card.style.cssText = `
-                background: ${isCurrent ? 'var(--green-soft)' : 'var(--surface)'};
-                border: 1px solid ${isCurrent ? 'var(--green-line)' : 'var(--border)'};
-                border-left: ${isCurrent ? '3px solid var(--green)' : '1px solid var(--border)'};
+                background: ${isCurrentlyViewed ? 'var(--green-soft)' : 'var(--surface)'};
+                border: 1px solid ${isCurrentlyViewed ? 'var(--green-line)' : 'var(--border)'};
+                border-left: ${isCurrentlyViewed ? '3px solid var(--green)' : '1px solid var(--border)'};
                 border-radius: 6px;
                 padding: 9px 12px;
+                cursor: pointer;
                 transition: all 0.15s ease;
+                position: relative;
             `;
+
+            // Card click handler: Navigate to the preview snapshot (ignoring clicks on buttons, links, or inputs)
+            card.addEventListener("click", function (e) {
+                if (e.target.closest("a") || e.target.closest("button") || e.target.closest("input") || e.target.closest(".version-details-panel")) {
+                    return;
+                }
+                if (!isCurrentlyViewed) {
+                    window.location.href = targetUrl;
+                }
+            });
+
+            card.addEventListener("mouseenter", function () {
+                if (!isCurrentlyViewed) {
+                    card.style.background = "var(--surface-light)";
+                    card.style.borderColor = "var(--slate-line)";
+                }
+            });
+            card.addEventListener("mouseleave", function () {
+                if (!isCurrentlyViewed) {
+                    card.style.background = "var(--surface)";
+                    card.style.borderColor = "var(--border)";
+                }
+            });
 
             const fileSizeFormatted = v.file_size ? `${(v.file_size / 1024).toFixed(1)} KB` : '';
 
             card.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0;">
                         <span style="font-family: monospace; font-size: 12.5px; font-weight: 700; color: var(--ink);">${escapeHtml(v.version_number)}</span>
-                        ${isCurrent ? `<span style="background: var(--success-badge-bg); color: var(--success-ink); font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--success-line);">Active</span>` : ''}
-                        <span style="font-size: 11.5px; color: var(--muted);">${escapeHtml(v.author_name || 'System')} • ${escapeHtml(v.created_at || '')}</span>
+                        ${isCurrentlyViewed ? `<span style="background: var(--success-badge-bg); color: var(--success-ink); font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--success-line);">Viewing</span>` : (isHeadCurrent ? `<span style="background: var(--slate-soft); color: var(--slate-ink); font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border);">Latest</span>` : '')}
+                        <span style="font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(v.author_name || 'System')} • ${escapeHtml(v.created_at || '')}</span>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 2px;">
-                        <a href="view.php?id=${docId}&version_id=${v.id}" class="btn-action" style="width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; color: var(--ink); text-decoration: none;" title="Preview snapshot">
+                    <div style="display: flex; align-items: center; gap: 2px; flex-shrink: 0;">
+                        <a href="${targetUrl}" class="btn-action" style="width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; color: ${isCurrentlyViewed ? 'var(--green)' : 'var(--ink)'}; text-decoration: none;" title="${isCurrentlyViewed ? 'Currently viewing' : 'Preview snapshot'}">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                         </a>
                         <a href="download.php?id=${docId}&version_id=${v.id}" class="btn-action" style="width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; color: var(--ink); text-decoration: none;" title="Download file" download>
@@ -2089,7 +2133,8 @@ document.addEventListener("DOMContentLoaded", function () {
             const chevronIcon = card.querySelector(".chevron-icon");
             const panelDetails = card.querySelector(".version-details-panel");
             if (btnDetails && panelDetails) {
-                btnDetails.addEventListener("click", function () {
+                btnDetails.addEventListener("click", function (ev) {
+                    ev.stopPropagation();
                     const isHidden = panelDetails.style.display === "none";
                     panelDetails.style.display = isHidden ? "block" : "none";
                     if (chevronIcon) {
