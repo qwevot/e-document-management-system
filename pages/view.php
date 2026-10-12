@@ -35,7 +35,6 @@ $backUrl = $isArchived ? 'archives.php' : ('explorer.php?mode=project' . (!empty
 
 $currentVersion = $doc['version'] ?? 'v1.0';
 $nextMinorVer = calculate_next_version($currentVersion, 'minor');
-$nextMajorVer = calculate_next_version($currentVersion, 'major');
 
 // Check if viewing a historical version snapshot
 $reqVersionId = isset($_GET['version_id']) && is_numeric($_GET['version_id']) ? (int)$_GET['version_id'] : 0;
@@ -59,22 +58,13 @@ if ($reqVersionId > 0) {
         $doc['mime_type'] = $vDoc['mime_type'];
     }
 } else {
-    $curVerStmt = $pdo->prepare("SELECT id, review_status, version_number FROM dms_document_versions WHERE document_id = :did AND is_current = 1 LIMIT 1");
-    $curVerStmt->execute(['did' => $docId]);
-    $curVerRow = $curVerStmt->fetch(PDO::FETCH_ASSOC);
-    if ($curVerRow) {
-        $activeVersionId = (int)$curVerRow['id'];
-        $activeVersionName = $curVerRow['version_number'];
-        $activeReviewStatus = $curVerRow['review_status'] ?? ($doc['status'] === 'published' ? 'approved' : ($doc['status'] === 'hold' ? 'pending' : 'draft'));
-    } else {
-        $latestVerStmt = $pdo->prepare("SELECT id, review_status, version_number FROM dms_document_versions WHERE document_id = :did ORDER BY id DESC LIMIT 1");
-        $latestVerStmt->execute(['did' => $docId]);
-        $latestVerRow = $latestVerStmt->fetch(PDO::FETCH_ASSOC);
-        if ($latestVerRow) {
-            $activeVersionId = (int)$latestVerRow['id'];
-            $activeVersionName = $latestVerRow['version_number'];
-            $activeReviewStatus = $latestVerRow['review_status'] ?? 'draft';
-        }
+    $verStmt = $pdo->prepare("SELECT id, review_status, version_number FROM dms_document_versions WHERE document_id = :did ORDER BY is_current DESC, id DESC LIMIT 1");
+    $verStmt->execute(['did' => $docId]);
+    $verRow = $verStmt->fetch(PDO::FETCH_ASSOC);
+    if ($verRow) {
+        $activeVersionId = (int)$verRow['id'];
+        $activeVersionName = $verRow['version_number'];
+        $activeReviewStatus = $verRow['review_status'] ?? ($doc['status'] === 'published' ? 'approved' : ($doc['status'] === 'hold' ? 'pending' : 'draft'));
     }
 }
 
@@ -1059,8 +1049,13 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
 
                     <!-- 2. Version History Tab Content -->
                     <div id="drawerTabVersions" class="drawer-tab-pane" style="display: none;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-                            <div class="layer-section-title" style="margin-bottom: 0;">Version History</div>
+                        <div class="history-accordion-header is-open" id="btnToggleVersionHistoryDropdown" title="Toggle Version History" style="margin-top: 0; margin-bottom: 10px; cursor: pointer;">
+                            <div class="history-accordion-title">
+                                <span class="history-accordion-arrow" id="versionHistoryAccordionArrow">
+                                    <?php echo render_icon('chevron-right'); ?>
+                                </span>
+                                <span>Version History</span>
+                            </div>
                             <?php if ($isDocHold): ?>
                                 <span class="workspace-badge" style="font-size: 10.5px; background: var(--amber-soft); color: var(--amber-ink); border: 1px solid var(--amber-line);" title="Revision uploads frozen while under review">
                                     Waiting For Review
@@ -1074,7 +1069,7 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
                         </div>
 
                         <!-- Version Timeline Feed -->
-                        <div id="versionTimelineContainer" style="display: flex; flex-direction: column; gap: 8px;">
+                        <div id="versionTimelineContainer" class="annotation-history-feed" style="display: flex; flex-direction: column; gap: 8px;">
                             <div style="text-align: center; padding: 20px; color: var(--slate-muted); font-size: 13px;">
                                 Loading version history...
                             </div>

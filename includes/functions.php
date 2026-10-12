@@ -414,44 +414,37 @@ function get_document_audit_trail(int $docId): array {
     foreach ($rawLogs as $log) {
         $action = $log['action'];
 
-        [$title, $badgeClass, $badgeText] = match ($action) {
-            'document.upload'           => ['Document Created & Uploaded', 'badge-publish', 'Upload'],
-            'version.upload'            => ['New Revision Uploaded', 'badge-active', 'Revision'],
-            'version.revert'            => ['Reverted Revision', 'badge-hold', 'Revert'],
-            'document.review_requested' => ['Submitted for Review', 'badge-hold', 'Hold'],
-            'document.review_approved'  => ['Review Sign-Off Recorded', 'badge-publish', 'Approved'],
-            'document.review_rejected'  => ['Review Rejected', 'badge-rejected', 'Rejected'],
-            'document.published'        => ['Approved & Published', 'badge-publish', 'Published'],
-            'document.review_cancelled' => ['Review Retracted', 'badge-hold', 'Retracted'],
-            'document.access_updated'   => ['Access Permissions Updated', 'badge-active', 'Access'],
-            default                     => [$action, 'badge-active', 'Log']
+        [$actionWord, $dotClass] = match ($action) {
+            'document.upload'           => ['Uploaded', 'badge-publish'],
+            'version.upload',
+            'version.revert'            => ['Updated', 'badge-active'],
+            'document.access_updated'   => ['Shared', 'badge-active'],
+            'document.review_requested' => ['Submitted', 'badge-hold'],
+            'document.review_rejected'  => ['Rejected', 'badge-rejected'],
+            'document.review_approved',
+            'document.published'        => ['Accepted', 'badge-publish'],
+            'document.review_cancelled' => ['Updated', 'badge-hold'],
+            default                     => ['Updated', 'badge-active']
         };
 
         $userName = htmlspecialchars($log['user_full_name'] ?? 'System', ENT_QUOTES, 'UTF-8');
-        $userRole = htmlspecialchars(ucfirst($log['role'] ?? 'User'), ENT_QUOTES, 'UTF-8');
         $formattedTime = date('M j, Y • H:i', strtotime($log['created_at']));
-        $titleEsc = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
 
         $htmlItems .= "
         <div class=\"audit-timeline-item\">
-            <span class=\"audit-timeline-dot {$badgeClass}\"></span>
+            <span class=\"audit-timeline-dot {$dotClass}\"></span>
             <div class=\"audit-timeline-content\">
-                <div class=\"history-main-line\" style=\"display: flex; justify-content: space-between; align-items: center;\">
-                    <span class=\"history-user\" style=\"font-size: 12.5px; font-weight: 600;\">{$userName} </span>
-                    <span class=\"status-badge {$badgeClass}\" style=\"font-size: 9.5px; padding: 1px 6px;\">{$badgeText}</span>
+                <div style=\"font-size: 12.5px; color: var(--ink); line-height: 1.4;\">
+                    <strong>{$actionWord}</strong> by <strong>{$userName}</strong>
                 </div>
-                <div style=\"font-size: 12px; font-weight: 500; color: var(--ink); margin-top: 2px;\">{$titleEsc}</div>
                 <div class=\"history-time\" style=\"font-size: 10.5px; color: var(--muted); margin-top: 2px;\">{$formattedTime}</div>
             </div>
         </div>";
 
         $events[] = [
             'id'             => (int)$log['id'],
-            'title'          => $title,
-            'badge_class'    => $badgeClass,
-            'badge_text'     => $badgeText,
+            'action'         => $actionWord,
             'user_name'      => $userName,
-            'user_role'      => $userRole,
             'formatted_time' => $formattedTime
         ];
     }

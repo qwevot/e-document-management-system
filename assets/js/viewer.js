@@ -16,7 +16,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // DOM Elements
     const workspaceCenterStage = document.getElementById("workspaceCenterStage");
-    const workspaceDocContainer = document.getElementById("workspaceDocContainer");
     const pdfPagesFeed = document.getElementById("pdfPagesFeed");
     const workspaceDocLoading = document.getElementById("workspaceDocLoading");
     const loadingStatusText = document.getElementById("loadingStatusText");
@@ -41,7 +40,6 @@ document.addEventListener("DOMContentLoaded", function () {
     
     // Right Drawer Elements
     const workspaceRightDrawer = document.getElementById("workspaceRightDrawer");
-    const btnToggleLayerDrawer = document.getElementById("btnToggleLayerDrawer");
     const btnCloseRightDrawer = document.getElementById("btnCloseRightDrawer");
     const selfStrokeCount = document.getElementById("selfStrokeCount");
     const btnToggleSelfLayer = document.getElementById("btnToggleSelfLayer");
@@ -50,6 +48,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const layersList = document.getElementById("layersList");
     const annotationHistoryFeed = document.getElementById("annotationHistoryFeed");
     const historyCountBadge = document.getElementById("historyCountBadge");
+    const btnToggleVersionHistoryDropdown = document.getElementById("btnToggleVersionHistoryDropdown");
     const btnToggleAuditHistoryDropdown = document.getElementById("btnToggleAuditHistoryDropdown");
     const auditHistoryFeed = document.getElementById("auditHistoryFeed");
     const auditHistoryCountBadge = document.getElementById("auditHistoryCountBadge");
@@ -2911,6 +2910,15 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         })
         .catch(err => console.error("Error loading audit history:", err));
+    }
+
+    if (btnToggleVersionHistoryDropdown && versionTimelineContainer) {
+        btnToggleVersionHistoryDropdown.addEventListener("click", function (e) {
+            if (e.target.closest("#btnOpenUploadRevisionModal")) return;
+            const isCurrentlyCollapsed = versionTimelineContainer.classList.contains("is-collapsed");
+            versionTimelineContainer.classList.toggle("is-collapsed", !isCurrentlyCollapsed);
+            this.classList.toggle("is-open", isCurrentlyCollapsed);
+        });
     }
 
     if (btnToggleAuditHistoryDropdown && auditHistoryFeed) {

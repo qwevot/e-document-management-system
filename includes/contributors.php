@@ -6,39 +6,6 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
 
 /**
- * Ensure the contributor access schema and columns exist.
- */
-function init_contributors_schema(): void
-{
-    $pdo = db();
-
-    // 1. Add access_mode to dms_nodes if not present
-    try {
-        $checkCol = $pdo->query("SHOW COLUMNS FROM `dms_nodes` LIKE 'access_mode'");
-        if ($checkCol->rowCount() === 0) {
-            $pdo->exec("ALTER TABLE `dms_nodes` ADD COLUMN `access_mode` ENUM('restricted', 'public') NOT NULL DEFAULT 'restricted' AFTER `status`");
-        }
-    } catch (\Throwable $e) {
-        // Column may already exist or table is inaccessible
-    }
-
-    // 2. Create dms_document_contributors table
-    $sql = "
-    CREATE TABLE IF NOT EXISTS `dms_document_contributors` (
-        `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        `document_id` BIGINT UNSIGNED NOT NULL,
-        `user_id` BIGINT UNSIGNED NOT NULL,
-        `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY `uk_doc_contributor` (`document_id`, `user_id`),
-        INDEX `idx_contrib_user` (`user_id`),
-        CONSTRAINT `fk_contrib_doc` FOREIGN KEY (`document_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE,
-        CONSTRAINT `fk_contrib_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    ";
-    $pdo->exec($sql);
-}
-
-/**
  * Retrieve all explicit contributors for a document.
  */
 function get_document_contributors(int $docId): array
