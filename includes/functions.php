@@ -365,8 +365,8 @@ function log_activity(
         $detailsJson = !empty($details) ? json_encode($details, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : null;
 
         $stmt = $pdo->prepare("
-            INSERT INTO system_logs (user_id, username, role, action, entity_type, entity_id, details, ip_address, user_agent, status, created_at)
-            VALUES (:user_id, :username, :role, :action, :entity_type, :entity_id, :details, :ip_address, :user_agent, :status, NOW())
+            INSERT INTO system_logs (user_id, username, role, action, entity_type, entity_id, details, ip_address, user_agent, created_at)
+            VALUES (:user_id, :username, :role, :action, :entity_type, :entity_id, :details, :ip_address, :user_agent, NOW())
         ");
 
         return $stmt->execute([
@@ -378,8 +378,7 @@ function log_activity(
             'entity_id'   => $entityId,
             'details'     => $detailsJson,
             'ip_address'  => $ip,
-            'user_agent'  => $ua,
-            'status'      => in_array($status, ['success', 'failure', 'warning'], true) ? $status : 'success'
+            'user_agent'  => $ua
         ]);
     } catch (\Throwable $e) {
         error_log("Failed to write system log: " . $e->getMessage());

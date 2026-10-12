@@ -4,50 +4,68 @@ $activeNav = 'my-workspace';
 
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/review.php';
+require_once __DIR__ . '/../includes/contributors.php';
 require_once __DIR__ . '/../includes/header.php';
 
 $pdo = db();
-$user = current_user() ?? ['id' => 1, 'full_name' => 'Dr. Ruan Mei', 'role' => 'admin'];
+$user = current_user() ?? ['id' => 1, 'full_name' => 'User', 'role' => 'viewer'];
 $userId = (int)($user['id'] ?? 1);
-$userRole = strtolower($user['role'] ?? 'viewer');
 
-// 1. Fetch pending review tasks assigned to current user
+// 1. Notifications / Requires Attention
+// A: Inbound review requests assigned to current user
 $pendingReviews = get_pending_reviews_for_user($userId);
-$pendingReviewCount = count($pendingReviews);
 
-// 2. Fetch user's own submissions currently under review (Hold)
-$mySubmissions = get_user_review_submissions($userId);
-$mySubmissionsCount = count($mySubmissions);
-
-// 3. Fetch summary stats
-$statDrafts = (int)$pdo->query("SELECT COUNT(*) FROM dms_nodes WHERE created_by = {$userId} AND node_type = 'document' AND status = 'active' AND is_deleted = 0")->fetchColumn();
-$statPublished = (int)$pdo->query("SELECT COUNT(*) FROM dms_nodes WHERE created_by = {$userId} AND node_type = 'document' AND status = 'published' AND is_deleted = 0")->fetchColumn();
-$statTotal = (int)$pdo->query("SELECT COUNT(*) FROM dms_nodes WHERE created_by = {$userId} AND node_type = 'document' AND is_deleted = 0")->fetchColumn();
-
-// 4. Fetch recent draft documents authored by user
-$recentDocsStmt = $pdo->prepare("
-    SELECT d.*, p.name AS parent_folder_name 
-    FROM dms_nodes d
-    LEFT JOIN dms_nodes p ON d.parent_id = p.id
-    WHERE d.created_by = :uid AND d.node_type = 'document' AND d.is_deleted = 0
-    ORDER BY d.updated_at DESC 
+// B: Submissions by current user that have been approved or rejected
+$verdictsStmt = $pdo->prepare("
+    SELECT r.id AS review_id, r.version, r.status AS review_status, r.comments, r.reviewed_at,
+           d.id AS document_id, d.name AS document_name, d.file_extension,
+           u.full_name AS reviewer_name
+    FROM dms_document_reviews r
+    JOIN dms_nodes d ON r.document_id = d.id
+    LEFT JOIN users u ON r.reviewer_id = u.id
+    WHERE r.requested_by = :uid
+      AND r.status IN ('approved', 'rejected')
+      AND d.is_deleted = 0
+    ORDER BY r.reviewed_at DESC
     LIMIT 6
 ");
-$recentDocsStmt->execute(['uid' => $userId]);
-$recentDocs = $recentDocsStmt->fetchAll(PDO::FETCH_ASSOC);
+$verdictsStmt->execute(['uid' => $userId]);
+$recentVerdicts = $verdictsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// 5. Fetch recent user audit activity
-$recentLogsStmt = $pdo->prepare("
-    SELECT * FROM system_logs 
-    WHERE user_id = :uid 
-    ORDER BY created_at DESC 
-    LIMIT 8
+$totalAttentionCount = count($pendingReviews) + count($recentVerdicts);
+
+// 2. My Workspace: Documents authored by user OR where user is a contributor
+$myDocsStmt = $pdo->prepare("
+    SELECT DISTINCT d.id, d.name, d.version, d.status, d.file_extension, d.updated_at, d.created_at,
+           (d.created_by = :uid1) AS is_owner
+    FROM dms_nodes d
+    LEFT JOIN dms_document_contributors c ON d.id = c.document_id AND c.user_id = :uid2
+    WHERE d.node_type = 'document'
+      AND d.is_deleted = 0
+      AND (d.created_by = :uid3 OR c.user_id IS NOT NULL)
+    ORDER BY d.updated_at DESC
+    LIMIT 15
 ");
-$recentLogsStmt->execute(['uid' => $userId]);
-$recentLogs = $recentLogsStmt->fetchAll(PDO::FETCH_ASSOC);
+$myDocsStmt->execute(['uid1' => $userId, 'uid2' => $userId, 'uid3' => $userId]);
+$myDocs = $myDocsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Helper for status badge class
-function get_ws_status_badge(string $status): string {
+// 3. Recently Opened / Touched Documents from system activity logs or recent nodes
+$recentTouchedStmt = $pdo->prepare("
+    SELECT DISTINCT d.id, d.name, d.version, d.status, d.file_extension,
+           COALESCE(l.created_at, d.updated_at) AS last_touched_at,
+           l.action AS last_action
+    FROM dms_nodes d
+    LEFT JOIN system_logs l ON l.entity_type = 'document' AND l.entity_id = d.id AND l.user_id = :uid
+    WHERE d.node_type = 'document'
+      AND d.is_deleted = 0
+    ORDER BY last_touched_at DESC
+    LIMIT 15
+");
+$recentTouchedStmt->execute(['uid' => $userId]);
+$recentDocs = $recentTouchedStmt->fetchAll(PDO::FETCH_ASSOC);
+
+function ws_status_badge(string $status): string {
     return match ($status) {
         'published' => 'badge-publish',
         'active'    => 'badge-active',
@@ -55,237 +73,309 @@ function get_ws_status_badge(string $status): string {
         'suspend'   => 'badge-suspend',
         'rejected'  => 'badge-rejected',
         'obsolete'  => 'badge-obsolete',
-        default     => 'badge-default',
+        default     => 'badge-active',
     };
 }
 ?>
 
-<div class="explorer-wrapper">
+<div class="welcome-header">
+    <h1>Welcome, <?php echo e($fullName); ?>!</h1>
+</div>
 
-    <!-- Workspace Welcome Banner Card -->
-    <div class="explorer-toolbar-card" style="margin-bottom: 20px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; flex-wrap: wrap; gap: 14px;">
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <div class="presence-avatar is-self" style="width: 44px; height: 44px; font-size: 16px;">
-                    <?php echo e(get_initials($user['full_name'])); ?>
-                </div>
-                <div>
-                    <h2 style="font-size: 17px; font-weight: 700; color: var(--ink); margin: 0;">Welcome back, <?php echo e($user['full_name']); ?></h2>
-                    <span style="font-size: 12.5px; color: var(--muted);">Role: <strong><?php echo ucfirst(e($user['role'])); ?></strong> &bull; Dept: <strong><?php echo e($user['department'] ?? 'Engineering'); ?></strong></span>
-                </div>
-            </div>
+<!-- Main 2-Column Dashboard Grid: Documents Left (Rectangle 3), Notifications Right (Rectangle 2) -->
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start;">
 
-            <div class="toolbar-actions">
-                <a href="explorer.php" class="btn btn-secondary">
-                    <?php echo render_icon('explorer'); ?>
-                    <span>Document Explorer</span>
-                </a>
-                <a href="explorer.php?action=upload" class="btn btn-primary" id="btnWsUpload">
-                    <?php echo render_icon('cloud-upload'); ?>
-                    <span>New Document</span>
-                </a>
-            </div>
-        </div>
-    </div>
-
-    <!-- Quick Stats Grid -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 24px;">
-        <!-- Card 1: Awaiting My Review -->
-        <div class="explorer-filter-card" style="padding: 16px; display: flex; align-items: center; justify-content: space-between; <?php echo $pendingReviewCount > 0 ? 'border-left: 3px solid var(--amber);' : ''; ?>">
-            <div>
-                <span style="font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase;">Awaiting My Review</span>
-                <h3 style="font-size: 24px; font-weight: 800; color: <?php echo $pendingReviewCount > 0 ? 'var(--amber-ink)' : 'var(--ink)'; ?>; margin: 4px 0 0;"><?php echo $pendingReviewCount; ?></h3>
-            </div>
-            <div style="width: 38px; height: 38px; border-radius: 8px; background: var(--amber-soft); display: flex; align-items: center; justify-content: center; color: var(--amber-ink);">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-            </div>
-        </div>
-
-        <!-- Card 2: My Submissions On Hold -->
-        <div class="explorer-filter-card" style="padding: 16px; display: flex; align-items: center; justify-content: space-between;">
-            <div>
-                <span style="font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase;">My Submissions in Review</span>
-                <h3 style="font-size: 24px; font-weight: 800; color: var(--ink); margin: 4px 0 0;"><?php echo $mySubmissionsCount; ?></h3>
-            </div>
-            <div style="width: 38px; height: 38px; border-radius: 8px; background: var(--info-blue-soft); display: flex; align-items: center; justify-content: center; color: var(--info-blue-dark);">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><polyline points="9 15 11 17 15 13"></polyline></svg>
-            </div>
-        </div>
-
-        <!-- Card 3: Active Working Drafts -->
-        <div class="explorer-filter-card" style="padding: 16px; display: flex; align-items: center; justify-content: space-between;">
-            <div>
-                <span style="font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase;">Active Drafts</span>
-                <h3 style="font-size: 24px; font-weight: 800; color: var(--ink); margin: 4px 0 0;"><?php echo $statDrafts; ?></h3>
-            </div>
-            <div style="width: 38px; height: 38px; border-radius: 8px; background: var(--slate-soft); display: flex; align-items: center; justify-content: center; color: var(--slate-ink);">
-                <?php echo render_icon('edit'); ?>
-            </div>
-        </div>
-
-        <!-- Card 4: Published Documents -->
-        <div class="explorer-filter-card" style="padding: 16px; display: flex; align-items: center; justify-content: space-between;">
-            <div>
-                <span style="font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase;">Published Standards</span>
-                <h3 style="font-size: 24px; font-weight: 800; color: var(--success-ink); margin: 4px 0 0;"><?php echo $statPublished; ?></h3>
-            </div>
-            <div style="width: 38px; height: 38px; border-radius: 8px; background: var(--success-soft); display: flex; align-items: center; justify-content: center; color: var(--success-ink);">
-                <?php echo render_icon('check'); ?>
-            </div>
-        </div>
-    </div>
-
-    <!-- Section 1: Awaiting My Review (Primary Action Queue) -->
-    <?php if (!empty($pendingReviews)): ?>
-        <div class="explorer-filter-card" style="margin-bottom: 24px; padding: 18px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; border-bottom: 1px solid var(--card-border); padding-bottom: 10px;">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="width: 10px; height: 10px; border-radius: 50%; background: var(--amber); display: inline-block;"></span>
-                    <h3 style="font-size: 15px; font-weight: 700; color: var(--ink); margin: 0;">Documents Awaiting Your Review (<?php echo $pendingReviewCount; ?>)</h3>
-                </div>
-                <span style="font-size: 12px; color: var(--muted);">Immediate verification requested</span>
-            </div>
-
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-                <?php foreach ($pendingReviews as $pr): ?>
-                    <div class="explorer-item-card is-document" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-radius: 8px; background: var(--surface);">
-                        <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
-                            <span class="workspace-file-icon icon-<?php echo e($pr['file_extension'] ?: 'pdf'); ?>" style="font-size: 18px;">
-                                <?php echo render_icon($pr['file_extension'] ?: 'pdf'); ?>
-                            </span>
-                            <div style="min-width: 0;">
-                                <a href="view.php?id=<?php echo $pr['document_id']; ?>" style="font-size: 13.5px; font-weight: 600; color: var(--ink); text-decoration: none; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                    <?php echo e($pr['document_name']); ?>
-                                </a>
-                                <div style="display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); margin-top: 2px;">
-                                    <span>Target: <strong><?php echo e($pr['target_version']); ?></strong></span>
-                                    <span>&bull;</span>
-                                    <span>Submitted by <strong><?php echo e($pr['requested_by_name']); ?></strong> on <?php echo date('M d, H:i', strtotime($pr['review_requested_at'])); ?></span>
-                                    <?php if ($pr['parent_folder_name']): ?>
-                                        <span>&bull;</span>
-                                        <span>Folder: <?php echo e($pr['parent_folder_name']); ?></span>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
-                            <span class="status-badge badge-hold">Hold</span>
-                            <a href="view.php?id=<?php echo $pr['document_id']; ?>" class="btn btn-primary" style="padding: 5px 12px; font-size: 12px;">
-                                <?php echo render_icon('view'); ?>
-                                <span>Inspect &amp; Review</span>
-                            </a>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-        </div>
-    <?php endif; ?>
-
-    <!-- Section 2: Two Column Split: My Submissions & Recent Documents -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; margin-bottom: 24px;">
+    <!-- Left Column: Document Tabs (Rectangle 3) -->
+    <div class="explorer-wrapper" style="margin: 0;">
         
-        <!-- Left: My Submissions Under Review -->
-        <div class="explorer-filter-card" style="padding: 18px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; border-bottom: 1px solid var(--card-border); padding-bottom: 10px;">
-                <h3 style="font-size: 14.5px; font-weight: 700; color: var(--ink); margin: 0;">My Submissions on Hold</h3>
-                <span style="font-size: 12px; color: var(--muted);"><?php echo $mySubmissionsCount; ?> active</span>
+        <!-- Tab Switcher Bar: My Workspace & Recently Opened -->
+        <div class="explorer-filter-card">
+            <div class="pill-tabs" id="wsPillTabs">
+                <button type="button" class="pill-tab active" id="tabBtnMyWorkspace" onclick="switchWsTab('my-workspace')" style="border: none; cursor: pointer;">
+                    <?php echo render_icon('workspace'); ?>
+                    <span>My Workspace</span>
+                </button>
+                <button type="button" class="pill-tab" id="tabBtnRecent" onclick="switchWsTab('recent')" style="border: none; cursor: pointer;">
+                    <?php echo render_icon('history'); ?>
+                    <span>Recently Opened</span>
+                </button>
             </div>
+            <a href="explorer.php" class="btn btn-secondary" style="padding: 4px 10px; font-size: 11.5px;">
+                <?php echo render_icon('explorer'); ?>
+                <span>Browse All</span>
+            </a>
+        </div>
 
-            <?php if (empty($mySubmissions)): ?>
-                <div style="text-align: center; padding: 24px 12px; color: var(--muted); font-size: 13px;">
-                    You have no submissions currently on hold for review.
+        <!-- Tab 1: My Workspace List -->
+        <div id="paneMyWorkspace" class="explorer-card-list">
+            <?php if (empty($myDocs)): ?>
+                <div class="explorer-empty-card" style="padding: 32px 16px;">
+                    <div class="empty-icon"><?php echo render_icon('workspace'); ?></div>
+                    <h3 class="empty-title">No documents yet</h3>
+                    <p class="empty-subtitle">Documents you author or contribute to will appear here.</p>
                 </div>
             <?php else: ?>
-                <div style="display: flex; flex-direction: column; gap: 8px;">
-                    <?php foreach ($mySubmissions as $ms): ?>
-                        <div style="padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); display: flex; align-items: center; justify-content: space-between;">
-                            <div style="min-width: 0;">
-                                <a href="view.php?id=<?php echo $ms['document_id']; ?>" style="font-size: 13px; font-weight: 600; color: var(--ink); text-decoration: none; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                    <?php echo e($ms['document_name']); ?>
-                                </a>
-                                <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">
-                                    <span>Version: <?php echo e($ms['current_version']); ?></span>
-                                    <span>&bull;</span>
-                                    <span style="color: var(--amber-ink); font-weight: 600;"><?php echo (int)$ms['approved_count']; ?>/<?php echo (int)$ms['total_reviewers']; ?> Approved</span>
-                                </div>
-                            </div>
-                            <a href="view.php?id=<?php echo $ms['document_id']; ?>" class="btn-action" title="View Document">
-                                <?php echo render_icon('view'); ?>
-                            </a>
-                        </div>
-                    <?php endforeach; ?>
+                <div class="explorer-table-header">
+                    <div style="width: 32px;"></div>
+                    <div class="col-hdr-name">Document</div>
+                    <div class="col-hdr-owner">Role</div>
+                    <div class="col-hdr-version">Version</div>
+                    <div class="col-hdr-status">Status</div>
+                    <div style="width: 60px; text-align: right;">History</div>
                 </div>
+
+                <?php foreach ($myDocs as $doc): ?>
+                    <?php $extIcon = $doc['file_extension'] ?: 'pdf'; ?>
+                    <div class="explorer-item-card is-document" style="padding: 8px 12px;">
+                        <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($doc['name']); ?>">
+                            <?php echo render_icon($extIcon); ?>
+                        </a>
+
+                        <div class="item-main-col">
+                            <div class="item-title-row">
+                                <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-title" title="<?php echo e($doc['name']); ?>">
+                                    <?php echo e($doc['name']); ?>
+                                </a>
+                            </div>
+                        </div>
+
+                        <div class="item-owner-col">
+                            <span style="font-size: 11.5px; color: var(--muted); font-weight: 500;">
+                                <?php echo !empty($doc['is_owner']) ? 'Author' : 'Contributor'; ?>
+                            </span>
+                        </div>
+
+                        <div class="item-version-col">
+                            <span class="version-badge"><?php echo e($doc['version']); ?></span>
+                        </div>
+
+                        <div class="item-status-col">
+                            <span class="status-badge <?php echo ws_status_badge($doc['status']); ?>">
+                                <?php echo ucfirst(e($doc['status'])); ?>
+                            </span>
+                        </div>
+
+                        <div style="width: 60px; text-align: right; flex-shrink: 0;">
+                            <button type="button" class="btn-action" title="View Audit History" onclick="openWsAuditModal(<?php echo (int)$doc['id']; ?>, '<?php echo addslashes(e($doc['name'])); ?>')">
+                                <?php echo render_icon('history'); ?>
+                            </button>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
             <?php endif; ?>
         </div>
 
-        <!-- Right: My Recent Documents -->
-        <div class="explorer-filter-card" style="padding: 18px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; border-bottom: 1px solid var(--card-border); padding-bottom: 10px;">
-                <h3 style="font-size: 14.5px; font-weight: 700; color: var(--ink); margin: 0;">My Recent Documents</h3>
-                <a href="explorer.php" style="font-size: 12px; color: var(--primary); text-decoration: none;">View all &rarr;</a>
-            </div>
-
+        <!-- Tab 2: Recently Opened List (Hidden by default) -->
+        <div id="paneRecent" class="explorer-card-list" style="display: none;">
             <?php if (empty($recentDocs)): ?>
-                <div style="text-align: center; padding: 24px 12px; color: var(--muted); font-size: 13px;">
-                    No recent documents found.
+                <div class="explorer-empty-card" style="padding: 32px 16px;">
+                    <div class="empty-icon"><?php echo render_icon('history'); ?></div>
+                    <h3 class="empty-title">No recent documents</h3>
+                    <p class="empty-subtitle">Documents you open will be listed here for quick access.</p>
                 </div>
             <?php else: ?>
-                <div style="display: flex; flex-direction: column; gap: 8px;">
-                    <?php foreach ($recentDocs as $rd): ?>
-                        <div style="padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); display: flex; align-items: center; justify-content: space-between;">
-                            <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
-                                <span class="workspace-file-icon icon-<?php echo e($rd['file_extension'] ?: 'pdf'); ?>" style="font-size: 14px;">
-                                    <?php echo render_icon($rd['file_extension'] ?: 'pdf'); ?>
-                                </span>
-                                <div style="min-width: 0;">
-                                    <a href="view.php?id=<?php echo $rd['id']; ?>" style="font-size: 12.5px; font-weight: 600; color: var(--ink); text-decoration: none; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                        <?php echo e($rd['name']); ?>
-                                    </a>
-                                    <span style="font-size: 10.5px; color: var(--muted);"><?php echo e($rd['version']); ?> &bull; <?php echo date('M d, Y', strtotime($rd['updated_at'])); ?></span>
-                                </div>
+                <div class="explorer-table-header">
+                    <div style="width: 32px;"></div>
+                    <div class="col-hdr-name">Document</div>
+                    <div class="col-hdr-modified">Last Accessed</div>
+                    <div class="col-hdr-version">Version</div>
+                    <div class="col-hdr-status">Status</div>
+                    <div style="width: 60px; text-align: right;">History</div>
+                </div>
+
+                <?php foreach ($recentDocs as $doc): ?>
+                    <?php $extIcon = $doc['file_extension'] ?: 'pdf'; ?>
+                    <div class="explorer-item-card is-document" style="padding: 8px 12px;">
+                        <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($doc['name']); ?>">
+                            <?php echo render_icon($extIcon); ?>
+                        </a>
+
+                        <div class="item-main-col">
+                            <div class="item-title-row">
+                                <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-title" title="<?php echo e($doc['name']); ?>">
+                                    <?php echo e($doc['name']); ?>
+                                </a>
                             </div>
-                            <span class="status-badge <?php echo get_ws_status_badge($rd['status']); ?>" style="font-size: 10.5px;">
-                                <?php echo ucfirst(e($rd['status'])); ?>
+                        </div>
+
+                        <div class="item-modified-col">
+                            <span style="font-size: 11px; color: var(--muted);">
+                                <?php echo date('M j, Y • H:i', strtotime($doc['last_touched_at'])); ?>
                             </span>
                         </div>
-                    <?php endforeach; ?>
-                </div>
+
+                        <div class="item-version-col">
+                            <span class="version-badge"><?php echo e($doc['version']); ?></span>
+                        </div>
+
+                        <div class="item-status-col">
+                            <span class="status-badge <?php echo ws_status_badge($doc['status']); ?>">
+                                <?php echo ucfirst(e($doc['status'])); ?>
+                            </span>
+                        </div>
+
+                        <div style="width: 60px; text-align: right; flex-shrink: 0;">
+                            <button type="button" class="btn-action" title="View Audit History" onclick="openWsAuditModal(<?php echo (int)$doc['id']; ?>, '<?php echo addslashes(e($doc['name'])); ?>')">
+                                <?php echo render_icon('history'); ?>
+                            </button>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
             <?php endif; ?>
         </div>
 
     </div>
 
-    <!-- Section 3: Recent Activity Log Feed -->
-    <?php if (!empty($recentLogs)): ?>
-        <div class="explorer-filter-card" style="padding: 18px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; border-bottom: 1px solid var(--card-border); padding-bottom: 10px;">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <?php echo render_icon('history'); ?>
-                    <h3 style="font-size: 14.5px; font-weight: 700; color: var(--ink); margin: 0;">My Activity Trail</h3>
-                </div>
-                <?php if (in_array($userRole, ['super admin', 'admin'], true)): ?>
-                    <a href="system-logs.php" style="font-size: 12px; color: var(--primary); text-decoration: none;">Full Audit Logs &rarr;</a>
-                <?php endif; ?>
+    <!-- Right Column: Notifications & Requires Attention (Rectangle 2) -->
+    <div class="explorer-wrapper" style="margin: 0;">
+        <div class="explorer-toolbar-card" style="padding: 10px 14px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="display: inline-flex; color: var(--green);"><?php echo render_icon('notification'); ?></span>
+                <span style="font-weight: 700; font-size: 13.5px; color: var(--ink);">Notifications</span>
             </div>
+            <?php if ($totalAttentionCount > 0): ?>
+                <span class="status-badge badge-hold" style="font-size: 10px;"><?php echo $totalAttentionCount; ?> new</span>
+            <?php endif; ?>
+        </div>
 
-            <div style="display: flex; flex-direction: column; gap: 6px;">
-                <?php foreach ($recentLogs as $log): ?>
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; font-size: 12px; border-bottom: 1px dashed var(--border); color: var(--ink);">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="font-family: monospace; font-size: 11px; font-weight: 700; color: var(--muted);"><?php echo e($log['action']); ?></span>
-                            <?php if ($log['entity_type']): ?>
-                                <span style="font-size: 11px; color: var(--muted);">(<?php echo e($log['entity_type']); ?> #<?php echo e((string)$log['entity_id']); ?>)</span>
-                            <?php endif; ?>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+            <?php if ($totalAttentionCount === 0): ?>
+                <div class="explorer-empty-card" style="padding: 28px 12px;">
+                    <div style="color: var(--green); margin-bottom: 6px;"><?php echo render_icon('check'); ?></div>
+                    <div style="font-size: 13px; font-weight: 600; color: var(--ink);">All caught up!</div>
+                    <div style="font-size: 11.5px; color: var(--muted); margin-top: 2px;">No pending approvals or review verdicts.</div>
+                </div>
+            <?php else: ?>
+                <!-- Pending Approvals Assigned to User -->
+                <?php foreach ($pendingReviews as $pr): ?>
+                    <div class="explorer-item-card" style="padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; border-left: 3px solid var(--amber);">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                            <span class="status-badge badge-hold" style="font-size: 9.5px;">Awaiting Review</span>
+                            <span style="font-size: 10.5px; color: var(--muted);"><?php echo date('M j, H:i', strtotime($pr['review_requested_at'])); ?></span>
                         </div>
-                        <span style="font-size: 11px; color: var(--muted);"><?php echo date('M d, H:i', strtotime($log['created_at'])); ?></span>
+                        <a href="view.php?id=<?php echo (int)$pr['document_id']; ?>" style="font-size: 12.5px; font-weight: 600; color: var(--ink); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?php echo e($pr['document_name']); ?>">
+                            <?php echo e($pr['document_name']); ?>
+                        </a>
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 2px;">
+                            <span style="font-size: 11px; color: var(--muted);">By <?php echo e($pr['requested_by_name']); ?></span>
+                            <a href="view.php?id=<?php echo (int)$pr['document_id']; ?>" class="btn btn-primary" style="padding: 2px 8px; font-size: 11px;">
+                                Review &rarr;
+                            </a>
+                        </div>
                     </div>
                 <?php endforeach; ?>
-            </div>
+
+                <!-- Verdicts on User Submissions -->
+                <?php foreach ($recentVerdicts as $vd): ?>
+                    <?php 
+                    $isApprove = ($vd['review_status'] === 'approved');
+                    $borderCol = $isApprove ? 'var(--green)' : 'var(--red)';
+                    $badgeCls = $isApprove ? 'badge-publish' : 'badge-rejected';
+                    $badgeText = $isApprove ? 'Accepted' : 'Rejected';
+                    ?>
+                    <div class="explorer-item-card" style="padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; border-left: 3px solid <?php echo $borderCol; ?>;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                            <span class="status-badge <?php echo $badgeCls; ?>" style="font-size: 9.5px;"><?php echo $badgeText; ?></span>
+                            <span style="font-size: 10.5px; color: var(--muted);"><?php echo date('M j, H:i', strtotime($vd['reviewed_at'])); ?></span>
+                        </div>
+                        <a href="view.php?id=<?php echo (int)$vd['document_id']; ?>" style="font-size: 12.5px; font-weight: 600; color: var(--ink); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?php echo e($vd['document_name']); ?>">
+                            <?php echo e($vd['document_name']); ?>
+                        </a>
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 2px;">
+                            <span style="font-size: 11px; color: var(--muted);">By <?php echo e($vd['reviewer_name'] ?? 'Reviewer'); ?></span>
+                            <a href="view.php?id=<?php echo (int)$vd['document_id']; ?>" class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;">
+                                View &rarr;
+                            </a>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
         </div>
-    <?php endif; ?>
+    </div>
 
 </div>
+
+<!-- Modal: Document Audit History (Reusing existing EDMS modal architecture) -->
+<div class="edms-modal-backdrop" id="modalAuditHistory">
+    <div class="edms-modal-dialog" style="max-width: 540px; width: 90%;">
+        <div class="edms-modal-header">
+            <div class="edms-modal-title">
+                <?php echo render_icon('history'); ?>
+                <span>Audit History: <strong id="auditModalDocName" style="font-weight: 600;">Document</strong></span>
+            </div>
+            <button type="button" class="btn-modal-close" onclick="closeWsAuditModal()" title="Close">&times;</button>
+        </div>
+        <div class="edms-modal-body" style="max-height: 440px; overflow-y: auto; padding: 16px;">
+            <div id="auditModalFeed" class="annotation-history-feed" style="max-height: none; overflow: visible;">
+                <div class="history-empty-state">
+                    <span>Loading audit records...</span>
+                </div>
+            </div>
+        </div>
+        <div class="edms-modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeWsAuditModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function switchWsTab(tab) {
+    const btnMyWs = document.getElementById('tabBtnMyWorkspace');
+    const btnRecent = document.getElementById('tabBtnRecent');
+    const paneMyWs = document.getElementById('paneMyWorkspace');
+    const paneRecent = document.getElementById('paneRecent');
+
+    if (tab === 'my-workspace') {
+        btnMyWs.classList.add('active');
+        btnRecent.classList.remove('active');
+        paneMyWs.style.display = '';
+        paneRecent.style.display = 'none';
+    } else {
+        btnRecent.classList.add('active');
+        btnMyWs.classList.remove('active');
+        paneRecent.style.display = '';
+        paneMyWs.style.display = 'none';
+    }
+}
+
+function openWsAuditModal(docId, docName) {
+    const modal = document.getElementById('modalAuditHistory');
+    const nameEl = document.getElementById('auditModalDocName');
+    const feedEl = document.getElementById('auditModalFeed');
+
+    if (!modal) return;
+    if (nameEl) nameEl.textContent = docName;
+    if (feedEl) feedEl.innerHTML = '<div class="history-empty-state"><span>Loading audit records...</span></div>';
+
+    modal.classList.add('is-open');
+
+    fetch(`explorer.php?action=get_audit_history&doc_id=${docId}`, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (feedEl && data.success) {
+            feedEl.innerHTML = data.html || '<div class="history-empty-state"><span>No audit records recorded yet.</span></div>';
+        }
+    })
+    .catch(() => {
+        if (feedEl) feedEl.innerHTML = '<div class="history-empty-state" style="color:var(--red);"><span>Failed to load audit history.</span></div>';
+    });
+}
+
+function closeWsAuditModal() {
+    const modal = document.getElementById('modalAuditHistory');
+    if (modal) modal.classList.remove('is-open');
+}
+
+// Close modal on backdrop click
+document.addEventListener('click', function(e) {
+    const modal = document.getElementById('modalAuditHistory');
+    if (modal && e.target === modal) {
+        closeWsAuditModal();
+    }
+});
+</script>
 
 <?php
 require_once __DIR__ . '/../includes/footer.php';

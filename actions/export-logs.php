@@ -7,21 +7,16 @@ require_role('super admin', 'admin');
 $pdo = db();
 
 $filterCat    = trim($_GET['cat'] ?? '');
-$filterStatus = trim($_GET['status'] ?? '');
 $filterUser   = trim($_GET['user'] ?? '');
 $search       = trim($_GET['q'] ?? '');
 
-$sql = "SELECT id, created_at, username, role, action, entity_type, entity_id, status, ip_address, user_agent, details 
+$sql = "SELECT id, created_at, username, role, action, entity_type, entity_id, ip_address, user_agent, details 
         FROM system_logs WHERE 1=1";
 $params = [];
 
 if ($filterCat !== '') {
     $sql .= " AND action LIKE ?";
     $params[] = $filterCat . '.%';
-}
-if ($filterStatus !== '') {
-    $sql .= " AND status = ?";
-    $params[] = $filterStatus;
 }
 if ($filterUser !== '') {
     $sql .= " AND username = ?";
@@ -44,7 +39,6 @@ $logs = $st->fetchAll(PDO::FETCH_ASSOC);
 
 log_activity('system.export_logs', 'system_logs', null, [
     'filter_cat'          => $filterCat ?: 'all',
-    'filter_status'       => $filterStatus ?: 'all',
     'filter_user'         => $filterUser ?: 'all',
     'search_query'        => $search ?: null,
     'exported_rows_count' => count($logs)
@@ -59,7 +53,7 @@ $out = fopen('php://output', 'w');
 // UTF-8 BOM for Excel compatibility
 fputs($out, "\xEF\xBB\xBF");
 
-fputcsv($out, ['Log ID', 'Timestamp', 'Username', 'Role', 'Action', 'Entity Type', 'Entity ID', 'Status', 'IP Address', 'User Agent', 'Details']);
+fputcsv($out, ['Log ID', 'Timestamp', 'Username', 'Role', 'Action', 'Entity Type', 'Entity ID', 'IP Address', 'User Agent', 'Details']);
 
 foreach ($logs as $row) {
     fputcsv($out, [
@@ -70,7 +64,6 @@ foreach ($logs as $row) {
         $row['action'],
         $row['entity_type'] ?? 'N/A',
         $row['entity_id'] ?? 'N/A',
-        $row['status'],
         $row['ip_address'] ?? 'N/A',
         $row['user_agent'] ?? '',
         $row['details'] ?? ''

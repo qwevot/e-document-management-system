@@ -4630,3 +4630,22 @@ input.input-error, select.input-error, textarea.input-error {
     color: var(--slate-ink);
     border: 1px solid var(--slate-line);
 }
+
+/* ============================================================
+MY WORKSPACE PAGE
+============================================================ */
+
+.welcome-header {
+    margin-bottom: 20px;
+}
+
+.welcome-header h1 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--ink);
+}
+
+.welcome-header span {
+    color: var(--accent);
+}

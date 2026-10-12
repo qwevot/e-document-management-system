@@ -18,7 +18,6 @@ try {
 
 // Filtering parameters
 $filterCat    = trim($_GET['cat'] ?? '');
-$filterStatus = trim($_GET['status'] ?? '');
 $filterUser   = trim($_GET['user'] ?? '');
 $search       = trim($_GET['q'] ?? '');
 
@@ -32,10 +31,6 @@ $params = [];
 if ($filterCat !== '') {
     $whereClauses[] = "action LIKE ?";
     $params[] = $filterCat . '.%';
-}
-if ($filterStatus !== '') {
-    $whereClauses[] = "status = ?";
-    $params[] = $filterStatus;
 }
 if ($filterUser !== '') {
     $whereClauses[] = "username = ?";
@@ -103,7 +98,7 @@ include __DIR__ . '/../includes/header.php';
             <span class="search-icon"><?php echo render_icon('search'); ?></span>
             <input type="text" name="q" value="<?php echo e($search); ?>" placeholder="Search action, user, IP, or payload..." class="search-input" autocomplete="off">
             <?php if ($search !== ''): ?>
-                <a href="system-logs.php<?php echo $filterCat || $filterStatus || $filterUser ? '?' . http_build_query(['cat' => $filterCat, 'status' => $filterStatus, 'user' => $filterUser]) : ''; ?>" class="search-clear" title="Clear search">&times;</a>
+                <a href="system-logs.php<?php echo $filterCat || $filterUser ? '?' . http_build_query(['cat' => $filterCat, 'user' => $filterUser]) : ''; ?>" class="search-clear" title="Clear search">&times;</a>
             <?php endif; ?>
         </div>
 
@@ -121,15 +116,6 @@ include __DIR__ . '/../includes/header.php';
                 </select>
             </div>
 
-            <div class="select-wrapper">
-                <select name="status" class="filter-select" onchange="this.form.submit()">
-                    <option value="">All Statuses</option>
-                    <option value="success" <?php echo $filterStatus === 'success' ? 'selected' : ''; ?>>Success</option>
-                    <option value="failure" <?php echo $filterStatus === 'failure' ? 'selected' : ''; ?>>Failure</option>
-                    <option value="warning" <?php echo $filterStatus === 'warning' ? 'selected' : ''; ?>>Warning</option>
-                </select>
-            </div>
-
             <?php if (!empty($allUsers)): ?>
             <div class="select-wrapper">
                 <select name="user" class="filter-select" onchange="this.form.submit()">
@@ -141,7 +127,7 @@ include __DIR__ . '/../includes/header.php';
             </div>
             <?php endif; ?>
 
-            <?php if ($search !== '' || $filterCat !== '' || $filterStatus !== '' || $filterUser !== ''): ?>
+            <?php if ($search !== '' || $filterCat !== '' || $filterUser !== ''): ?>
                 <a href="system-logs.php" class="btn-reset-filters" title="Reset all filters">Reset</a>
             <?php endif; ?>
         </div>
@@ -154,7 +140,6 @@ include __DIR__ . '/../includes/header.php';
                 <tr>
                     <th class="no-col">No.</th>
                     <th style="width: 140px;">Timestamp</th>
-                    <th style="width: 90px; text-align: center;">Status</th>
                     <th style="width: 160px;">Event Action</th>
                     <th style="width: 160px;">Actor / User</th>
                     <th style="width: 130px;">Entity Target</th>
@@ -165,7 +150,7 @@ include __DIR__ . '/../includes/header.php';
             <tbody>
                 <?php if (empty($logs)): ?>
                     <tr>
-                        <td colspan="8" style="text-align:center; color:var(--muted); padding:48px 24px;">
+                        <td colspan="7" style="text-align:center; color:var(--muted); padding:48px 24px;">
                             No system activity logs found matching the selected criteria.
                         </td>
                     </tr>
@@ -184,15 +169,6 @@ include __DIR__ . '/../includes/header.php';
                             <td class="no-col"><?php echo $rowNum; ?></td>
                             <td style="font-size: 12px; color: var(--muted); white-space: nowrap;">
                                 <?php echo date('M d, Y H:i:s', strtotime($lg['created_at'])); ?>
-                            </td>
-                            <td style="text-align: center;">
-                                <?php if ($lg['status'] === 'success'): ?>
-                                    <span class="status-badge badge-publish" style="font-size: 9.5px;">Success</span>
-                                <?php elseif ($lg['status'] === 'failure'): ?>
-                                    <span class="status-badge badge-suspend" style="font-size: 9.5px;">Failure</span>
-                                <?php else: ?>
-                                    <span class="status-badge badge-hold" style="font-size: 9.5px;">Warning</span>
-                                <?php endif; ?>
                             </td>
                             <td>
                                 <code style="font-size: 12px; font-weight: 600; color: var(--green-dark); background: var(--green-soft); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--green-line); white-space: nowrap;">
