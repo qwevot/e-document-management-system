@@ -234,7 +234,7 @@ function ws_status_badge(string $status): string {
                 <span style="font-weight: 700; font-size: 13.5px; color: var(--ink);">Notifications</span>
             </div>
             <?php if ($totalAttentionCount > 0): ?>
-                <span class="status-badge badge-hold" style="font-size: 10px;"><?php echo $totalAttentionCount; ?> new</span>
+                <span class="status-badge badge-publish" style="font-size: 10px;"><?php echo $totalAttentionCount; ?> new</span>
             <?php endif; ?>
         </div>
 
@@ -242,7 +242,6 @@ function ws_status_badge(string $status): string {
             <?php if ($totalAttentionCount === 0): ?>
                 <div class="explorer-empty-card" style="padding: 28px 12px;">
                     <div style="color: var(--green); margin-bottom: 6px;"><?php echo render_icon('check'); ?></div>
-                    <div style="font-size: 13px; font-weight: 600; color: var(--ink);">All caught up!</div>
                     <div style="font-size: 11.5px; color: var(--muted); margin-top: 2px;">No pending approvals or review verdicts.</div>
                 </div>
             <?php else: ?>
