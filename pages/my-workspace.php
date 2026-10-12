@@ -53,6 +53,7 @@ function get_ws_status_badge(string $status): string {
         'active'    => 'badge-active',
         'hold'      => 'badge-hold',
         'suspend'   => 'badge-suspend',
+        'rejected'  => 'badge-rejected',
         'obsolete'  => 'badge-obsolete',
         default     => 'badge-default',
     };

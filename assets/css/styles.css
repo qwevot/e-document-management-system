@@ -1247,6 +1247,12 @@ body.sidebar-collapsed .main {
     border: 1px solid var(--red-line);
 }
 
+.badge-rejected {
+    background: var(--red-soft);
+    color: var(--red-ink);
+    border: 1px solid var(--red-line);
+}
+
 .badge-obsolete {
     background: var(--slate-soft);
     color: var(--slate-ink);
@@ -3833,6 +3839,56 @@ svg.icon-lg, .icon-lg svg { width: 20px; height: 20px; flex-shrink: 0; }
     background: var(--surface-light);
     border: 1px dashed var(--border);
     border-radius: var(--radius-sm);
+}
+
+/* Document Audit Vertical Timeline */
+.audit-timeline {
+    position: relative;
+    padding-left: 20px;
+    margin: 4px 0;
+}
+.audit-timeline::before {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 8px;
+    bottom: 8px;
+    width: 2px;
+    background: var(--border);
+}
+.audit-timeline-item {
+    position: relative;
+    margin-bottom: 10px;
+}
+.audit-timeline-item:last-child {
+    margin-bottom: 0;
+}
+.audit-timeline-dot {
+    position: absolute;
+    left: -20px;
+    top: 5px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--surface, #fff);
+    border: 2px solid var(--border);
+    box-sizing: border-box;
+}
+.audit-timeline-dot.badge-publish  { border-color: var(--green); background: var(--green-soft); }
+.audit-timeline-dot.badge-active   { border-color: var(--info-blue, #2563eb); background: var(--info-blue-soft, #eff6ff); }
+.audit-timeline-dot.badge-hold     { border-color: var(--amber); background: var(--amber-soft); }
+.audit-timeline-dot.badge-rejected { border-color: var(--red); background: var(--red-soft); }
+
+.audit-timeline-content {
+    background: var(--surface-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 7px 10px;
+    transition: all 0.12s ease;
+}
+.audit-timeline-content:hover {
+    background: var(--surface-muted);
+    border-color: var(--border-dark, var(--border));
 }
 
 /* ============================================================

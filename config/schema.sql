@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS `dms_nodes` (
     `node_type` ENUM('project', 'doctype', 'folder', 'document') NOT NULL DEFAULT 'folder',
     `name` VARCHAR(255) NOT NULL,
     `doc_type` VARCHAR(50) NULL DEFAULT NULL,
-    `status` ENUM('active', 'hold', 'suspend', 'published', 'obsolete') NOT NULL DEFAULT 'active',
+    `status` ENUM('active', 'hold', 'suspend', 'published', 'obsolete', 'rejected') NOT NULL DEFAULT 'active',
     `version` VARCHAR(20) NOT NULL DEFAULT 'v0.1',
     `file_path` VARCHAR(255) NULL DEFAULT NULL,
     `file_original_name` VARCHAR(255) NULL DEFAULT NULL,

@@ -50,6 +50,9 @@ document.addEventListener("DOMContentLoaded", function () {
     const layersList = document.getElementById("layersList");
     const annotationHistoryFeed = document.getElementById("annotationHistoryFeed");
     const historyCountBadge = document.getElementById("historyCountBadge");
+    const btnToggleAuditHistoryDropdown = document.getElementById("btnToggleAuditHistoryDropdown");
+    const auditHistoryFeed = document.getElementById("auditHistoryFeed");
+    const auditHistoryCountBadge = document.getElementById("auditHistoryCountBadge");
     // Annotation Lock Rule:
     // If a document is PUBLISHED, or viewing a historical snapshot, or user is not a contributor:
     const isDocPublished = Boolean(config.isDocPublished || config.docStatus === 'published');
@@ -58,6 +61,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const isAnnotationLocked = isDocPublished || isHistoricalSnapshot || !canAnnotate;
 
     function getAnnotationLockMessage() {
+        if (config.docStatus === 'rejected') return "Revision rejected. Annotations are locked until a new revision is uploaded.";
         if (isDocPublished) return "Document is Published. Annotations are locked.";
         if (isHistoricalSnapshot) return "Viewing historical snapshot (read-only).";
         if (!canAnnotate) return "You have read-only access (Contributor permissions required).";
@@ -872,8 +876,18 @@ document.addEventListener("DOMContentLoaded", function () {
         .then(data => {
             if (data.success && data.annotation_id) {
                 strokeObj.id = data.annotation_id;
-                if (data.layer_id && strokeObj.layerId && annotationLayers[strokeObj.layerId]) {
-                    annotationLayers[strokeObj.layerId].layerId = data.layer_id;
+                if (data.layer_id && strokeObj.layerId !== data.layer_id) {
+                    const oldLid = strokeObj.layerId;
+                    if (annotationLayers[oldLid]) {
+                        annotationLayers[data.layer_id] = annotationLayers[oldLid];
+                        annotationLayers[data.layer_id].layerId = data.layer_id;
+                        delete annotationLayers[oldLid];
+                    }
+                    if (activeLayerId === oldLid) {
+                        activeLayerId = data.layer_id;
+                    }
+                    strokeObj.layerId = data.layer_id;
+                    updateCollaboratorLayersUI();
                 }
                 updateStrokeStats();
                 if (data.history_event) {
@@ -1219,6 +1233,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 ? `<div class="user-avatar-badge" title="${escapeHtml(uGroup.userName)}"><img src="${escapeHtml(userAvatarSrc)}" alt="${escapeHtml(uGroup.userName)}" onerror="this.onerror=null; this.parentNode.innerHTML='${escapeHtml(userInitials)}';"></div>`
                 : `<div class="user-avatar-badge" title="${escapeHtml(uGroup.userName)}">${escapeHtml(userInitials)}</div>`;
 
+            const isReviewer = Array.isArray(config.reviewerUserIds) && config.reviewerUserIds.includes(parseInt(uid, 10));
+            const reviewerPillMarkup = isReviewer ? `<span class="workspace-badge badge-type" style="margin-left: 6px; font-size: 9.5px;">Reviewer</span>` : '';
+
             headerDiv.innerHTML = `
                 <div class="user-group-info">
                     <span class="user-group-chevron">
@@ -1227,7 +1244,7 @@ document.addEventListener("DOMContentLoaded", function () {
                         </svg>
                     </span>
                     ${avatarMarkup}
-                    <span class="user-group-name">${escapeHtml(uGroup.userName)}${isSelf ? ' (You)' : ''}</span>
+                    <span class="user-group-name">${escapeHtml(uGroup.userName)}${isSelf ? ' (You)' : ''}${reviewerPillMarkup}</span>
                 </div>
                 <div class="user-group-actions">
                     <button type="button" class="btn-user-group-toggle ${anyVisible ? 'is-visible' : ''}" title="Toggle All">
@@ -1856,6 +1873,9 @@ document.addEventListener("DOMContentLoaded", function () {
             if (drawerTabAnnotations) drawerTabAnnotations.style.display = "none";
             if (workspaceRightDrawer) workspaceRightDrawer.classList.add("is-open");
             loadVersionHistory();
+            if (typeof fetchAndRenderAuditHistory === "function") {
+                fetchAndRenderAuditHistory(false);
+            }
         } else {
             if (tabBtnAnnotations) tabBtnAnnotations.classList.add("active");
             if (tabBtnVersions) tabBtnVersions.classList.remove("active");
@@ -2869,6 +2889,39 @@ document.addEventListener("DOMContentLoaded", function () {
         const div = document.createElement("div");
         div.textContent = text || "";
         return div.innerHTML;
+    }
+
+    // --- 17. Document Audit Trail Controller (Sidebar Versions Tab Dropdown) ---
+    let auditHistoryLoaded = false;
+
+    function fetchAndRenderAuditHistory(force = false) {
+        if (!auditHistoryFeed || (auditHistoryLoaded && !force) || !docId) return;
+
+        fetch(`view.php?action=get_audit_history&id=${docId}`, {
+            headers: { "X-Requested-With": "XMLHttpRequest" }
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success && auditHistoryFeed) {
+                if (auditHistoryCountBadge) {
+                    auditHistoryCountBadge.textContent = `${data.count || 0} ${data.count === 1 ? 'event' : 'events'}`;
+                }
+                auditHistoryFeed.innerHTML = data.html || '';
+                auditHistoryLoaded = true;
+            }
+        })
+        .catch(err => console.error("Error loading audit history:", err));
+    }
+
+    if (btnToggleAuditHistoryDropdown && auditHistoryFeed) {
+        btnToggleAuditHistoryDropdown.addEventListener("click", function () {
+            const isCurrentlyCollapsed = auditHistoryFeed.classList.contains("is-collapsed");
+            auditHistoryFeed.classList.toggle("is-collapsed", !isCurrentlyCollapsed);
+            this.classList.toggle("is-open", isCurrentlyCollapsed);
+            if (isCurrentlyCollapsed && !auditHistoryLoaded) {
+                fetchAndRenderAuditHistory(true);
+            }
+        });
     }
 
     // --- 16. Initialize Persistent Drawer & Tab State for this Document ---

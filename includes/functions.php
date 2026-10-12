@@ -386,3 +386,83 @@ function log_activity(
         return false;
     }
 }
+
+/**
+ * Retrieve consolidated audit trail events & vertical timeline HTML for a document.
+ */
+function get_document_audit_trail(int $docId): array {
+    $pdo = db();
+    $stmt = $pdo->prepare("
+        SELECT l.id, l.role, l.action, l.created_at,
+               COALESCE(u.full_name, l.username, 'System') AS user_full_name
+        FROM system_logs l
+        LEFT JOIN users u ON l.user_id = u.id
+        WHERE l.entity_type = 'document' AND l.entity_id = :did
+          AND l.action IN (
+              'document.upload', 'version.upload', 'version.revert',
+              'document.review_requested', 'document.review_approved', 'document.review_rejected', 
+              'document.published', 'document.review_cancelled', 'document.access_updated'
+          )
+        ORDER BY l.id DESC
+    ");
+    $stmt->execute(['did' => $docId]);
+    $rawLogs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $events = [];
+    $htmlItems = '';
+
+    foreach ($rawLogs as $log) {
+        $action = $log['action'];
+
+        [$title, $badgeClass, $badgeText] = match ($action) {
+            'document.upload'           => ['Document Created & Uploaded', 'badge-publish', 'Upload'],
+            'version.upload'            => ['New Revision Uploaded', 'badge-active', 'Revision'],
+            'version.revert'            => ['Reverted Revision', 'badge-hold', 'Revert'],
+            'document.review_requested' => ['Submitted for Review', 'badge-hold', 'Hold'],
+            'document.review_approved'  => ['Review Sign-Off Recorded', 'badge-publish', 'Approved'],
+            'document.review_rejected'  => ['Review Rejected', 'badge-rejected', 'Rejected'],
+            'document.published'        => ['Approved & Published', 'badge-publish', 'Published'],
+            'document.review_cancelled' => ['Review Retracted', 'badge-hold', 'Retracted'],
+            'document.access_updated'   => ['Access Permissions Updated', 'badge-active', 'Access'],
+            default                     => [$action, 'badge-active', 'Log']
+        };
+
+        $userName = htmlspecialchars($log['user_full_name'] ?? 'System', ENT_QUOTES, 'UTF-8');
+        $userRole = htmlspecialchars(ucfirst($log['role'] ?? 'User'), ENT_QUOTES, 'UTF-8');
+        $formattedTime = date('M j, Y • H:i', strtotime($log['created_at']));
+        $titleEsc = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
+
+        $htmlItems .= "
+        <div class=\"audit-timeline-item\">
+            <span class=\"audit-timeline-dot {$badgeClass}\"></span>
+            <div class=\"audit-timeline-content\">
+                <div class=\"history-main-line\" style=\"display: flex; justify-content: space-between; align-items: center;\">
+                    <span class=\"history-user\" style=\"font-size: 12.5px; font-weight: 600;\">{$userName} </span>
+                    <span class=\"status-badge {$badgeClass}\" style=\"font-size: 9.5px; padding: 1px 6px;\">{$badgeText}</span>
+                </div>
+                <div style=\"font-size: 12px; font-weight: 500; color: var(--ink); margin-top: 2px;\">{$titleEsc}</div>
+                <div class=\"history-time\" style=\"font-size: 10.5px; color: var(--muted); margin-top: 2px;\">{$formattedTime}</div>
+            </div>
+        </div>";
+
+        $events[] = [
+            'id'             => (int)$log['id'],
+            'title'          => $title,
+            'badge_class'    => $badgeClass,
+            'badge_text'     => $badgeText,
+            'user_name'      => $userName,
+            'user_role'      => $userRole,
+            'formatted_time' => $formattedTime
+        ];
+    }
+
+    $finalHtml = $htmlItems !== '' 
+        ? "<div class=\"audit-timeline\">{$htmlItems}</div>" 
+        : '<div class="history-empty-state"><span>No audit events recorded yet.</span></div>';
+
+    return [
+        'count'  => count($events),
+        'events' => $events,
+        'html'   => $finalHtml
+    ];
+}

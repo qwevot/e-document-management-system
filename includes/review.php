@@ -309,8 +309,8 @@ function submit_review_verdict(
 
         // Action on Verdict
         if ($verdict === 'rejected') {
-            // Revert document status back to 'active' (draft) for revision
-            $updDoc = $pdo->prepare("UPDATE dms_nodes SET status = 'active', updated_at = NOW() WHERE id = :id");
+            // Set document status to 'rejected'
+            $updDoc = $pdo->prepare("UPDATE dms_nodes SET status = 'rejected', updated_at = NOW() WHERE id = :id");
             $updDoc->execute(['id' => $docId]);
 
             // Mark current version as rejected
@@ -328,8 +328,8 @@ function submit_review_verdict(
             return [
                 'success' => true,
                 'verdict' => 'rejected',
-                'status'  => 'active',
-                'message' => 'Changes requested. Document returned to Active draft status.'
+                'status'  => 'rejected',
+                'message' => 'Changes requested. Document marked as Rejected.'
             ];
         } else {
             // Approved verdict: Check if all reviewers have approved

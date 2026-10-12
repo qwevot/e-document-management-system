@@ -41,6 +41,14 @@ function init_versioning_schema(): void
         }
     } catch (\Throwable $e) {}
 
+    // Migration check for rejected status in dms_nodes
+    try {
+        $checkStatusCol = $pdo->query("SHOW COLUMNS FROM `dms_nodes` LIKE 'status'")->fetch(PDO::FETCH_ASSOC);
+        if ($checkStatusCol && !str_contains($checkStatusCol['Type'], "'rejected'")) {
+            $pdo->exec("ALTER TABLE `dms_nodes` MODIFY COLUMN `status` ENUM('active', 'hold', 'suspend', 'published', 'obsolete', 'rejected') NOT NULL DEFAULT 'active'");
+        }
+    } catch (\Throwable $e) {}
+
     // Migration check for version_id in annotation tables
     try {
         $checkLCol = $pdo->query("SHOW COLUMNS FROM `dms_annotation_layers` LIKE 'version_id'");

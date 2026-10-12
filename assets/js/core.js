@@ -1009,9 +1009,14 @@
         const popoverRename = document.getElementById("popoverActionRename");
         const popoverMove = document.getElementById("popoverActionMove");
         const popoverDelete = document.getElementById("popoverActionDelete");
-
+        const popoverAuditHistory = document.getElementById("popoverActionAuditHistory");
 
         // Modals & Forms
+        const modalAuditHistory = document.getElementById("modalAuditHistory");
+        const auditModalDocName = document.getElementById("auditModalDocName");
+        const auditModalFeed = document.getElementById("auditModalFeed");
+        const btnCloseAuditModal = document.getElementById("btnCloseAuditModal");
+        const btnCancelAuditModal = document.getElementById("btnCancelAuditModal");
         const modalRename = document.getElementById("modalRenameNode");
         const formRename = document.getElementById("formRenameNode");
         const inputRenameId = document.getElementById("renameNodeId");
@@ -1152,6 +1157,15 @@
                 }
             }
 
+            // Configure Audit History in popover
+            if (popoverAuditHistory) {
+                if (nodeType === "document") {
+                    popoverAuditHistory.style.display = "flex";
+                } else {
+                    popoverAuditHistory.style.display = "none";
+                }
+            }
+
             // Position popover
             const rect = btn.getBoundingClientRect();
             popover.style.display = "flex";
@@ -1159,8 +1173,8 @@
             let left = rect.right - popoverWidth;
             if (left < 10) left = 10;
             let top = rect.bottom + 4;
-            if (top + 180 > window.innerHeight) {
-                top = rect.top - 180;
+            if (top + 220 > window.innerHeight) {
+                top = rect.top - 220;
             }
 
             popover.style.left = left + "px";
@@ -1185,6 +1199,7 @@
                 if (modalRename && modalRename.classList.contains("is-open")) closeModal(modalRename);
                 if (modalMove && modalMove.classList.contains("is-open")) closeModal(modalMove);
                 if (modalDelete && modalDelete.classList.contains("is-open")) closeModal(modalDelete);
+                if (modalAuditHistory && modalAuditHistory.classList.contains("is-open")) closeModal(modalAuditHistory);
             }
         });
 
@@ -1558,6 +1573,40 @@
             });
         }
 
+        // --- Action: Document Audit History Modal ---
+        if (popoverAuditHistory) {
+            popoverAuditHistory.addEventListener("click", function () {
+                hidePopover();
+                if (!currentActiveItem || currentActiveItem.type !== "document") return;
+
+                if (auditModalDocName) auditModalDocName.textContent = currentActiveItem.name;
+                if (auditModalFeed) {
+                    auditModalFeed.innerHTML = '<div class="history-empty-state"><span>Loading audit records...</span></div>';
+                }
+
+                openModal(modalAuditHistory);
+
+                fetch(`explorer.php?action=get_audit_history&doc_id=${currentActiveItem.id}`, {
+                    headers: { "X-Requested-With": "XMLHttpRequest" }
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (auditModalFeed && data.success) {
+                        auditModalFeed.innerHTML = data.html || '';
+                    }
+                })
+                .catch(err => console.error("Error fetching audit history:", err));
+            });
+        }
+
+        if (btnCloseAuditModal) btnCloseAuditModal.addEventListener("click", () => closeModal(modalAuditHistory));
+        if (btnCancelAuditModal) btnCancelAuditModal.addEventListener("click", () => closeModal(modalAuditHistory));
+        if (modalAuditHistory) {
+            modalAuditHistory.addEventListener("click", (e) => {
+                if (e.target === modalAuditHistory) closeModal(modalAuditHistory);
+            });
+        }
+
         // Checkbox Direct Click Selection Toggle
         cardListContainer.addEventListener("change", function (e) {
             const cb = e.target.closest(".item-checkbox");
@@ -1724,6 +1773,7 @@
                 }
                 if (popoverView) popoverView.style.display = "none";
                 if (popoverDownload) popoverDownload.style.display = "none";
+                if (popoverAuditHistory) popoverAuditHistory.style.display = "none";
                 if (popoverRename) popoverRename.style.display = "none";
                 if (popoverActionMoveLabel) popoverActionMoveLabel.textContent = `Move ${count} items...`;
                 if (popoverActionDeleteLabel) popoverActionDeleteLabel.textContent = `Move to Archives (${count})`;
@@ -1742,6 +1792,9 @@
                     popoverDownload.href = "download.php?id=" + encodeURIComponent(singleItem.id);
                     popoverDownload.onclick = () => hidePopover();
                 }
+                if (popoverAuditHistory) {
+                    popoverAuditHistory.style.display = singleItem.type === "document" ? "flex" : "none";
+                }
                 if (popoverRename) popoverRename.style.display = "flex";
                 if (popoverActionMoveLabel) popoverActionMoveLabel.textContent = "Move to...";
                 if (popoverActionDeleteLabel) popoverActionDeleteLabel.textContent = "Move to Archives";
@@ -1756,8 +1809,8 @@
             if (left + popoverWidth > window.innerWidth) {
                 left = window.innerWidth - popoverWidth - 10;
             }
-            if (top + 200 > window.innerHeight) {
-                top = window.innerHeight - 200;
+            if (top + 220 > window.innerHeight) {
+                top = window.innerHeight - 220;
             }
 
             popover.style.left = Math.max(10, left) + "px";

@@ -166,6 +166,12 @@ if ($action) {
         ? (int)$_REQUEST['version_id']
         : ($activeVersionId > 0 ? $activeVersionId : null);
 
+    // 0. Fetch consolidated document audit history
+    if ($action === 'get_audit_history') {
+        echo json_encode(array_merge(['success' => true], get_document_audit_trail($docId)));
+        exit;
+    }
+
     // 1. Fetch all annotations & layers for this document and version (grouped by user and layer)
     if ($action === 'get_annotations') {
         if ($ajaxVersionId) {
@@ -182,8 +188,8 @@ if ($action) {
         } else {
             $layersStmt = $pdo->prepare("
                 SELECT l.id, l.user_id, l.layer_name, l.color, l.is_visible,
-                       COALESCE(u.full_name, u.username, 'Collaborator') AS author_name,
-                       u.avatar AS user_avatar
+                    COALESCE(u.full_name, u.username, 'Collaborator') AS author_name,
+                    u.avatar AS user_avatar
                 FROM dms_annotation_layers l
                 LEFT JOIN users u ON l.user_id = u.id
                 WHERE l.document_id = :doc_id
@@ -202,18 +208,8 @@ if ($action) {
             }
         }
         if ($canAnnotate && !$isHistoricalSnapshot && !$hasSelfLayer) {
-            $insertSeed = $pdo->prepare("
-                INSERT INTO dms_annotation_layers (document_id, version_id, user_id, layer_name, color, is_visible)
-                VALUES (:doc_id, :ver_id, :user_id, 'Layer 1', '#16a34a', 1)
-            ");
-            $insertSeed->execute([
-                'doc_id'  => $docId,
-                'ver_id'  => $ajaxVersionId,
-                'user_id' => $userId
-            ]);
-            $seedLayerId = (int)$pdo->lastInsertId();
             $dbLayers[] = [
-                'id'          => $seedLayerId,
+                'id'          => 0,
                 'user_id'     => $userId,
                 'layer_name'  => 'Layer 1',
                 'color'       => '#16a34a',
@@ -227,10 +223,14 @@ if ($action) {
             $annosStmt = $pdo->prepare("
                 SELECT id, layer_id, page_number, tool_type, payload_json, created_at
                 FROM dms_annotations
-                WHERE document_id = :doc_id AND (version_id = :ver_id OR (version_id IS NULL AND layer_id IN (SELECT id FROM dms_annotation_layers WHERE version_id = :ver_id)))
+                WHERE document_id = :doc_id AND (version_id = :ver_id OR (version_id IS NULL AND layer_id IN (SELECT id FROM dms_annotation_layers WHERE version_id = :ver_id_sub)))
                 ORDER BY id ASC
             ");
-            $annosStmt->execute(['doc_id' => $docId, 'ver_id' => $ajaxVersionId]);
+            $annosStmt->execute([
+                'doc_id'     => $docId,
+                'ver_id'     => $ajaxVersionId,
+                'ver_id_sub' => $ajaxVersionId
+            ]);
         } else {
             $annosStmt = $pdo->prepare("
                 SELECT id, layer_id, page_number, tool_type, payload_json, created_at
@@ -295,8 +295,8 @@ if ($action) {
         if ($ajaxVersionId) {
             $histStmt = $pdo->prepare("
                 SELECT h.id, h.user_id, h.action_type, h.tool_type, h.page_number, h.details,
-                       DATE_FORMAT(h.created_at, '%b %d, %H:%i') AS formatted_time,
-                       COALESCE(u.full_name, u.username, 'Collaborator') AS author_name
+                    DATE_FORMAT(h.created_at, '%b %d, %H:%i') AS formatted_time,
+                    COALESCE(u.full_name, u.username, 'Collaborator') AS author_name
                 FROM dms_annotation_history h
                 LEFT JOIN users u ON h.user_id = u.id
                 WHERE h.document_id = :doc_id AND (h.version_id = :ver_id OR h.version_id IS NULL)
@@ -307,8 +307,8 @@ if ($action) {
         } else {
             $histStmt = $pdo->prepare("
                 SELECT h.id, h.user_id, h.action_type, h.tool_type, h.page_number, h.details,
-                       DATE_FORMAT(h.created_at, '%b %d, %H:%i') AS formatted_time,
-                       COALESCE(u.full_name, u.username, 'Collaborator') AS author_name
+                    DATE_FORMAT(h.created_at, '%b %d, %H:%i') AS formatted_time,
+                    COALESCE(u.full_name, u.username, 'Collaborator') AS author_name
                 FROM dms_annotation_history h
                 LEFT JOIN users u ON h.user_id = u.id
                 WHERE h.document_id = :doc_id
@@ -738,6 +738,8 @@ if ($action) {
     }
 }
 
+$reviewerUserIds = array_values(array_unique(array_map('intval', array_column($reviews, 'reviewer_id'))));
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -785,15 +787,9 @@ if ($action) {
                         <?php elseif ($activeReviewStatus === 'approved' || $doc['status'] === 'published'): ?>
                             <span style="color:var(--green); font-weight:700;">(APPROVED)</span>
                         <?php elseif ($doc['status'] === 'hold'): ?>
-                            <span style="color:var(--amber-ink); font-weight:700;">(UNDER REVIEW)</span>
+                            <span style="color:var(--amber-ink); font-weight:700;">(HOLD)</span>
                         <?php endif; ?>
                     </button>
-                <?php endif; ?>
-
-                <?php if ($isArchived): ?>
-                    <span class="workspace-badge" style="background:var(--slate-soft); color:var(--slate-ink); border:1px solid var(--slate-line);">Obsolete</span>
-                <?php elseif ($doc['status'] === 'suspend'): ?>
-                    <span class="workspace-badge" style="background:var(--red-soft); color:var(--red-ink); border:1px solid var(--red-line);">Suspended</span>
                 <?php endif; ?>
             </div>
         </div>
@@ -1083,6 +1079,21 @@ if ($action) {
                                 Loading version history...
                             </div>
                         </div>
+
+                        <!-- Audit History Dropdown Accordion -->
+                        <div class="history-accordion-header" id="btnToggleAuditHistoryDropdown" title="Toggle Audit History" style="margin-top: 20px; cursor: pointer;">
+                            <div class="history-accordion-title">
+                                <span class="history-accordion-arrow" id="auditHistoryAccordionArrow">
+                                    <?php echo render_icon('chevron-right'); ?>
+                                </span>
+                                <span>Audit History</span>
+                            </div>
+                        </div>
+                        <div class="annotation-history-feed is-collapsed" id="auditHistoryFeed">
+                            <div class="history-empty-state" id="auditHistoryEmptyState">
+                                <span>No audit events recorded yet.</span>
+                            </div>
+                        </div>
                     </div>
 
                 </div>
@@ -1220,24 +1231,24 @@ if ($action) {
                                         <!-- Avatar Circle -->
                                         <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--slate-soft); color: var(--ink); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; overflow: hidden;">
                                             <?php if ($rAvatar): ?>
-                                                 <img src="<?php echo $rAvatar; ?>" alt="<?php echo e($rName); ?>" style="width: 100%; height: 100%; object-fit: cover;">
+                                                <img src="<?php echo $rAvatar; ?>" alt="<?php echo e($rName); ?>" style="width: 100%; height: 100%; object-fit: cover;">
                                             <?php else: ?>
-                                                 <span><?php echo e($rInitials); ?></span>
+                                                <span><?php echo e($rInitials); ?></span>
                                             <?php endif; ?>
                                         </div>
                                         <div style="min-width: 0;">
                                             <div style="font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                                 <?php echo e($rName); ?>
+                                                <?php echo e($rName); ?>
                                             </div>
                                             <div style="font-size: 11px; color: var(--muted); line-height: 1.2;">
-                                                 @<?php echo e($r['username']); ?> &bull; <?php echo e($r['department'] ?? 'Engineering'); ?>
+                                                @<?php echo e($r['username']); ?> &bull; <?php echo e($r['department'] ?? 'Engineering'); ?>
                                             </div>
                                         </div>
                                     </div>
                                     
                                     <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
                                         <span class="workspace-badge" style="font-size: 10.5px; background: var(--slate-soft); color: var(--slate-ink);">
-                                             <?php echo ucfirst(e($r['role'])); ?>
+                                            <?php echo ucfirst(e($r['role'])); ?>
                                         </span>
                                         <input type="checkbox" name="reviewer_ids[]" value="<?php echo $r['id']; ?>" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--green);">
                                     </div>
@@ -1386,6 +1397,7 @@ if ($action) {
 
 <!-- Pass Initial Document Configuration to JS -->
 <script>
+
 window.EDMS_WORKSPACE_CONFIG = {
     docId: <?php echo (int)$doc['id']; ?>,
     docName: <?php echo json_encode($doc['name']); ?>,
@@ -1405,6 +1417,7 @@ window.EDMS_WORKSPACE_CONFIG = {
     isSupportedViewer: <?php echo $isSupportedViewer ? 'true' : 'false'; ?>,
     streamUrl: <?php echo json_encode($streamUrl); ?>,
     downloadUrl: <?php echo json_encode($downloadUrl); ?>,
+    reviewerUserIds: <?php echo json_encode($reviewerUserIds); ?>,
     currentUserId: <?php echo (int)$currentUser['id']; ?>,
     currentUserName: <?php echo json_encode($currentUser['full_name']); ?>,
     currentUserAvatar: <?php echo json_encode($currentUser['avatar'] ?? null); ?>,

@@ -103,8 +103,8 @@ function can_user_annotate_document(array $doc, int $userId): bool
 {
     $status = $doc['status'] ?? 'active';
 
-    // Published documents are globally locked into an immutable release
-    if ($status === 'published' || $status === 'obsolete') {
+    // Published, obsolete, and rejected documents are globally locked from annotation
+    if ($status === 'published' || $status === 'obsolete' || $status === 'rejected') {
         return false;
     }
 
@@ -130,8 +130,8 @@ function can_user_annotate_document(array $doc, int $userId): bool
  */
 function can_user_upload_revision(array $doc, int $userId): bool
 {
-    // Revisions can ONLY be uploaded in Active (Draft) status
-    if (($doc['status'] ?? '') !== 'active') {
+    // Revisions can be uploaded in Active (Draft) or Rejected status
+    if (!in_array($doc['status'] ?? '', ['active', 'rejected'], true)) {
         return false;
     }
 

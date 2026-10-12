@@ -9,6 +9,19 @@ $pdo = db();
 $isAjax = (isset($_GET['ajax']) && $_GET['ajax'] === '1') || 
           (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest');
 
+// --- AJAX Endpoints ---
+$reqAction = $_GET['action'] ?? ($_POST['action'] ?? '');
+if ($reqAction === 'get_audit_history') {
+    header('Content-Type: application/json');
+    $docId = isset($_REQUEST['doc_id']) ? (int)$_REQUEST['doc_id'] : (isset($_REQUEST['id']) ? (int)$_REQUEST['id'] : 0);
+    if ($docId <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Invalid document ID.', 'events' => []]);
+        exit;
+    }
+    echo json_encode(array_merge(['success' => true], get_document_audit_trail($docId)));
+    exit;
+}
+
 // ============================================================
 // POST Actions: Create Folder
 // ============================================================
@@ -799,6 +812,7 @@ function get_status_class(string $status): string {
         'active'    => 'badge-active',
         'hold'      => 'badge-hold',
         'suspend'   => 'badge-suspend',
+        'rejected'  => 'badge-rejected',
         'obsolete'  => 'badge-obsolete',
         default     => 'badge-default',
     };
@@ -1356,6 +1370,10 @@ require_once __DIR__ . '/../includes/header.php';
         <?php echo render_icon('download'); ?>
         <span>Download</span>
     </a>
+    <button type="button" class="popover-item" id="popoverActionAuditHistory">
+        <?php echo render_icon('history'); ?>
+        <span>Audit History</span>
+    </button>
     <button type="button" class="popover-item" id="popoverActionRename">
         <?php echo render_icon('edit'); ?>
         <span>Rename</span>
@@ -1479,6 +1497,29 @@ require_once __DIR__ . '/../includes/header.php';
                 </button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- Modal: Document Audit History -->
+<div class="edms-modal-backdrop" id="modalAuditHistory">
+    <div class="edms-modal-dialog" style="max-width: 580px; width: 90%;">
+        <div class="edms-modal-header">
+            <div class="edms-modal-title">
+                <?php echo render_icon('history'); ?>
+                <span>Audit History: <strong id="auditModalDocName" style="font-weight: 600;">Document</strong></span>
+            </div>
+            <button type="button" class="btn-modal-close" id="btnCloseAuditModal" title="Close modal">&times;</button>
+        </div>
+        <div class="edms-modal-body" style="max-height: 480px; overflow-y: auto; padding: 16px;">
+            <div id="auditModalFeed" class="annotation-history-feed" style="max-height: none; overflow: visible;">
+                <div class="history-empty-state">
+                    <span>Loading audit records...</span>
+                </div>
+            </div>
+        </div>
+        <div class="edms-modal-footer">
+            <button type="button" class="btn btn-secondary" id="btnCancelAuditModal">Close</button>
+        </div>
     </div>
 </div>
 
