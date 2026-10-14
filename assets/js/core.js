@@ -54,6 +54,45 @@
         toast.addEventListener("click", dismissToast);
     };
 
+    // Global Clipboard Copy with Toast Feedback
+    window.copyTextToClipboard = function (text, successMessage = "Link copied to clipboard!") {
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(() => {
+                if (typeof window.showBottomToast === "function") {
+                    window.showBottomToast(successMessage, "success");
+                }
+            }).catch(() => {
+                fallbackCopy();
+            });
+        } else {
+            fallbackCopy();
+        }
+
+        function fallbackCopy() {
+            try {
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                textArea.style.position = "fixed";
+                textArea.style.left = "-9999px";
+                textArea.style.top = "0";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                const successful = document.execCommand("copy");
+                document.body.removeChild(textArea);
+                if (successful && typeof window.showBottomToast === "function") {
+                    window.showBottomToast(successMessage, "success");
+                } else if (!successful && typeof window.showBottomToast === "function") {
+                    window.showBottomToast("Unable to copy link to clipboard.", "error");
+                }
+            } catch (err) {
+                if (typeof window.showBottomToast === "function") {
+                    window.showBottomToast("Unable to copy link to clipboard.", "error");
+                }
+            }
+        }
+    };
+
     // Toggle nav groups in sidebar
     window.toggleNavGroup = function (btn) {
         btn.classList.toggle("open");
@@ -1084,6 +1123,7 @@
         const popover = document.getElementById("edmsActionPopover");
         const popoverView = document.getElementById("popoverActionView");
         const popoverDownload = document.getElementById("popoverActionDownload");
+        const popoverCopyLink = document.getElementById("popoverActionCopyLink");
         const popoverRename = document.getElementById("popoverActionRename");
         const popoverMove = document.getElementById("popoverActionMove");
         const popoverDelete = document.getElementById("popoverActionDelete");
@@ -1235,6 +1275,11 @@
                 }
             }
 
+            // Configure Copy Link in popover
+            if (popoverCopyLink) {
+                popoverCopyLink.style.display = "flex";
+            }
+
             // Configure Audit History in popover
             if (popoverAuditHistory) {
                 if (nodeType === "document") {
@@ -1280,6 +1325,26 @@
                 if (modalAuditHistory && modalAuditHistory.classList.contains("is-open")) closeModal(modalAuditHistory);
             }
         });
+
+        // --- Action: Copy Link ---
+        if (popoverCopyLink) {
+            popoverCopyLink.addEventListener("click", function () {
+                hidePopover();
+                if (!currentActiveItem || !currentActiveItem.id) return;
+
+                const basePath = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, "/");
+                let targetUrl = "";
+                let label = "Link";
+                if (currentActiveItem.type === "folder") {
+                    targetUrl = basePath + "explorer.php?mode=project&folder=" + encodeURIComponent(currentActiveItem.id);
+                    label = "Folder";
+                } else {
+                    targetUrl = basePath + "view.php?id=" + encodeURIComponent(currentActiveItem.id);
+                    label = "Document";
+                }
+                window.copyTextToClipboard(targetUrl, `${label} link copied to clipboard!`);
+            });
+        }
 
         // --- Action: Rename ---
         if (popoverRename) {
@@ -1851,6 +1916,7 @@
                 }
                 if (popoverView) popoverView.style.display = "none";
                 if (popoverDownload) popoverDownload.style.display = "none";
+                if (popoverCopyLink) popoverCopyLink.style.display = "none";
                 if (popoverAuditHistory) popoverAuditHistory.style.display = "none";
                 if (popoverRename) popoverRename.style.display = "none";
                 if (popoverActionMoveLabel) popoverActionMoveLabel.textContent = `Move ${count} items...`;
@@ -1869,6 +1935,9 @@
                     popoverDownload.style.display = singleItem.type === "document" ? "flex" : "none";
                     popoverDownload.href = "download.php?id=" + encodeURIComponent(singleItem.id);
                     popoverDownload.onclick = () => hidePopover();
+                }
+                if (popoverCopyLink) {
+                    popoverCopyLink.style.display = "flex";
                 }
                 if (popoverAuditHistory) {
                     popoverAuditHistory.style.display = singleItem.type === "document" ? "flex" : "none";

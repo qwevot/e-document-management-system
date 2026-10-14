@@ -140,7 +140,7 @@ function ws_status_badge(string $status): string {
                     <div class="col-hdr-owner">Role</div>
                     <div class="col-hdr-version">Version</div>
                     <div class="col-hdr-status">Status</div>
-                    <div class="col-hdr-actions">History</div>
+                    <div class="col-hdr-actions">Actions</div>
                 </div>
 
                 <?php foreach ($myDocs as $doc): ?>
@@ -175,6 +175,9 @@ function ws_status_badge(string $status): string {
                         </div>
 
                         <div class="item-actions-col">
+                            <button type="button" class="btn-action" title="Copy Document Link" onclick="copyWsDocLink(event, <?php echo (int)$doc['id']; ?>)">
+                                <?php echo render_icon('link'); ?>
+                            </button>
                             <button type="button" class="btn-action" title="View Audit History" onclick="openWsAuditModal(<?php echo (int)$doc['id']; ?>, '<?php echo addslashes(e($doc['name'])); ?>')">
                                 <?php echo render_icon('history'); ?>
                             </button>
@@ -199,7 +202,7 @@ function ws_status_badge(string $status): string {
                     <div class="col-hdr-modified">Last Accessed</div>
                     <div class="col-hdr-version">Version</div>
                     <div class="col-hdr-status">Status</div>
-                    <div class="col-hdr-actions">History</div>
+                    <div class="col-hdr-actions">Actions</div>
                 </div>
 
                 <?php foreach ($recentDocs as $doc): ?>
@@ -234,6 +237,9 @@ function ws_status_badge(string $status): string {
                         </div>
 
                         <div class="item-actions-col">
+                            <button type="button" class="btn-action" title="Copy Document Link" onclick="copyWsDocLink(event, <?php echo (int)$doc['id']; ?>)">
+                                <?php echo render_icon('link'); ?>
+                            </button>
                             <button type="button" class="btn-action" title="View Audit History" onclick="openWsAuditModal(<?php echo (int)$doc['id']; ?>, '<?php echo addslashes(e($doc['name'])); ?>')">
                                 <?php echo render_icon('history'); ?>
                             </button>
@@ -501,6 +507,19 @@ function clearWsSearch(e) {
         wsSearch.value = '';
         wsSearch.dispatchEvent(new Event('input'));
         wsSearch.focus();
+    }
+}
+
+// Copy Document Link Handler
+function copyWsDocLink(e, docId) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    const basePath = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, '/');
+    const targetUrl = basePath + 'view.php?id=' + encodeURIComponent(docId);
+    if (typeof window.copyTextToClipboard === 'function') {
+        window.copyTextToClipboard(targetUrl, 'Document link copied to clipboard!');
     }
 }
 

@@ -200,6 +200,10 @@ function submit_review_verdict(
         return ['success' => false, 'message' => 'Document not found.'];
     }
 
+    if ($doc['status'] !== 'hold') {
+        return ['success' => false, 'message' => 'Document is not currently awaiting review.'];
+    }
+
     // Check user role
     $userStmt = $pdo->prepare("SELECT role, full_name, username FROM users WHERE id = :id");
     $userStmt->execute(['id' => $reviewerId]);
@@ -220,6 +224,10 @@ function submit_review_verdict(
         'reviewer_id2' => $reviewerId
     ]);
     $reviewRecord = $revStmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$reviewRecord && !$isAdmin) {
+        return ['success' => false, 'message' => 'Unauthorized. Only assigned reviewers or administrators can submit verdicts.'];
+    }
 
     $pdo->beginTransaction();
     try {

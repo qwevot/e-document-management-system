@@ -1401,6 +1401,10 @@ require_once __DIR__ . '/../includes/header.php';
         <?php echo render_icon('download'); ?>
         <span>Download</span>
     </a>
+    <button type="button" class="popover-item" id="popoverActionCopyLink">
+        <?php echo render_icon('link'); ?>
+        <span>Copy Link</span>
+    </button>
     <button type="button" class="popover-item" id="popoverActionAuditHistory">
         <?php echo render_icon('history'); ?>
         <span>Audit History</span>

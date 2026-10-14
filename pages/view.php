@@ -774,11 +774,9 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo e($doc['name']); ?> — Workspace Viewer</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../assets/css/styles.css">
     <link rel="stylesheet" href="../assets/css/responsive.css">
+    <link rel="stylesheet" href="../assets/css/viewer.css">
     <script>
     function handleWorkspaceBack(e, fallbackUrl) {
         if (window.history.length > 1 && document.referrer && !document.referrer.includes('view.php')) {
