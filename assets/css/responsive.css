@@ -1,0 +1,618 @@
+/* ==========================================================================
+   EDMS RESPONSIVE WEB DESIGN SYSTEM (RWD)
+   assets/css/responsive.css
+   --------------------------------------------------------------------------
+   Meticulously cultivated to adapt the Electronic Document Management System
+   to desktop, tablet (landscape & portrait), phablets, and mobile viewports.
+   Adheres strictly to EDMS design tokens.
+   ========================================================================== */
+
+/* ==========================================================================
+   1. MOBILE NAVIGATION BACKDROP & SHELL FOUNDATION
+   ========================================================================== */
+
+.mobile-nav-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: var(--modal-backdrop-bg);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 94;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.25s ease;
+}
+
+/* ==========================================================================
+   2. TABLET BREAKPOINT (max-width: 1024px)
+   ========================================================================== */
+@media (max-width: 1024px) {
+    /* My Workspace: Stack 2-Column Dashboard Grid vertically */
+    .workspace-dashboard-grid {
+        grid-template-columns: 1fr !important;
+        gap: 20px !important;
+    }
+
+    /* Explorer / Archives: Hide non-essential location column */
+    .col-hdr-location,
+    .item-location-col {
+        display: none !important;
+    }
+
+    /* Explorer Toolbar Card: Flexible wrapping */
+    .explorer-toolbar-card {
+        gap: 12px;
+    }
+
+    .explorer-search-form {
+        max-width: 420px;
+    }
+
+    /* Document Viewer: Tighten title length */
+    .workspace-doc-title {
+        max-width: 240px;
+    }
+}
+
+/* ==========================================================================
+   3. MOBILE & TABLET PORTRAIT BREAKPOINT (max-width: 768px)
+   ========================================================================== */
+@media (max-width: 768px) {
+    /* --- App Shell & Off-Canvas Sidebar --- */
+    .mobile-nav-backdrop {
+        display: block;
+    }
+
+    body.mobile-nav-open .mobile-nav-backdrop {
+        opacity: 1;
+        visibility: visible;
+    }
+
+    .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 260px !important;
+        max-width: 82vw !important;
+        padding: 20px 14px 14px !important;
+        transform: translateX(-100%);
+        transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.28s ease !important;
+        z-index: 100 !important;
+        box-shadow: none;
+        overflow-y: auto;
+    }
+
+    body.mobile-nav-open .sidebar {
+        transform: translateX(0);
+        box-shadow: 6px 0 28px rgba(0, 0, 0, 0.3) !important;
+    }
+
+    /* Neutralize desktop sidebar-collapsed state on mobile */
+    body.sidebar-collapsed .sidebar {
+        width: 260px !important;
+        max-width: 82vw !important;
+        padding: 20px 14px 14px !important;
+        border-right: 1px solid var(--glass-white-12) !important;
+    }
+
+    body.sidebar-collapsed .main {
+        margin-left: 0 !important;
+        width: 100% !important;
+    }
+
+    .main {
+        margin-left: 0 !important;
+        width: 100% !important;
+        min-width: 0;
+        transition: none;
+    }
+
+    /* --- Topbar Header --- */
+    .topbar {
+        height: 56px;
+        padding: 0 16px;
+        position: sticky;
+        top: 0;
+        z-index: 90;
+    }
+
+    .sidebar-toggle {
+        display: inline-flex !important;
+        width: 36px;
+        height: 36px;
+    }
+
+    .user-area {
+        gap: 6px;
+    }
+
+    .user-profile-link {
+        padding: 4px 6px;
+        gap: 8px;
+    }
+
+    .user-name {
+        max-width: 110px;
+        font-size: 12px;
+    }
+
+    .user-role {
+        font-size: 10px;
+    }
+
+    .logout-link {
+        padding: 5px 9px;
+        font-size: 11px;
+    }
+
+    /* --- Main Page Content Wrapper --- */
+    .content {
+        padding: 16px 14px 36px;
+    }
+
+    .welcome-header {
+        margin-bottom: 14px;
+    }
+
+    .welcome-header h1 {
+        font-size: 20px;
+    }
+
+    /* --- Translucent Explorer & Archives Layout --- */
+    .explorer-wrapper {
+        padding: 12px;
+        border-radius: 8px;
+        gap: 10px;
+    }
+
+    /* 1. Top Action & Search Bar Card */
+    .explorer-toolbar-card {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        padding: 10px 12px;
+    }
+
+    .explorer-search-form {
+        max-width: 100%;
+        width: 100%;
+    }
+
+    .toolbar-actions {
+        width: 100%;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .toolbar-actions .btn {
+        flex: 1 1 calc(50% - 4px);
+        justify-content: center;
+        padding: 8px 12px;
+        font-size: 12px;
+    }
+
+    /* 2. Filter & Navigation Card */
+    .explorer-filter-card {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        padding: 10px 12px;
+    }
+
+    .explorer-nav-left {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .explorer-filters-right {
+        width: 100%;
+        justify-content: flex-start;
+        gap: 8px;
+    }
+
+    .filter-dropdown-group {
+        width: 100%;
+        gap: 8px;
+    }
+
+    .filter-dropdown-group .select-wrapper {
+        flex: 1 1 calc(50% - 4px);
+        min-width: 110px;
+    }
+
+    .filter-dropdown-group .filter-select {
+        width: 100%;
+    }
+
+    .btn-reset-filters {
+        margin-left: auto;
+    }
+
+    /* 3. Directory & Breadcrumbs Bar */
+    .explorer-directory-bar {
+        padding: 4px 2px 6px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .explorer-breadcrumbs {
+        flex: 1;
+        min-width: 0;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 2px;
+    }
+
+    /* 4. Table Header & Card List Transformation */
+    .explorer-table-header {
+        display: none !important;
+    }
+
+    .explorer-item-card {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        padding: 10px 12px;
+        gap: 6px 10px;
+        position: relative;
+        border-radius: 6px;
+        margin-bottom: 4px;
+        border: 1px solid var(--card-border);
+    }
+
+    .item-checkbox-col {
+        order: 1;
+    }
+
+    .item-icon-col {
+        order: 2;
+        width: 28px;
+        height: 28px;
+    }
+
+    .item-main-col {
+        order: 3;
+        flex: 1 1 calc(100% - 85px);
+        min-width: 0;
+    }
+
+    .item-title {
+        font-size: 13px;
+        display: block;
+    }
+
+    .item-owner-col {
+        order: 4;
+        width: auto !important;
+        margin-left: 36px;
+        font-size: 11px;
+    }
+
+    .owner-name {
+        font-size: 11px;
+    }
+
+    .item-modified-col {
+        order: 5;
+        width: auto !important;
+        font-size: 11px;
+    }
+
+    .item-status-col {
+        order: 6;
+        width: auto !important;
+        margin-left: auto;
+    }
+
+    .item-actions-col {
+        order: 7;
+        width: auto;
+        justify-content: flex-end;
+    }
+
+    .btn-action {
+        width: 32px;
+        height: 32px;
+    }
+
+    /* 5. Pagination Bar */
+    .pagination-bar {
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        padding: 12px;
+    }
+
+    .pagination-info {
+        font-size: 12px;
+        text-align: center;
+    }
+
+    .pagination-controls {
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 4px;
+    }
+
+    /* --- Modals Responsive Adaptations --- */
+    .edms-modal-backdrop {
+        padding: 12px;
+        align-items: flex-end;
+    }
+
+    .edms-modal-dialog {
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: calc(100vh - 24px) !important;
+        border-bottom-left-radius: 0;
+        border-bottom-right-radius: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .edms-modal-body {
+        max-height: calc(85vh - 120px) !important;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 16px;
+    }
+
+    .edms-modal-footer {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .edms-modal-footer .btn {
+        flex: 1 1 auto;
+        justify-content: center;
+    }
+
+    /* --- Administration Tables (Users / System Logs) --- */
+    .data-table-container,
+    .table-responsive-wrapper,
+    .user-table-wrapper,
+    .logs-table-wrapper {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+    }
+
+    .users-header-card {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        padding: 12px;
+    }
+
+    .users-header-actions {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .users-search-input {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .form-grid {
+        grid-template-columns: 1fr !important;
+        gap: 12px;
+    }
+
+    /* --- Dedicated Fullscreen Document Viewer (pages/view.php) --- */
+    .workspace-top-bar {
+        height: auto !important;
+        min-height: 52px;
+        padding: 6px 12px !important;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .workspace-nav-left {
+        flex: 1 1 auto;
+        min-width: 0;
+        gap: 8px;
+    }
+
+    .btn-workspace-back {
+        padding: 5px 8px;
+        font-size: 12px;
+    }
+
+    .btn-workspace-back span {
+        display: none;
+    }
+
+    .workspace-doc-title {
+        max-width: 150px;
+        font-size: 13px;
+    }
+
+    .workspace-nav-center {
+        order: 3;
+        width: 100%;
+        justify-content: center;
+        padding: 2px 0;
+    }
+
+    .workspace-control-pill {
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 2px 4px;
+    }
+
+    .workspace-nav-right {
+        flex-shrink: 0;
+        gap: 4px;
+        margin-left: auto;
+    }
+
+    .btn-workspace-action {
+        padding: 5px 8px;
+        font-size: 11.5px;
+    }
+
+    .btn-workspace-action span {
+        display: none;
+    }
+
+    /* Floating Tool Dock: Dock horizontally to screen bottom on mobile */
+    .floating-tool-dock {
+        position: fixed !important;
+        top: auto !important;
+        bottom: 16px !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        flex-direction: row !important;
+        max-width: calc(100vw - 24px) !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+        padding: 6px 10px !important;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28) !important;
+        border-radius: var(--radius-pill) !important;
+        z-index: 100 !important;
+        background: var(--surface) !important;
+    }
+
+    .tool-dock-section {
+        flex-direction: row !important;
+        gap: 4px;
+    }
+
+    .tool-dock-divider {
+        width: 1px !important;
+        height: 20px !important;
+        margin: 0 4px !important;
+    }
+
+    .tool-color-palette {
+        display: flex !important;
+        flex-direction: row !important;
+        gap: 5px !important;
+    }
+
+    .tool-stroke-group {
+        flex-direction: row !important;
+        gap: 4px;
+    }
+
+    /* Off-Canvas Right Drawer on Mobile */
+    .workspace-right-drawer {
+        position: fixed !important;
+        right: 0 !important;
+        top: 54px !important;
+        bottom: 0 !important;
+        width: min(320px, 86vw) !important;
+        z-index: 1000 !important;
+        box-shadow: -6px 0 28px rgba(0, 0, 0, 0.3) !important;
+        transform: translateX(0);
+        transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    }
+
+    .workspace-right-drawer:not(.is-open) {
+        transform: translateX(100%) !important;
+        margin-right: 0 !important;
+    }
+
+    .drawer-edge-toggle {
+        left: -32px !important;
+        width: 32px !important;
+        height: 44px !important;
+        border-radius: 8px 0 0 8px !important;
+    }
+
+    /* Touch Canvas Drawing: Disable native browser gesture interference */
+    .pdf-annotation-canvas {
+        touch-action: none !important;
+    }
+}
+
+/* ==========================================================================
+   4. EXTRA SMALL SCREENS / PHONES (max-width: 480px)
+   ========================================================================== */
+@media (max-width: 480px) {
+    /* Topbar refinements */
+    .user-name,
+    .user-role {
+        display: none !important;
+    }
+
+    .user-profile-link {
+        padding: 4px;
+    }
+
+    .user-avatar {
+        width: 30px;
+        height: 30px;
+        font-size: 11px;
+    }
+
+    /* Explorer toolbar buttons stack smoothly */
+    .toolbar-actions .btn {
+        flex: 1 1 100%;
+    }
+
+    /* Pill tabs scrollable if cramped */
+    .pill-tabs {
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .pill-tab {
+        padding: 4px 8px;
+        font-size: 11.5px;
+    }
+
+    /* Explorer card item title */
+    .item-title {
+        font-size: 12.5px;
+    }
+
+    .owner-name {
+        max-width: 90px;
+    }
+
+    /* Login Page Card */
+    .login-page {
+        padding: 12px;
+    }
+
+    .login-card {
+        padding: 24px 18px !important;
+        width: 100% !important;
+        max-width: 360px !important;
+    }
+
+    /* Viewer controls compact spacing */
+    .workspace-doc-title {
+        max-width: 110px;
+    }
+
+    .zoom-level-text {
+        min-width: 36px;
+        font-size: 11px;
+    }
+
+    .btn-ctrl {
+        padding: 4px 6px;
+        font-size: 11px;
+    }
+
+    .dock-btn {
+        width: 32px;
+        height: 32px;
+    }
+
+    .dock-btn svg {
+        width: 16px;
+        height: 16px;
+    }
+}

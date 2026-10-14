@@ -30,7 +30,7 @@ if (!$doc || $doc['node_type'] !== 'document') {
     die('Document not found.');
 }
 
-// Support streaming specific historical revision
+// Support streaming specific revision, or resolve latest active revision
 $versionId = isset($_GET['version_id']) && is_numeric($_GET['version_id']) ? (int)$_GET['version_id'] : 0;
 if ($versionId > 0) {
     $vStmt = $pdo->prepare("SELECT * FROM dms_document_versions WHERE id = :vid AND document_id = :did");
@@ -42,6 +42,17 @@ if ($versionId > 0) {
         $doc['file_size'] = $vDoc['file_size'];
         $doc['file_extension'] = $vDoc['file_extension'];
         $doc['mime_type'] = $vDoc['mime_type'];
+    }
+} else {
+    $cvStmt = $pdo->prepare("SELECT * FROM dms_document_versions WHERE document_id = :did ORDER BY is_current DESC, id DESC LIMIT 1");
+    $cvStmt->execute(['did' => $nodeId]);
+    $cvDoc = $cvStmt->fetch(PDO::FETCH_ASSOC);
+    if ($cvDoc) {
+        $doc['file_path'] = $cvDoc['file_path'];
+        $doc['file_original_name'] = $cvDoc['file_original_name'];
+        $doc['file_size'] = $cvDoc['file_size'];
+        $doc['file_extension'] = $cvDoc['file_extension'];
+        $doc['mime_type'] = $cvDoc['mime_type'];
     }
 }
 
@@ -117,13 +128,31 @@ if ($ext !== '' && !str_ends_with(strtolower($sanitizedBaseName), '.' . $ext)) {
     $inlineFilename = $sanitizedBaseName;
 }
 
+$mtime = filemtime($physicalFilePath);
+$etag = '"' . md5($physicalFilePath . '_' . $mtime . '_' . $fileSize) . '"';
+
+// Conditional HTTP 304 Validation
+$ifNoneMatch = $_SERVER['HTTP_IF_NONE_MATCH'] ?? '';
+$ifModifiedSince = $_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? '';
+if (($ifNoneMatch !== '' && trim($ifNoneMatch) === $etag) || 
+    ($ifModifiedSince !== '' && strtotime($ifModifiedSince) >= $mtime)) {
+    http_response_code(304);
+    exit;
+}
+
 // Set HTTP inline headers
 header('Content-Type: ' . $mimeType);
 header('Content-Disposition: inline; filename="' . rawurlencode($inlineFilename) . '"; filename*=UTF-8\'\'' . rawurlencode($inlineFilename));
 header('Content-Transfer-Encoding: binary');
 header('Content-Length: ' . $fileSize);
 header('Accept-Ranges: bytes');
-header('Cache-Control: private, max-age=3600, must-revalidate');
+header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
+header('ETag: ' . $etag);
+if ($versionId > 0) {
+    header('Cache-Control: private, max-age=86400, must-revalidate');
+} else {
+    header('Cache-Control: private, no-cache, must-revalidate');
+}
 header('Pragma: public');
 header('X-Content-Type-Options: nosniff');
 

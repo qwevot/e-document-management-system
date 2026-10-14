@@ -297,7 +297,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="edms-modal-backdrop" id="modalPurgeLogs">
     <div class="edms-modal-dialog">
         <div class="edms-modal-header">
-            <div class="edms-modal-title" style="color: var(--red);">
+            <div class="edms-modal-title">
                 <?php echo render_icon('trash'); ?>
                 <span>Purge System Logs</span>
             </div>

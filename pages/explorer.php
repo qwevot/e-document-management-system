@@ -458,8 +458,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // 6. Upload Document Specimen
     if ($action === 'upload_document') {
-        require_once __DIR__ . '/../includes/metadata.php';
-
         $docName     = trim($_POST['name'] ?? '');
         $status      = in_array($_POST['status'] ?? '', ['active', 'published', 'hold'], true) ? $_POST['status'] : 'active';
         $postParentId = isset($_POST['parent_id']) && is_numeric($_POST['parent_id']) && (int)$_POST['parent_id'] > 0
@@ -502,9 +500,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($docName === '') {
                 $docName = pathinfo($originalName, PATHINFO_FILENAME);
             }
-
-            // Extract built-in metadata (DOCX, XLSX, PDF, EXIF)
-            $extractedMeta = DocumentMetadataExtractor::extract($tmpPath, $fileExt);
 
             // Prepare safe physical storage directory
             $yearMonth = date('Y/m');
@@ -622,11 +617,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($isAjax) {
                     header('Content-Type: application/json');
                     echo json_encode([
-                        'success'        => true,
-                        'message'        => 'Document uploaded and registered successfully.',
-                        'id'             => $newDocId,
-                        'name'           => $docName,
-                        'extracted_meta' => $extractedMeta
+                        'success' => true,
+                        'message' => 'Document uploaded and registered successfully.',
+                        'id'      => $newDocId,
+                        'name'    => $docName
                     ]);
                     exit;
                 }

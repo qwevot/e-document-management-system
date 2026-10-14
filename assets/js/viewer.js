@@ -8,6 +8,18 @@ document.addEventListener("DOMContentLoaded", function () {
     const docId = config.docId;
     const currentUserId = config.currentUserId || 1;
     const currentUserName = config.currentUserName || "You";
+
+    // Synchronize browser address bar with the active version_id without reloading
+    if (docId && config.activeVersionId && !window.location.search.includes("version_id=")) {
+        try {
+            const currentUrl = new URL(window.location.href);
+            currentUrl.searchParams.set("version_id", config.activeVersionId);
+            window.history.replaceState(null, "", currentUrl.toString());
+        } catch (e) {
+            // Fallback for older browsers
+            window.history.replaceState(null, "", `view.php?id=${docId}&version_id=${config.activeVersionId}`);
+        }
+    }
     
     // Configure PDF.js Worker
     if (window.pdfjsLib) {
@@ -40,18 +52,13 @@ document.addEventListener("DOMContentLoaded", function () {
     
     // Right Drawer Elements
     const workspaceRightDrawer = document.getElementById("workspaceRightDrawer");
-    const btnCloseRightDrawer = document.getElementById("btnCloseRightDrawer");
-    const selfStrokeCount = document.getElementById("selfStrokeCount");
-    const btnToggleSelfLayer = document.getElementById("btnToggleSelfLayer");
     const layerOpacitySlider = document.getElementById("layerOpacitySlider");
     const opacityDisplayVal = document.getElementById("opacityDisplayVal");
     const layersList = document.getElementById("layersList");
     const annotationHistoryFeed = document.getElementById("annotationHistoryFeed");
-    const historyCountBadge = document.getElementById("historyCountBadge");
     const btnToggleVersionHistoryDropdown = document.getElementById("btnToggleVersionHistoryDropdown");
     const btnToggleAuditHistoryDropdown = document.getElementById("btnToggleAuditHistoryDropdown");
     const auditHistoryFeed = document.getElementById("auditHistoryFeed");
-    const auditHistoryCountBadge = document.getElementById("auditHistoryCountBadge");
     // Annotation Lock Rule:
     // If a document is PUBLISHED, or viewing a historical snapshot, or user is not a contributor:
     const isDocPublished = Boolean(config.isDocPublished || config.docStatus === 'published');
@@ -509,10 +516,11 @@ document.addEventListener("DOMContentLoaded", function () {
     window.addEventListener("touchend", handleStopDrawing);
 
     function attachDrawingListeners(canvas, pageNum) {
+        canvas.style.touchAction = "none";
         canvas.addEventListener("mousedown", (e) => handleStartDrawing(e, canvas, pageNum));
         canvas.addEventListener("mousemove", (e) => handleDrawMove(e, canvas, pageNum));
-        canvas.addEventListener("touchstart", (e) => handleStartDrawing(e, canvas, pageNum), { passive: true });
-        canvas.addEventListener("touchmove", (e) => handleDrawMove(e, canvas, pageNum), { passive: true });
+        canvas.addEventListener("touchstart", (e) => handleStartDrawing(e, canvas, pageNum), { passive: false });
+        canvas.addEventListener("touchmove", (e) => handleDrawMove(e, canvas, pageNum), { passive: false });
     }
 
     function getRelativePageCoords(e, canvas) {
@@ -582,6 +590,9 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function handleStartDrawing(e, canvas, pageNum) {
+        if (activeTool !== "pan" && e.cancelable) {
+            e.preventDefault();
+        }
         if (isAnnotationLocked && activeTool !== "pan") {
             if (typeof window.showBottomToast === "function") {
                 window.showBottomToast(getAnnotationLockMessage(), "warning");
@@ -647,6 +658,13 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function handleDrawMove(e, canvas, pageNum) {
+        if (isDrawing && e.cancelable) {
+            e.preventDefault();
+        }
+        if (activeTool === "pan" && isDraggingObject && e.cancelable) {
+            e.preventDefault();
+        }
+
         const rect = canvas.getBoundingClientRect();
         const coords = getRelativePageCoords(e, canvas);
 
@@ -1432,11 +1450,6 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!annotationHistoryFeed) return;
         annotationHistoryFeed.innerHTML = "";
 
-        if (historyCountBadge) {
-            const count = annotationHistoryList.length;
-            historyCountBadge.textContent = `${count} ${count === 1 ? 'event' : 'events'}`;
-        }
-
         if (!annotationHistoryList || annotationHistoryList.length === 0) {
             annotationHistoryFeed.innerHTML = `
                 <div class="history-empty-state">
@@ -1919,18 +1932,6 @@ document.addEventListener("DOMContentLoaded", function () {
         btnToggleRightDrawer.addEventListener("click", toggleRightDrawer);
     }
 
-    if (btnCloseRightDrawer) {
-        btnCloseRightDrawer.addEventListener("click", function () {
-            if (workspaceRightDrawer) workspaceRightDrawer.classList.remove("is-open");
-            if (btnToggleRightDrawer) btnToggleRightDrawer.classList.remove("is-active");
-            if (docId) {
-                try {
-                    sessionStorage.setItem(`edms_drawer_open_${docId}`, "false");
-                } catch (e) {}
-            }
-        });
-    }
-
     // Opacity Slider
     if (layerOpacitySlider) {
         layerOpacitySlider.addEventListener("input", function () {
@@ -2255,9 +2256,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 isCurrentlyViewed = isHeadCurrent || (v.version_number === activeVersionName);
             }
 
-            const targetUrl = isHeadCurrent && activeVersionId === 0 
-                ? `view.php?id=${docId}` 
-                : `view.php?id=${docId}&version_id=${v.id}`;
+            const targetUrl = `view.php?id=${docId}&version_id=${v.id}`;
 
             const card = document.createElement("div");
             card.className = "version-timeline-card" + (isCurrentlyViewed ? " is-currently-viewed" : "");
@@ -2277,7 +2276,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 if (e.target.closest("a") || e.target.closest("button") || e.target.closest("input") || e.target.closest(".version-details-panel")) {
                     return;
                 }
-                if (!isCurrentlyViewed) {
+                const urlParams = new URLSearchParams(window.location.search);
+                const currentVerParam = parseInt(urlParams.get("version_id"), 10) || 0;
+                if (!isCurrentlyViewed || currentVerParam !== vId) {
                     window.location.href = targetUrl;
                 }
             });
@@ -2902,9 +2903,6 @@ document.addEventListener("DOMContentLoaded", function () {
         .then(res => res.json())
         .then(data => {
             if (data.success && auditHistoryFeed) {
-                if (auditHistoryCountBadge) {
-                    auditHistoryCountBadge.textContent = `${data.count || 0} ${data.count === 1 ? 'event' : 'events'}`;
-                }
                 auditHistoryFeed.innerHTML = data.html || '';
                 auditHistoryLoaded = true;
             }
@@ -2945,7 +2943,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 switchSidePanelTab("versions", false);
             }
 
-            if (savedOpen === "false") {
+            if (savedOpen === "false" || (window.innerWidth <= 768 && savedOpen === null)) {
                 if (workspaceRightDrawer) workspaceRightDrawer.classList.remove("is-open");
                 if (btnToggleRightDrawer) btnToggleRightDrawer.classList.remove("is-active");
             } else if (savedOpen === "true" || isHistorical) {
@@ -2955,6 +2953,29 @@ document.addEventListener("DOMContentLoaded", function () {
         } catch (e) {
             console.error("Error restoring drawer state:", e);
         }
+
+        // Close off-canvas right drawer when tapping on workspaceCenterStage on mobile
+        if (workspaceCenterStage) {
+            workspaceCenterStage.addEventListener("click", function (e) {
+                if (window.innerWidth <= 768 && workspaceRightDrawer && workspaceRightDrawer.classList.contains("is-open")) {
+                    if (!workspaceRightDrawer.contains(e.target) && !e.target.closest("#btnToggleRightDrawerEdge")) {
+                        workspaceRightDrawer.classList.remove("is-open");
+                        if (btnToggleRightDrawer) btnToggleRightDrawer.classList.remove("is-active");
+                    }
+                }
+            });
+        }
+
+        // Automatic responsive fit-to-width on orientation change or viewport resize
+        let viewerResizeTimer = null;
+        window.addEventListener("resize", function () {
+            clearTimeout(viewerResizeTimer);
+            viewerResizeTimer = setTimeout(function () {
+                if (window.innerWidth <= 768 && btnZoomFit) {
+                    btnZoomFit.click();
+                }
+            }, 250);
+        });
     })();
 });
 

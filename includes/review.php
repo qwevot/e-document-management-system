@@ -90,34 +90,6 @@ function get_pending_reviews_for_user(int $userId): array
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-/**
- * Retrieve review submissions authored by a specific user that are currently in hold.
- */
-function get_user_review_submissions(int $userId): array
-{
-    $pdo = db();
-    $stmt = $pdo->prepare("
-        SELECT d.id AS document_id, d.name AS document_name, d.version AS current_version,
-               d.file_extension, d.file_size, d.file_original_name, d.status AS document_status,
-               d.updated_at,
-               p.name AS parent_folder_name,
-               COUNT(r.id) AS total_reviewers,
-               SUM(CASE WHEN r.status = 'approved' THEN 1 ELSE 0 END) AS approved_count,
-               SUM(CASE WHEN r.status = 'rejected' THEN 1 ELSE 0 END) AS rejected_count,
-               SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) AS pending_count
-        FROM dms_nodes d
-        LEFT JOIN dms_nodes p ON d.parent_id = p.id
-        LEFT JOIN dms_document_reviews r ON d.id = r.document_id AND r.version = d.version
-        WHERE d.created_by = :user_id 
-          AND d.node_type = 'document'
-          AND d.status = 'hold'
-          AND d.is_deleted = 0
-        GROUP BY d.id
-        ORDER BY d.updated_at DESC
-    ");
-    $stmt->execute(['user_id' => $userId]);
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
-}
 
 /**
  * Submit a document for review (Transitions status: Active -> Hold).

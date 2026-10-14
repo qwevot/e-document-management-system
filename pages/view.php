@@ -58,19 +58,28 @@ if ($reqVersionId > 0) {
         $doc['mime_type'] = $vDoc['mime_type'];
     }
 } else {
-    $verStmt = $pdo->prepare("SELECT id, review_status, version_number FROM dms_document_versions WHERE document_id = :did ORDER BY is_current DESC, id DESC LIMIT 1");
+    $verStmt = $pdo->prepare("SELECT * FROM dms_document_versions WHERE document_id = :did ORDER BY is_current DESC, id DESC LIMIT 1");
     $verStmt->execute(['did' => $docId]);
     $verRow = $verStmt->fetch(PDO::FETCH_ASSOC);
     if ($verRow) {
         $activeVersionId = (int)$verRow['id'];
         $activeVersionName = $verRow['version_number'];
         $activeReviewStatus = $verRow['review_status'] ?? ($doc['status'] === 'published' ? 'approved' : ($doc['status'] === 'hold' ? 'pending' : 'draft'));
+        $doc['file_path'] = $verRow['file_path'];
+        $doc['file_original_name'] = $verRow['file_original_name'];
+        $doc['file_size'] = $verRow['file_size'];
+        $doc['file_extension'] = $verRow['file_extension'];
+        $doc['mime_type'] = $verRow['mime_type'];
     }
 }
 
+$effectiveVersionId = $reqVersionId > 0 ? $reqVersionId : ($activeVersionId > 0 ? $activeVersionId : null);
+$versionQueryParam = ($effectiveVersionId ? '&version_id=' . $effectiveVersionId : '') 
+    . ($activeVersionName !== '' ? '&v=' . urlencode($activeVersionName) : '');
+
 $ext = strtolower(trim($doc['file_extension'] ?? '', '.'));
-$streamUrl = 'stream.php?id=' . $doc['id'] . ($reqVersionId > 0 ? '&version_id=' . $reqVersionId : '');
-$downloadUrl = 'download.php?id=' . $doc['id'] . ($reqVersionId > 0 ? '&version_id=' . $reqVersionId : '');
+$streamUrl = 'stream.php?id=' . $doc['id'] . $versionQueryParam;
+$downloadUrl = 'download.php?id=' . $doc['id'] . ($effectiveVersionId ? '&version_id=' . $effectiveVersionId : '');
 $currentUser = current_user() ?? ['id' => 1, 'full_name' => 'Dr. Ruan Mei'];
 $userId = (int)($currentUser['id'] ?? 1);
 $userName = $currentUser['full_name'] ?? 'Collaborator';
@@ -741,6 +750,7 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../assets/css/styles.css">
+    <link rel="stylesheet" href="../assets/css/responsive.css">
 </head>
 <body class="edms-viewer-body">
 
@@ -1057,9 +1067,7 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
                                 <span>Version History</span>
                             </div>
                             <?php if ($isDocHold): ?>
-                                <span class="workspace-badge" style="font-size: 10.5px; background: var(--amber-soft); color: var(--amber-ink); border: 1px solid var(--amber-line);" title="Revision uploads frozen while under review">
-                                    Waiting For Review
-                                </span>
+                                <!-- leave blank -->
                             <?php elseif ($canUploadRevision && !$isHistoricalSnapshot && !$isArchived): ?>
                                 <button type="button" class="btn btn-primary" id="btnOpenUploadRevisionModal" style="padding: 4px 10px; font-size: 11.5px; display: inline-flex; align-items: center; gap: 4px;">
                                     <?php echo render_icon('plus'); ?>

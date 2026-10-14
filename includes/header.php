@@ -19,15 +19,16 @@ $initials = strtoupper(($words[0][0] ?? 'U') . ($words[1][0] ?? ''));
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo e($pageTitle); ?> - EDMS</title>
     <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/styles.css">
+    <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/responsive.css">
     <script>
         window.BASE_URL = <?php echo json_encode(BASE_URL); ?>;
-        window.PAGE_TITLE = <?php echo json_encode($pageTitle ?? ''); ?>;
-        window.ACTIVE_NAV = <?php echo json_encode($activeNav ?? ''); ?>;
     </script>
 </head>
 <body>
 
 <div class="app">
+
+    <div class="mobile-nav-backdrop" id="mobileNavBackdrop" onclick="toggleSidebar()"></div>
 
     <?php include __DIR__ . '/sidebar.php'; ?>
 

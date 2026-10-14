@@ -18,10 +18,10 @@ CREATE TABLE IF NOT EXISTS `users` (
 CREATE TABLE IF NOT EXISTS `dms_nodes` (
     `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     `parent_id` BIGINT UNSIGNED NULL DEFAULT NULL,
-    `node_type` ENUM('project', 'doctype', 'folder', 'document') NOT NULL DEFAULT 'folder',
+    `node_type` ENUM('folder', 'document') NOT NULL DEFAULT 'folder',
     `name` VARCHAR(255) NOT NULL,
-    `doc_type` VARCHAR(50) NULL DEFAULT NULL,
     `status` ENUM('active', 'hold', 'suspend', 'published', 'obsolete', 'rejected') NOT NULL DEFAULT 'active',
+    `access_mode` ENUM('restricted', 'public') NOT NULL DEFAULT 'restricted',
     `version` VARCHAR(20) NOT NULL DEFAULT 'v0.1',
     `file_path` VARCHAR(255) NULL DEFAULT NULL,
     `file_original_name` VARCHAR(255) NULL DEFAULT NULL,
@@ -37,7 +37,6 @@ CREATE TABLE IF NOT EXISTS `dms_nodes` (
     `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX `idx_parent_id` (`parent_id`),
     INDEX `idx_node_type` (`node_type`),
-    INDEX `idx_doc_type` (`doc_type`),
     INDEX `idx_status` (`status`),
     INDEX `idx_is_deleted` (`is_deleted`),
     INDEX `idx_created_by` (`created_by`),
@@ -77,9 +76,72 @@ CREATE TABLE IF NOT EXISTS `dms_document_reviews` (
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX `idx_review_doc` (`document_id`, `status`),
     INDEX `idx_review_reviewer` (`reviewer_id`, `status`),
+    KEY `fk_reviews_req_user` (`requested_by`),
     CONSTRAINT `fk_reviews_doc` FOREIGN KEY (`document_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_reviews_req_user` FOREIGN KEY (`requested_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_reviews_rev_user` FOREIGN KEY (`reviewer_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `dms_document_contributors` (
+    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `document_id` BIGINT UNSIGNED NOT NULL,
+    `user_id` BIGINT UNSIGNED NOT NULL,
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY `uk_doc_contributor` (`document_id`, `user_id`),
+    INDEX `idx_contrib_user` (`user_id`),
+    CONSTRAINT `fk_contrib_doc` FOREIGN KEY (`document_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_contrib_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `dms_annotation_layers` (
+    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `document_id` BIGINT UNSIGNED NOT NULL,
+    `version_id` BIGINT UNSIGNED DEFAULT NULL,
+    `user_id` BIGINT UNSIGNED NOT NULL,
+    `layer_name` VARCHAR(100) NOT NULL,
+    `color` VARCHAR(20) NOT NULL DEFAULT '#16a34a',
+    `is_visible` TINYINT(1) NOT NULL DEFAULT 1,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX `fk_layer_user` (`user_id`),
+    INDEX `idx_doc_user` (`document_id`, `user_id`),
+    INDEX `idx_layer_doc_ver` (`document_id`, `version_id`),
+    CONSTRAINT `fk_layer_doc` FOREIGN KEY (`document_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_layer_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `dms_annotations` (
+    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `layer_id` BIGINT UNSIGNED NOT NULL,
+    `document_id` BIGINT UNSIGNED NOT NULL,
+    `version_id` BIGINT UNSIGNED DEFAULT NULL,
+    `page_number` INT UNSIGNED NOT NULL DEFAULT 1,
+    `tool_type` ENUM('pen', 'highlighter', 'text') NOT NULL DEFAULT 'pen',
+    `payload_json` LONGTEXT NOT NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX `idx_doc_page` (`document_id`, `page_number`),
+    INDEX `fk_anno_layer` (`layer_id`),
+    INDEX `idx_anno_doc_ver` (`document_id`, `version_id`),
+    CONSTRAINT `fk_anno_doc` FOREIGN KEY (`document_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_anno_layer` FOREIGN KEY (`layer_id`) REFERENCES `dms_annotation_layers` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `dms_annotation_history` (
+    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `document_id` BIGINT UNSIGNED NOT NULL,
+    `version_id` BIGINT UNSIGNED DEFAULT NULL,
+    `user_id` BIGINT UNSIGNED NOT NULL,
+    `action_type` ENUM('create', 'update', 'delete', 'clear') NOT NULL,
+    `tool_type` VARCHAR(50) DEFAULT NULL,
+    `page_number` INT UNSIGNED DEFAULT 1,
+    `details` TEXT DEFAULT NULL,
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX `idx_hist_doc` (`document_id`),
+    INDEX `idx_hist_user` (`user_id`),
+    INDEX `idx_hist_doc_ver` (`document_id`, `version_id`),
+    CONSTRAINT `fk_hist_doc` FOREIGN KEY (`document_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_hist_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `system_logs` (
@@ -110,12 +172,12 @@ INSERT INTO `users` (`id`, `username`, `password_hash`, `full_name`, `role`, `de
 VALUES (1, 'admin', '$2y$10$e8k8R7i31i7qC0Z1QvYqE.M7yK2E07g3eZ2K7Z1Y1Z1Y1Z1Y1Z1Y1', 'Super Admin', 'super admin', 'Engineering')
 ON DUPLICATE KEY UPDATE `username` = VALUES(`username`);
 
--- 2. Sample Project Roots & DocType Roots
+-- 2. Sample Root Folders
 INSERT INTO `dms_nodes` (`id`, `parent_id`, `node_type`, `name`, `status`, `version`, `created_by`) VALUES
-(1, NULL, 'project', 'Project Alpha - WMS Upgrade', 'active', 'v0.1', 1),
-(2, NULL, 'project', 'Project Beta - Cloud Migration', 'active', 'v0.1', 1),
-(3, NULL, 'doctype', 'Standard Operating Procedures', 'active', 'v0.1', 1),
-(4, NULL, 'doctype', 'Technical Drawings', 'active', 'v0.1', 1)
+(1, NULL, 'folder', 'Project Alpha - WMS Upgrade', 'active', 'v0.1', 1),
+(2, NULL, 'folder', 'Project Beta - Cloud Migration', 'active', 'v0.1', 1),
+(3, NULL, 'folder', 'Standard Operating Procedures', 'active', 'v0.1', 1),
+(4, NULL, 'folder', 'Technical Drawings', 'active', 'v0.1', 1)
 ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
 -- 3. Sample Subfolders inside Project Alpha
@@ -126,8 +188,8 @@ INSERT INTO `dms_nodes` (`id`, `parent_id`, `node_type`, `name`, `status`, `vers
 ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
 -- 4. Sample Documents
-INSERT INTO `dms_nodes` (`id`, `parent_id`, `node_type`, `name`, `doc_type`, `status`, `version`, `file_extension`, `mime_type`, `created_by`) VALUES
-(8, 7, 'document', 'EDMS_Relational_Schema_v0.1.pdf', 'Specification', 'active', 'v0.1', 'pdf', 'application/pdf', 1),
-(9, 6, 'document', 'System_Requirement_Specification.docx', 'Specification', 'published', 'v0.2', 'docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 1),
-(10, 3, 'document', 'SOP_Document_Control_Standard.pdf', 'SOP', 'published', 'v1.0', 'pdf', 'application/pdf', 1)
+INSERT INTO `dms_nodes` (`id`, `parent_id`, `node_type`, `name`, `status`, `version`, `file_extension`, `mime_type`, `created_by`) VALUES
+(8, 7, 'document', 'EDMS_Relational_Schema_v0.1.pdf', 'active', 'v0.1', 'pdf', 'application/pdf', 1),
+(9, 6, 'document', 'System_Requirement_Specification.docx', 'published', 'v0.2', 'docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 1),
+(10, 3, 'document', 'SOP_Document_Control_Standard.pdf', 'published', 'v1.0', 'pdf', 'application/pdf', 1)
 ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);

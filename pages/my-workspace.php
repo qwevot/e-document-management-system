@@ -83,7 +83,7 @@ function ws_status_badge(string $status): string {
 </div>
 
 <!-- Main 2-Column Dashboard Grid: Documents Left (Rectangle 3), Notifications Right (Rectangle 2) -->
-<div style="display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start;">
+<div class="workspace-dashboard-grid" style="display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start;">
 
     <!-- Left Column: Document Tabs (Rectangle 3) -->
     <div class="explorer-wrapper" style="margin: 0;">

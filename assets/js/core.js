@@ -68,13 +68,51 @@
         } catch (_) {}
     };
 
-    // Toggle sidebar collapse
+    // Toggle sidebar collapse (Desktop) or off-canvas drawer (Mobile)
     window.toggleSidebar = function () {
-        document.body.classList.toggle("sidebar-collapsed");
-        try {
-            localStorage.setItem("edms-sidebar-collapsed", document.body.classList.contains("sidebar-collapsed") ? "1" : "0");
-        } catch (_) {}
+        if (window.innerWidth <= 768) {
+            document.body.classList.toggle("mobile-nav-open");
+        } else {
+            document.body.classList.toggle("sidebar-collapsed");
+            try {
+                localStorage.setItem("edms-sidebar-collapsed", document.body.classList.contains("sidebar-collapsed") ? "1" : "0");
+            } catch (_) {}
+        }
     };
+
+    window.closeMobileNav = function () {
+        document.body.classList.remove("mobile-nav-open");
+    };
+
+    // Mobile Navigation Drawer Lifecycle Handlers
+    document.addEventListener("DOMContentLoaded", function () {
+        const backdrop = document.getElementById("mobileNavBackdrop");
+        if (backdrop) {
+            backdrop.addEventListener("click", window.closeMobileNav);
+        }
+
+        document.addEventListener("keydown", function (e) {
+            if (e.key === "Escape" && document.body.classList.contains("mobile-nav-open")) {
+                window.closeMobileNav();
+            }
+        });
+
+        // Close mobile drawer when clicking any sidebar navigation link
+        document.querySelectorAll(".sidebar a.nav-item").forEach((link) => {
+            link.addEventListener("click", function () {
+                if (window.innerWidth <= 768) {
+                    window.closeMobileNav();
+                }
+            });
+        });
+
+        // Auto-close mobile drawer when resizing back to desktop width
+        window.addEventListener("resize", function () {
+            if (window.innerWidth > 768 && document.body.classList.contains("mobile-nav-open")) {
+                window.closeMobileNav();
+            }
+        });
+    });
 
     // Restore sidebar state from localStorage
     (function () {
@@ -85,7 +123,7 @@
             savedGroups = JSON.parse(localStorage.getItem("edms-sidebar-open-groups"));
         } catch (_) {}
 
-        if (savedCollapsed === "1") {
+        if (savedCollapsed === "1" && window.innerWidth > 768) {
             document.body.classList.add("sidebar-collapsed");
         }
 
