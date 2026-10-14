@@ -945,7 +945,7 @@ body.sidebar-collapsed .main {
 }
 
 .col-hdr-modified {
-    width: 115px;
+    width: 125px;
     flex-shrink: 0;
 }
 
@@ -963,6 +963,36 @@ body.sidebar-collapsed .main {
 .col-hdr-actions {
     width: 90px;
     flex-shrink: 0;
+}
+
+.explorer-table-header .sortable-col {
+    cursor: pointer;
+    user-select: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: color 0.15s ease;
+}
+
+.explorer-table-header .sortable-col:hover {
+    color: var(--green);
+}
+
+.explorer-table-header .sortable-col.active-sort {
+    color: var(--green-ink);
+}
+
+.sort-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--green);
+    line-height: 1;
+}
+
+.sort-indicator svg {
+    display: inline-block;
+    vertical-align: middle;
 }
 
 .explorer-item-card {
@@ -1133,7 +1163,7 @@ body.sidebar-collapsed .main {
 
 /* 3. Date Modified Column */
 .item-modified-col {
-    width: 115px;
+    width: 125px;
     font-size: 12px;
     color: var(--slate-ink);
     font-weight: 500;

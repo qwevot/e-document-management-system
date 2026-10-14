@@ -638,6 +638,8 @@ $viewMode   = isset($_GET['mode']) && in_array($_GET['mode'], ['project', 'docum
 $statusFilt = isset($_GET['status']) && in_array($_GET['status'], ['active', 'hold', 'suspend', 'published', 'obsolete'], true) ? $_GET['status'] : null;
 $typeFilt   = isset($_GET['type']) && trim($_GET['type']) !== '' ? trim($_GET['type']) : null;
 $searchQ    = isset($_GET['q']) ? trim($_GET['q']) : '';
+$sortBy     = isset($_GET['sort']) && in_array($_GET['sort'], ['name', 'updated_at'], true) ? $_GET['sort'] : 'name';
+$sortDir    = isset($_GET['order']) && strtolower($_GET['order']) === 'desc' ? 'DESC' : 'ASC';
 
 // Pagination parameters
 $page       = isset($_GET['page']) && is_numeric($_GET['page']) && (int)$_GET['page'] > 0 ? (int)$_GET['page'] : 1;
@@ -719,8 +721,6 @@ if ($searchQ !== '') {
         $params['file_ext'] = $cleanExt;
         $countParams['file_ext'] = $cleanExt;
     }
-
-    $orderBy = ' ORDER BY dms_nodes.node_type = "folder" DESC, dms_nodes.name ASC';
 } elseif ($viewMode === 'document') {
     // Flat All Documents View
     $whereClause = ' WHERE dms_nodes.node_type = "document" AND dms_nodes.is_deleted = 0 AND dms_nodes.status != "obsolete"';
@@ -736,8 +736,6 @@ if ($searchQ !== '') {
         $params['file_ext'] = $cleanExt;
         $countParams['file_ext'] = $cleanExt;
     }
-
-    $orderBy = ' ORDER BY dms_nodes.name ASC';
 } elseif ($parentId === null) {
     // Root level view (ALL Root Folders and Root Documents)
     $whereClause = ' WHERE dms_nodes.parent_id IS NULL AND dms_nodes.is_deleted = 0 AND dms_nodes.status != "obsolete"';
@@ -753,8 +751,6 @@ if ($searchQ !== '') {
         $params['file_ext'] = $cleanExt;
         $countParams['file_ext'] = $cleanExt;
     }
-
-    $orderBy = ' ORDER BY dms_nodes.node_type = "folder" DESC, dms_nodes.name ASC';
 } else {
     // Inside a specific folder
     $whereClause = ' WHERE dms_nodes.parent_id = :parent_id AND dms_nodes.is_deleted = 0 AND dms_nodes.status != "obsolete"';
@@ -772,9 +768,13 @@ if ($searchQ !== '') {
         $params['file_ext'] = $cleanExt;
         $countParams['file_ext'] = $cleanExt;
     }
-
-    $orderBy = ' ORDER BY dms_nodes.node_type = "folder" DESC, dms_nodes.name ASC';
 }
+
+// Build unified deterministic ORDER BY clause
+$folderOrder = ($viewMode === 'project' || $searchQ !== '') ? 'dms_nodes.node_type = "folder" DESC, ' : '';
+$sortColumn = ($sortBy === 'updated_at') ? 'dms_nodes.updated_at' : 'dms_nodes.name';
+$secondaryOrder = ($sortBy === 'updated_at') ? ', dms_nodes.name ASC' : '';
+$orderBy = " ORDER BY {$folderOrder}{$sortColumn} {$sortDir}{$secondaryOrder}";
 
 // 1. Calculate Total Count
 $countStmt = $pdo->prepare($baseCount . $whereClause);
@@ -813,7 +813,7 @@ function get_status_class(string $status): string {
 }
 
 // Helper function to render cards HTML (shared between normal load and AJAX)
-function render_card_list_html($items, $viewMode, $parentId, $currentNode, $breadcrumbs, $searchQ, $page = 1, $perPage = 25, $totalCount = 0, $totalPages = 1): void {
+function render_card_list_html($items, $viewMode, $parentId, $currentNode, $breadcrumbs, $searchQ, $page = 1, $perPage = 25, $totalCount = 0, $totalPages = 1, $sortBy = 'name', $sortDir = 'ASC'): void {
     ?>
     <!-- Permanent Top File Directory Navigation Bar (Blended Background) -->
     <div class="explorer-directory-bar">
@@ -871,12 +871,49 @@ function render_card_list_html($items, $viewMode, $parentId, $currentNode, $brea
             </p>
         </div>
     <?php else: ?>
+        <?php
+        $isDateActive = ($sortBy === 'updated_at');
+        if (!$isDateActive) {
+            // State 0 (Default): First click -> State 1 (DESC / Newest first)
+            $dateSortNextTarget = 'updated_at';
+            $dateSortNextOrder = 'desc';
+            $dateSortTitle = 'Sort by Date Modified (Newest first)';
+        } elseif ($sortDir === 'DESC') {
+            // State 1 (DESC): Second click -> State 2 (ASC / Oldest first)
+            $dateSortNextTarget = 'updated_at';
+            $dateSortNextOrder = 'asc';
+            $dateSortTitle = 'Sort by Date Modified (Oldest first)';
+        } else {
+            // State 2 (ASC): Third click -> State 0 (Default / Back to beginning)
+            $dateSortNextTarget = 'default';
+            $dateSortNextOrder = 'asc';
+            $dateSortTitle = 'Clear date sort (Return to default)';
+        }
+
+        $isNameActive = ($sortBy === 'name');
+        $nameSortNextOrder = ($isNameActive && $sortDir === 'ASC') ? 'desc' : 'asc';
+        $nameSortTitle = ($isNameActive && $sortDir === 'ASC') ? 'Sort by Name (Z to A)' : 'Sort by Name (A to Z)';
+        ?>
         <!-- Google Drive-Style Table Header -->
         <div class="explorer-table-header">
             <div class="col-hdr-checkbox-icon"></div>
-            <div class="col-hdr-name">Name</div>
+            <div class="col-hdr-name sortable-col <?php echo ($isNameActive && ($sortDir === 'DESC' || !$isDateActive)) ? 'active-sort' : ''; ?>" data-sort="name" data-order="<?php echo $nameSortNextOrder; ?>" role="button" tabindex="0" title="<?php echo e($nameSortTitle); ?>">
+                <span>Name</span>
+                <span class="sort-indicator">
+                    <?php if ($isNameActive && ($sortDir === 'DESC' || !$isDateActive)): ?>
+                        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="<?php echo $sortDir === 'DESC' ? '6 9 12 15 18 9' : '18 15 12 9 6 15'; ?>"></polyline></svg>
+                    <?php endif; ?>
+                </span>
+            </div>
             <div class="col-hdr-owner">Owner</div>
-            <div class="col-hdr-modified">Date Modified</div>
+            <div class="col-hdr-modified sortable-col <?php echo $isDateActive ? 'active-sort' : ''; ?>" data-sort="<?php echo $dateSortNextTarget; ?>" data-order="<?php echo $dateSortNextOrder; ?>" role="button" tabindex="0" title="<?php echo e($dateSortTitle); ?>">
+                <span>Date Modified</span>
+                <span class="sort-indicator">
+                    <?php if ($isDateActive): ?>
+                        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="<?php echo $sortDir === 'ASC' ? '18 15 12 9 6 15' : '6 9 12 15 18 9'; ?>"></polyline></svg>
+                    <?php endif; ?>
+                </span>
+            </div>
             <div class="col-hdr-location">Location</div>
             <div class="col-hdr-status">Status</div>
             <div class="col-hdr-actions"></div>
@@ -1051,7 +1088,7 @@ function render_card_list_html($items, $viewMode, $parentId, $currentNode, $brea
 
 // If this is an AJAX partial request, render cards and terminate immediately!
 if ($isAjax) {
-    render_card_list_html($items, $viewMode, $parentId, $currentNode, $breadcrumbs, $searchQ, $page, $perPage, $totalCount, $totalPages);
+    render_card_list_html($items, $viewMode, $parentId, $currentNode, $breadcrumbs, $searchQ, $page, $perPage, $totalCount, $totalPages, $sortBy, $sortDir);
     exit;
 }
 
@@ -1161,7 +1198,7 @@ require_once __DIR__ . '/../includes/header.php';
 
     <!-- Main Card-by-Card Document List Container -->
     <div class="explorer-card-list" id="explorerCardList">
-        <?php render_card_list_html($items, $viewMode, $parentId, $currentNode, $breadcrumbs, $searchQ, $page, $perPage, $totalCount, $totalPages); ?>
+        <?php render_card_list_html($items, $viewMode, $parentId, $currentNode, $breadcrumbs, $searchQ, $page, $perPage, $totalCount, $totalPages, $sortBy, $sortDir); ?>
     </div>
 
 </div>

@@ -184,8 +184,11 @@
         let currentPage = 1;
         let currentPerPage = 25;
 
-        // Check if page/per_page are preset in URL
+        // Check if page/per_page/sort/order are preset in URL
         const initialParams = new URLSearchParams(window.location.search);
+        let currentSort = initialParams.get("sort") || "name";
+        let currentOrder = initialParams.get("order") || "asc";
+
         if (initialParams.has("page")) {
             currentPage = parseInt(initialParams.get("page"), 10) || 1;
         }
@@ -217,6 +220,16 @@
             if (currentQ) params.set("q", currentQ);
             if (currentType) params.set("type", currentType);
             if (currentStatus) params.set("status", currentStatus);
+            if (currentSort === "updated_at") {
+                params.set("sort", "updated_at");
+                params.set("order", currentOrder);
+            } else if (currentSort === "name" && currentOrder === "desc") {
+                params.set("sort", "name");
+                params.set("order", "desc");
+            } else {
+                params.delete("sort");
+                params.delete("order");
+            }
             if (currentPage > 1) params.set("page", currentPage.toString());
             if (currentPerPage !== 25) params.set("per_page", currentPerPage.toString());
 
@@ -335,7 +348,7 @@
             });
         });
 
-        // 7. Delegated Pagination Controls Click & Change Handlers
+        // 7. Delegated Pagination Controls & Table Column Sorting
         cardListContainer.addEventListener("click", function (e) {
             const pageBtn = e.target.closest(".pagination-btn, .pagination-page-btn");
             if (pageBtn && !pageBtn.disabled && !pageBtn.classList.contains("is-disabled") && !pageBtn.classList.contains("is-active")) {
@@ -343,6 +356,33 @@
                 const targetPage = parseInt(pageBtn.dataset.page, 10);
                 if (targetPage > 0) {
                     performAjaxUpdate(targetPage);
+                }
+                return;
+            }
+
+            const sortCol = e.target.closest(".sortable-col");
+            if (sortCol) {
+                e.preventDefault();
+                const targetSort = sortCol.dataset.sort;
+                const targetOrder = sortCol.dataset.order || "asc";
+                if (targetSort === "default" || targetSort === "reset") {
+                    currentSort = "name";
+                    currentOrder = "asc";
+                } else if (targetSort) {
+                    currentSort = targetSort;
+                    currentOrder = targetOrder;
+                }
+                performAjaxUpdate(1);
+            }
+        });
+
+        // Keyboard accessibility for sort headers
+        cardListContainer.addEventListener("keydown", function (e) {
+            if (e.key === "Enter" || e.key === " ") {
+                const sortCol = e.target.closest(".sortable-col");
+                if (sortCol) {
+                    e.preventDefault();
+                    sortCol.click();
                 }
             }
         });
