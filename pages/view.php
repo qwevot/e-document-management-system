@@ -31,7 +31,25 @@ if (!$doc) {
 }
 
 $isArchived = ($doc['status'] === 'obsolete' || (int)$doc['is_deleted'] === 1);
-$backUrl = $isArchived ? 'archives.php' : ('explorer.php?mode=project' . (!empty($doc['parent_id']) ? '&folder=' . (int)$doc['parent_id'] : ''));
+$defaultBackUrl = $isArchived ? 'archives.php' : ('explorer.php?mode=project' . (!empty($doc['parent_id']) ? '&folder=' . (int)$doc['parent_id'] : ''));
+
+// Determine smart back URL: prioritize genuine origin page (workspace, archives, search, etc.)
+$referer = $_SERVER['HTTP_REFERER'] ?? '';
+$sessionKey = 'doc_origin_url_' . $docId;
+
+if (!empty($referer)) {
+    $refParts = parse_url($referer);
+    $currHost = parse_url('http://' . ($_SERVER['HTTP_HOST'] ?? ''), PHP_URL_HOST);
+    $refHost = $refParts['host'] ?? $currHost;
+    $refPath = $refParts['path'] ?? '';
+
+    // If referrer is internal to our application and not view.php itself, record it as origin
+    if ($refHost === $currHost && !str_ends_with($refPath, 'view.php')) {
+        $_SESSION[$sessionKey] = $referer;
+    }
+}
+
+$backUrl = $_SESSION[$sessionKey] ?? $defaultBackUrl;
 
 $currentVersion = $doc['version'] ?? 'v1.0';
 $nextMinorVer = calculate_next_version($currentVersion, 'minor');
@@ -83,6 +101,16 @@ $downloadUrl = 'download.php?id=' . $doc['id'] . ($effectiveVersionId ? '&versio
 $currentUser = current_user() ?? ['id' => 1, 'full_name' => 'Dr. Ruan Mei'];
 $userId = (int)($currentUser['id'] ?? 1);
 $userName = $currentUser['full_name'] ?? 'Collaborator';
+
+// Record document access telemetry (throttled to avoid redundant spam on page reload)
+$viewThrottleKey = 'last_doc_view_' . $docId . '_' . $userId;
+if (!isset($_SESSION[$viewThrottleKey]) || (time() - (int)$_SESSION[$viewThrottleKey]) > 60) {
+    $_SESSION[$viewThrottleKey] = time();
+    log_activity('document.view', 'document', $docId, [
+        'name'    => $doc['name'],
+        'version' => $activeVersionName
+    ], 'success');
+}
 
 // Review and workflow query
 $reviews = get_document_reviews($docId);
@@ -751,6 +779,18 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../assets/css/styles.css">
     <link rel="stylesheet" href="../assets/css/responsive.css">
+    <script>
+    function handleWorkspaceBack(e, fallbackUrl) {
+        if (window.history.length > 1 && document.referrer && !document.referrer.includes('view.php')) {
+            if (e) e.preventDefault();
+            window.history.back();
+            return;
+        }
+        if (fallbackUrl && e && e.defaultPrevented) {
+            window.location.href = fallbackUrl;
+        }
+    }
+    </script>
 </head>
 <body class="edms-viewer-body">
 
@@ -759,7 +799,7 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
     <!-- 1. Top Global Navigation Header -->
     <header class="workspace-top-bar">
         <div class="workspace-nav-left">
-            <a href="<?php echo e($backUrl); ?>" class="btn-workspace-back" title="Back to Projects">
+            <a href="<?php echo e($backUrl); ?>" class="btn-workspace-back" title="Back" onclick="handleWorkspaceBack(event, '<?php echo e($backUrl); ?>')">
                 <?php echo render_icon('arrow-left'); ?>
                 <span>Back</span>
             </a>
@@ -1119,7 +1159,7 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
                         <?php echo render_icon('download'); ?>
                         <span>Download <?php echo !empty($ext) ? '.' . strtoupper(e($ext)) : 'File'; ?></span>
                     </a>
-                    <a href="<?php echo e($backUrl); ?>" class="btn-unsupported-back">
+                    <a href="<?php echo e($backUrl); ?>" class="btn-unsupported-back" onclick="handleWorkspaceBack(event, '<?php echo e($backUrl); ?>')">
                         <span>Back</span>
                     </a>
                 </div>

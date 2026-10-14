@@ -253,69 +253,109 @@
 
     .explorer-item-card {
         display: flex;
-        flex-wrap: wrap;
+        flex-wrap: nowrap !important;
         align-items: center;
-        padding: 10px 12px;
-        gap: 6px 10px;
+        padding: 6px 12px !important;
+        gap: 8px !important;
         position: relative;
         border-radius: 6px;
-        margin-bottom: 4px;
+        margin-bottom: 3px;
         border: 1px solid var(--card-border);
+        min-height: 40px;
     }
 
     .item-checkbox-col {
-        order: 1;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
     }
 
     .item-icon-col {
-        order: 2;
-        width: 28px;
-        height: 28px;
+        width: 28px !important;
+        height: 28px !important;
+        flex-shrink: 0;
+    }
+
+    .item-icon-col svg {
+        width: 16px !important;
+        height: 16px !important;
     }
 
     .item-main-col {
-        order: 3;
-        flex: 1 1 calc(100% - 85px);
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+    }
+
+    .item-title-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: nowrap !important;
         min-width: 0;
     }
 
     .item-title {
-        font-size: 13px;
+        font-size: 13px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
         display: block;
+        min-width: 0;
+        flex: 0 1 auto;
     }
 
-    .item-owner-col {
-        order: 4;
-        width: auto !important;
-        margin-left: 36px;
-        font-size: 11px;
+    .item-type-badge,
+    .version-badge {
+        flex-shrink: 0;
+        font-size: 10px;
+        padding: 1px 5px;
     }
 
-    .owner-name {
-        font-size: 11px;
+    /* Ditch Created by / Owner column completely on mobile */
+    .item-owner-col,
+    .item-version-col {
+        display: none !important;
     }
 
     .item-modified-col {
-        order: 5;
         width: auto !important;
-        font-size: 11px;
+        font-size: 11.5px;
+        color: var(--muted);
+        flex-shrink: 0;
+        white-space: nowrap;
     }
 
     .item-status-col {
-        order: 6;
         width: auto !important;
-        margin-left: auto;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+    }
+
+    .status-badge,
+    .folder-type-label {
+        font-size: 9.5px !important;
+        padding: 2px 6px !important;
     }
 
     .item-actions-col {
-        order: 7;
-        width: auto;
+        width: auto !important;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
         justify-content: flex-end;
+        gap: 2px;
     }
 
     .btn-action {
-        width: 32px;
-        height: 32px;
+        width: 28px !important;
+        height: 28px !important;
+        padding: 0;
+    }
+
+    .btn-action svg {
+        width: 14px;
+        height: 14px;
     }
 
     /* 5. Pagination Bar */
@@ -571,13 +611,25 @@
         font-size: 11.5px;
     }
 
-    /* Explorer card item title */
-    .item-title {
-        font-size: 12.5px;
+    /* Compact Explorer card on phones */
+    .explorer-item-card {
+        padding: 5px 8px !important;
+        gap: 6px !important;
+        min-height: 38px;
     }
 
-    .owner-name {
-        max-width: 90px;
+    .item-title {
+        font-size: 12px !important;
+    }
+
+    /* Hide modified date on small phones to maximize title readability */
+    .item-modified-col {
+        display: none !important;
+    }
+
+    /* On mobile phones, hide redundant view button since clicking row/icon navigates to workspace */
+    .item-actions-col a[href^="view.php"] {
+        display: none !important;
     }
 
     /* Login Page Card */

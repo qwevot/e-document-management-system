@@ -9,6 +9,7 @@ $mainNavItems = [
     ['my-workspace', 'pages/my-workspace.php', 'My Workspace', 'workspace'],
     ['explorer',     'pages/explorer.php',     'Document Explorer', 'explorer'],
     ['archives',     'pages/archives.php',     'Archives', 'archive'],
+    ['sign-documents', 'pages/sign-documents.php', 'Sign Documents', 'sign-documents'],
 ];
 
 // Administration items (Retractable group)

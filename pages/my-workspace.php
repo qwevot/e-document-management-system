@@ -50,15 +50,16 @@ $myDocsStmt = $pdo->prepare("
 $myDocsStmt->execute(['uid1' => $userId, 'uid2' => $userId, 'uid3' => $userId]);
 $myDocs = $myDocsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// 3. Recently Opened / Touched Documents from system activity logs or recent nodes
+// 3. Recently Opened Documents: Aggregated by most recent access by current user
 $recentTouchedStmt = $pdo->prepare("
-    SELECT DISTINCT d.id, d.name, d.version, d.status, d.file_extension,
-           COALESCE(l.created_at, d.updated_at) AS last_touched_at,
-           l.action AS last_action
+    SELECT d.id, d.name, d.version, d.status, d.file_extension,
+           MAX(l.created_at) AS last_touched_at
     FROM dms_nodes d
-    LEFT JOIN system_logs l ON l.entity_type = 'document' AND l.entity_id = d.id AND l.user_id = :uid
+    INNER JOIN system_logs l ON l.entity_type = 'document' AND l.entity_id = d.id AND l.user_id = :uid
     WHERE d.node_type = 'document'
       AND d.is_deleted = 0
+      AND l.action IN ('document.view', 'document.download', 'document.upload', 'version.upload', 'document.review_requested')
+    GROUP BY d.id, d.name, d.version, d.status, d.file_extension
     ORDER BY last_touched_at DESC
     LIMIT 15
 ");
@@ -81,12 +82,30 @@ function ws_status_badge(string $status): string {
 <div class="welcome-header">
     <h1>Welcome, <?php echo e($fullName); ?>!</h1>
 </div>
-
+    
 <!-- Main 2-Column Dashboard Grid: Documents Left (Rectangle 3), Notifications Right (Rectangle 2) -->
-<div class="workspace-dashboard-grid" style="display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start;">
+<div class="workspace-dashboard-grid">
 
     <!-- Left Column: Document Tabs (Rectangle 3) -->
     <div class="explorer-wrapper" style="margin: 0;">
+
+            <!-- Top Action & Search Bar -->
+        <div class="explorer-toolbar-card" style="margin-bottom: 16px;">
+            <form method="GET" action="explorer.php" class="explorer-search-form" id="wsSearchForm">
+                <div class="explorer-search-box">
+                    <span class="search-icon"><?php echo render_icon('search'); ?></span>
+                    <input type="text" name="q" id="wsSearchInput" placeholder="Search documents or folders..." class="search-input" autocomplete="off">
+                    <a href="#" id="wsSearchClear" class="search-clear" title="Clear search" style="display: none;" onclick="clearWsSearch(event)">&times;</a>
+                </div>
+            </form>
+
+            <div class="toolbar-actions">
+                <button type="button" id="btnUploadDoc" class="btn btn-primary" onclick="openWsUploadModal()">
+                    <?php echo render_icon('cloud-upload'); ?>
+                    <span>Upload Document</span>
+                </button>
+            </div>
+        </div>
         
         <!-- Tab Switcher Bar: My Workspace & Recently Opened -->
         <div class="explorer-filter-card">
@@ -121,12 +140,12 @@ function ws_status_badge(string $status): string {
                     <div class="col-hdr-owner">Role</div>
                     <div class="col-hdr-version">Version</div>
                     <div class="col-hdr-status">Status</div>
-                    <div style="width: 60px; text-align: right;">History</div>
+                    <div class="col-hdr-actions">History</div>
                 </div>
 
                 <?php foreach ($myDocs as $doc): ?>
                     <?php $extIcon = $doc['file_extension'] ?: 'pdf'; ?>
-                    <div class="explorer-item-card is-document" style="padding: 8px 12px;">
+                    <div class="explorer-item-card is-document">
                         <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($doc['name']); ?>">
                             <?php echo render_icon($extIcon); ?>
                         </a>
@@ -155,7 +174,7 @@ function ws_status_badge(string $status): string {
                             </span>
                         </div>
 
-                        <div style="width: 60px; text-align: right; flex-shrink: 0;">
+                        <div class="item-actions-col">
                             <button type="button" class="btn-action" title="View Audit History" onclick="openWsAuditModal(<?php echo (int)$doc['id']; ?>, '<?php echo addslashes(e($doc['name'])); ?>')">
                                 <?php echo render_icon('history'); ?>
                             </button>
@@ -180,12 +199,12 @@ function ws_status_badge(string $status): string {
                     <div class="col-hdr-modified">Last Accessed</div>
                     <div class="col-hdr-version">Version</div>
                     <div class="col-hdr-status">Status</div>
-                    <div style="width: 60px; text-align: right;">History</div>
+                    <div class="col-hdr-actions">History</div>
                 </div>
 
                 <?php foreach ($recentDocs as $doc): ?>
                     <?php $extIcon = $doc['file_extension'] ?: 'pdf'; ?>
-                    <div class="explorer-item-card is-document" style="padding: 8px 12px;">
+                    <div class="explorer-item-card is-document">
                         <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($doc['name']); ?>">
                             <?php echo render_icon($extIcon); ?>
                         </a>
@@ -214,7 +233,7 @@ function ws_status_badge(string $status): string {
                             </span>
                         </div>
 
-                        <div style="width: 60px; text-align: right; flex-shrink: 0;">
+                        <div class="item-actions-col">
                             <button type="button" class="btn-action" title="View Audit History" onclick="openWsAuditModal(<?php echo (int)$doc['id']; ?>, '<?php echo addslashes(e($doc['name'])); ?>')">
                                 <?php echo render_icon('history'); ?>
                             </button>
@@ -228,7 +247,7 @@ function ws_status_badge(string $status): string {
 
     <!-- Right Column: Notifications & Requires Attention (Rectangle 2) -->
     <div class="explorer-wrapper" style="margin: 0;">
-        <div class="explorer-toolbar-card" style="padding: 10px 14px;">
+        <div class="explorer-toolbar-card" style="padding: 10px 14px; min-height: 48px; display: flex; align-items: center; justify-content: space-between;">
             <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="display: inline-flex; color: var(--green);"><?php echo render_icon('notification'); ?></span>
                 <span style="font-weight: 700; font-size: 13.5px; color: var(--ink);">Notifications</span>
@@ -238,27 +257,39 @@ function ws_status_badge(string $status): string {
             <?php endif; ?>
         </div>
 
-        <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div class="explorer-card-list">
             <?php if ($totalAttentionCount === 0): ?>
-                <div class="explorer-empty-card" style="padding: 28px 12px;">
-                    <div style="color: var(--green); margin-bottom: 6px;"><?php echo render_icon('check'); ?></div>
-                    <div style="font-size: 11.5px; color: var(--muted); margin-top: 2px;">No pending approvals or review verdicts.</div>
+                <div class="explorer-empty-card" style="padding: 32px 16px;">
+                    <div class="empty-icon"><?php echo render_icon('check'); ?></div>
+                    <h3 class="empty-title">All caught up</h3>
+                    <p class="empty-subtitle">No pending reviews or alerts.</p>
                 </div>
             <?php else: ?>
                 <!-- Pending Approvals Assigned to User -->
                 <?php foreach ($pendingReviews as $pr): ?>
-                    <div class="explorer-item-card" style="padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; border-left: 3px solid var(--amber);">
-                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                            <span class="status-badge badge-hold" style="font-size: 9.5px;">Awaiting Review</span>
-                            <span style="font-size: 10.5px; color: var(--muted);"><?php echo date('M j, H:i', strtotime($pr['review_requested_at'])); ?></span>
-                        </div>
-                        <a href="view.php?id=<?php echo (int)$pr['document_id']; ?>" style="font-size: 12.5px; font-weight: 600; color: var(--ink); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?php echo e($pr['document_name']); ?>">
-                            <?php echo e($pr['document_name']); ?>
+                    <?php $extIcon = $pr['file_extension'] ?: 'pdf'; ?>
+                    <div class="explorer-item-card is-document">
+                        <a href="view.php?id=<?php echo (int)$pr['document_id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($pr['document_name']); ?>">
+                            <?php echo render_icon($extIcon); ?>
                         </a>
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 2px;">
-                            <span style="font-size: 11px; color: var(--muted);">By <?php echo e($pr['requested_by_name']); ?></span>
-                            <a href="view.php?id=<?php echo (int)$pr['document_id']; ?>" class="btn btn-primary" style="padding: 2px 8px; font-size: 11px;">
-                                Review &rarr;
+
+                        <div class="item-main-col">
+                            <div class="item-title-row">
+                                <a href="view.php?id=<?php echo (int)$pr['document_id']; ?>" class="item-title" title="<?php echo e($pr['document_name']); ?>">
+                                    <?php echo e($pr['document_name']); ?>
+                                </a>
+                            </div>
+                        </div>
+
+                        <div class="item-status-col">
+                            <span class="status-badge badge-hold" title="Review requested by <?php echo e($pr['requested_by_name']); ?> • <?php echo date('M j, Y • H:i', strtotime($pr['review_requested_at'])); ?>">
+                                Review
+                            </span>
+                        </div>
+
+                        <div class="item-actions-col">
+                            <a href="view.php?id=<?php echo (int)$pr['document_id']; ?>" class="btn-action" title="Review Document">
+                                <?php echo render_icon('view'); ?>
                             </a>
                         </div>
                     </div>
@@ -267,23 +298,33 @@ function ws_status_badge(string $status): string {
                 <!-- Verdicts on User Submissions -->
                 <?php foreach ($recentVerdicts as $vd): ?>
                     <?php 
+                    $extIcon = $vd['file_extension'] ?: 'pdf';
                     $isApprove = ($vd['review_status'] === 'approved');
-                    $borderCol = $isApprove ? 'var(--green)' : 'var(--red)';
                     $badgeCls = $isApprove ? 'badge-publish' : 'badge-rejected';
-                    $badgeText = $isApprove ? 'Accepted' : 'Rejected';
+                    $badgeText = $isApprove ? 'Approved' : 'Rejected';
                     ?>
-                    <div class="explorer-item-card" style="padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; border-left: 3px solid <?php echo $borderCol; ?>;">
-                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                            <span class="status-badge <?php echo $badgeCls; ?>" style="font-size: 9.5px;"><?php echo $badgeText; ?></span>
-                            <span style="font-size: 10.5px; color: var(--muted);"><?php echo date('M j, H:i', strtotime($vd['reviewed_at'])); ?></span>
-                        </div>
-                        <a href="view.php?id=<?php echo (int)$vd['document_id']; ?>" style="font-size: 12.5px; font-weight: 600; color: var(--ink); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?php echo e($vd['document_name']); ?>">
-                            <?php echo e($vd['document_name']); ?>
+                    <div class="explorer-item-card is-document">
+                        <a href="view.php?id=<?php echo (int)$vd['document_id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($vd['document_name']); ?>">
+                            <?php echo render_icon($extIcon); ?>
                         </a>
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 2px;">
-                            <span style="font-size: 11px; color: var(--muted);">By <?php echo e($vd['reviewer_name'] ?? 'Reviewer'); ?></span>
-                            <a href="view.php?id=<?php echo (int)$vd['document_id']; ?>" class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;">
-                                View &rarr;
+
+                        <div class="item-main-col">
+                            <div class="item-title-row">
+                                <a href="view.php?id=<?php echo (int)$vd['document_id']; ?>" class="item-title" title="<?php echo e($vd['document_name']); ?>">
+                                    <?php echo e($vd['document_name']); ?>
+                                </a>
+                            </div>
+                        </div>
+
+                        <div class="item-status-col">
+                            <span class="status-badge <?php echo $badgeCls; ?>" title="Reviewed by <?php echo e($vd['reviewer_name'] ?? 'Reviewer'); ?> • <?php echo date('M j, Y • H:i', strtotime($vd['reviewed_at'])); ?>">
+                                <?php echo $badgeText; ?>
+                            </span>
+                        </div>
+
+                        <div class="item-actions-col">
+                            <a href="view.php?id=<?php echo (int)$vd['document_id']; ?>" class="btn-action" title="View Document">
+                                <?php echo render_icon('view'); ?>
                             </a>
                         </div>
                     </div>
@@ -314,6 +355,78 @@ function ws_status_badge(string $status): string {
         <div class="edms-modal-footer">
             <button type="button" class="btn btn-secondary" onclick="closeWsAuditModal()">Close</button>
         </div>
+    </div>
+</div>
+
+<!-- Modal: Upload Document (Reusing existing EDMS Upload Specimen Modal) -->
+<div class="edms-modal-backdrop" id="modalUploadDoc">
+    <div class="edms-modal-dialog" style="max-width: 520px; width: 95%;">
+        <div class="edms-modal-header">
+            <div class="edms-modal-title">
+                <?php echo render_icon('cloud-upload'); ?>
+                <span>Upload Document</span>
+            </div>
+            <button type="button" class="btn-modal-close" onclick="closeWsUploadModal()" title="Close modal">&times;</button>
+        </div>
+        <form id="formUploadDoc" method="POST" action="explorer.php" enctype="multipart/form-data">
+            <input type="hidden" name="action" value="upload_document">
+            <input type="hidden" name="parent_id" value="">
+
+            <div class="edms-modal-body">
+                <!-- Dropzone Area -->
+                <div class="upload-dropzone" id="uploadDropzone">
+                    <input type="file" name="file" id="uploadFileInput" class="upload-file-input" required onchange="handleWsFileSelection(this.files[0])">
+                    <div class="dropzone-content">
+                        <div class="dropzone-icon">
+                            <?php echo render_icon('cloud-upload'); ?>
+                        </div>
+                        <p class="dropzone-text">
+                            <strong>Click to browse</strong> or drag &amp; drop your file here
+                        </p>
+                        <span class="dropzone-hint">PDF, DOCX, XLSX, DWG, PNG, ZIP, etc.</span>
+                    </div>
+                </div>
+
+                <!-- Selected File Pill -->
+                <div class="selected-file-preview" id="selectedFilePreview" style="display: none;">
+                    <div class="preview-file-icon">
+                        <?php echo render_icon('files'); ?>
+                    </div>
+                    <div class="preview-file-details">
+                        <span class="preview-file-name" id="previewFileName">filename.ext</span>
+                        <span class="preview-file-size" id="previewFileSize">0 KB</span>
+                    </div>
+                    <button type="button" class="btn-clear-selected-file" onclick="clearWsSelectedFile()" title="Remove file">&times;</button>
+                </div>
+
+                <!-- Document Form Inputs -->
+                <div class="form-group" style="margin-top: 14px;">
+                    <label for="uploadDocName" class="form-label">Document Title</label>
+                    <input type="text" id="uploadDocName" name="name" class="form-input" placeholder="e.g. Standard Operating Procedure" required autocomplete="off">
+                </div>
+
+                <div class="form-group" style="margin-top: 14px;">
+                    <label for="uploadDocStatus" class="form-label">Initial Status</label>
+                    <div class="select-wrapper">
+                        <select id="uploadDocStatus" name="status" class="form-input">
+                            <option value="active" selected>Active (Draft)</option>
+                            <option value="published">Published</option>
+                            <option value="hold">On Hold</option>
+                        </select>
+                    </div>
+                </div>
+
+                <p class="form-help">Target location: <strong>Root directory</strong></p>
+            </div>
+
+            <div class="edms-modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeWsUploadModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="btnSubmitUpload">
+                    <?php echo render_icon('cloud-upload'); ?>
+                    <span>Upload Document</span>
+                </button>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -367,12 +480,104 @@ function closeWsAuditModal() {
     if (modal) modal.classList.remove('is-open');
 }
 
-// Close modal on backdrop click
-document.addEventListener('click', function(e) {
-    const modal = document.getElementById('modalAuditHistory');
-    if (modal && e.target === modal) {
-        closeWsAuditModal();
+// Real-time Workspace Search + Explorer Submission
+const wsSearch = document.getElementById('wsSearchInput');
+const wsClear = document.getElementById('wsSearchClear');
+if (wsSearch) {
+    wsSearch.addEventListener('input', function() {
+        const q = this.value.trim().toLowerCase();
+        if (wsClear) wsClear.style.display = q.length > 0 ? 'block' : 'none';
+        document.querySelectorAll('#paneMyWorkspace .explorer-item-card, #paneRecent .explorer-item-card').forEach(card => {
+            const titleEl = card.querySelector('.item-title');
+            const title = titleEl ? titleEl.textContent.toLowerCase() : '';
+            card.style.display = (q === '' || title.includes(q)) ? '' : 'none';
+        });
+    });
+}
+
+function clearWsSearch(e) {
+    if (e) e.preventDefault();
+    if (wsSearch) {
+        wsSearch.value = '';
+        wsSearch.dispatchEvent(new Event('input'));
+        wsSearch.focus();
     }
+}
+
+// Upload Modal Handlers
+function openWsUploadModal() {
+    clearWsSelectedFile();
+    const docName = document.getElementById('uploadDocName');
+    if (docName) docName.value = '';
+    const modal = document.getElementById('modalUploadDoc');
+    if (modal) modal.classList.add('is-open');
+}
+
+function closeWsUploadModal() {
+    const modal = document.getElementById('modalUploadDoc');
+    if (modal) modal.classList.remove('is-open');
+}
+
+function handleWsFileSelection(file) {
+    if (!file) return;
+    const nameEl = document.getElementById('previewFileName');
+    const sizeEl = document.getElementById('previewFileSize');
+    const preview = document.getElementById('selectedFilePreview');
+    const dropzone = document.getElementById('uploadDropzone');
+    const docName = document.getElementById('uploadDocName');
+
+    if (nameEl) nameEl.textContent = file.name;
+    if (sizeEl) sizeEl.textContent = (file.size / 1024).toFixed(1) + ' KB';
+    if (preview) preview.style.display = 'flex';
+    if (dropzone) dropzone.style.display = 'none';
+
+    if (docName && !docName.value) {
+        docName.value = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+    }
+}
+
+function clearWsSelectedFile() {
+    const fileInput = document.getElementById('uploadFileInput');
+    const preview = document.getElementById('selectedFilePreview');
+    const dropzone = document.getElementById('uploadDropzone');
+    if (fileInput) fileInput.value = '';
+    if (preview) preview.style.display = 'none';
+    if (dropzone) dropzone.style.display = 'block';
+}
+
+// Dropzone Drag-and-Drop
+const wsDropzone = document.getElementById('uploadDropzone');
+const wsFileInput = document.getElementById('uploadFileInput');
+if (wsDropzone && wsFileInput) {
+    ['dragenter', 'dragover'].forEach(name => {
+        wsDropzone.addEventListener(name, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            wsDropzone.classList.add('is-dragover');
+        });
+    });
+    ['dragleave', 'drop'].forEach(name => {
+        wsDropzone.addEventListener(name, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            wsDropzone.classList.remove('is-dragover');
+        });
+    });
+    wsDropzone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        if (dt && dt.files && dt.files[0]) {
+            wsFileInput.files = dt.files;
+            handleWsFileSelection(dt.files[0]);
+        }
+    });
+}
+
+// Close modals on backdrop click
+document.addEventListener('click', function(e) {
+    const auditModal = document.getElementById('modalAuditHistory');
+    if (auditModal && e.target === auditModal) closeWsAuditModal();
+    const uploadModal = document.getElementById('modalUploadDoc');
+    if (uploadModal && e.target === uploadModal) closeWsUploadModal();
 });
 </script>
 
