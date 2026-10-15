@@ -199,14 +199,14 @@ include __DIR__ . '/../includes/header.php';
                                     <?php echo e($lg['ip_address'] ?? 'N/A'); ?>
                                 </code>
                             </td>
-                            <td style="max-width: 320px;">
+                            <td>
                                 <?php if ($hasDetails): ?>
                                     <div style="display: flex; flex-direction: column; gap: 4px;">
                                         <div style="display: flex; align-items: center; gap: 6px;">
                                             <button type="button" class="btn" style="padding: 2px 7px; font-size: 11px; background: var(--surface-light); border: 1px solid var(--border); color: var(--text); border-radius: 4px; cursor: pointer;" onclick="togglePayload(<?php echo (int)$lg['id']; ?>)">
                                                 <span id="payload-btn-icon-<?php echo (int)$lg['id']; ?>">▶</span> View JSON
                                             </button>
-                                            <span style="font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;">
+                                            <span style="font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; min-width: 0;">
                                                 <?php echo e($detailSnippet); ?>
                                             </span>
                                         </div>

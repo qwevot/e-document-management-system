@@ -502,6 +502,8 @@ if ($action) {
         ]);
 
         $annoId = (int)$pdo->lastInsertId();
+        $pdo->prepare("UPDATE dms_annotation_layers SET color = :color WHERE id = :lid AND (SELECT COUNT(*) FROM dms_annotations WHERE layer_id = :lid_sub) = 1")
+            ->execute(['color' => $color, 'lid' => $layerId, 'lid_sub' => $layerId]);
 
         // Log creation history
         $rawText = trim($data['content'] ?? ($data['text'] ?? ''));
@@ -970,6 +972,9 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
                     <button type="button" class="dock-btn" data-tool="highlighter" id="toolHighlighter" title="Highlight">
                         <?php echo render_icon('highlighter'); ?>
                     </button>
+                    <button type="button" class="dock-btn" data-tool="eraser" id="toolEraser" title="Stroke Eraser">
+                        <?php echo render_icon('eraser'); ?>
+                    </button>
                     <button type="button" class="dock-btn" data-tool="text" id="toolText" title="Text Note / Callout">
                         <?php echo render_icon('type'); ?>
                     </button>
@@ -1063,7 +1068,7 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
                             <?php if ($canAnnotate && !$isHistoricalSnapshot && !$isArchived): ?>
                             <button type="button" class="btn-add-layer" id="btnAddLayerGroup" title="Add New Annotation Group">
                                 <?php echo render_icon('plus'); ?>
-                                <span>New Annotation</span>
+                                <span>Add Layer</span>
                             </button>
                             <?php endif; ?>
                         </div>

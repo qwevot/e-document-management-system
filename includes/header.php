@@ -27,6 +27,7 @@ $initials = strtoupper(($words[0][0] ?? 'U') . ($words[1][0] ?? ''));
     <?php endif; ?>
     <script>
         window.BASE_URL = <?php echo json_encode(BASE_URL); ?>;
+        window.MAX_UPLOAD_BYTES = <?php echo (int)min((int)ini_get('upload_max_filesize'), (int)ini_get('post_max_size')) * 1048576; ?>;
     </script>
 </head>
 <body>

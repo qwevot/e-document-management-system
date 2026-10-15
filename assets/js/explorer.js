@@ -453,6 +453,12 @@
                     return;
                 }
 
+                const maxBytes = window.MAX_UPLOAD_BYTES || 41943040;
+                if (uploadFileInput.files[0].size > maxBytes) {
+                    showBottomToast(`File is too large. Server limit is ${formatBytes(maxBytes)}.`, "error");
+                    return;
+                }
+
                 if (btnSubmitUpload) {
                     btnSubmitUpload.disabled = true;
                     btnSubmitUpload.innerHTML = '<span>Uploading file...</span>';
@@ -488,7 +494,7 @@
                         btnSubmitUpload.style.opacity = "1";
                     }
                     console.error("Upload error:", err);
-                    showBottomToast("An error occurred during file upload.", "error");
+                    showBottomToast("Upload failed: file may be too large for server limits (40 MB).", "error");
                 });
             });
         }

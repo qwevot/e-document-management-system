@@ -1208,43 +1208,36 @@ body.sidebar-collapsed .main {
     text-transform: uppercase;
     letter-spacing: 0.3px;
     padding: 2px 7px;
-    border-radius: 12px;
+    border-radius: 6px;
 }
 
 .badge-publish {
     background: var(--success-soft);
-    color: var(--success-ink);
-    border: 1px solid var(--success-line);
-}
+    color: var(--success-ink);}
 
 .badge-active {
     background: var(--info-blue-soft);
     color: var(--info-blue-dark);
-    border: 1px solid var(--info-blue-line);
 }
 
 .badge-hold {
     background: var(--amber-soft);
     color: var(--amber-ink);
-    border: 1px solid var(--amber-line);
 }
 
 .badge-suspend {
     background: var(--red-soft);
     color: var(--red-ink);
-    border: 1px solid var(--red-line);
 }
 
 .badge-rejected {
     background: var(--red-soft);
     color: var(--red-ink);
-    border: 1px solid var(--red-line);
 }
 
 .badge-obsolete {
     background: var(--slate-soft);
     color: var(--slate-ink);
-    border: 1px solid var(--slate-line);
 }
 
 .folder-type-label {

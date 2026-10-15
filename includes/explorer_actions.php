@@ -7,7 +7,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
 $pdo = db();
 $isAjax = (isset($_GET['ajax']) && $_GET['ajax'] === '1') ||
-          (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest');
+        (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest');
 
 // --- AJAX Endpoints ---
 $reqAction = $_GET['action'] ?? ($_POST['action'] ?? '');
@@ -26,6 +26,12 @@ if ($reqAction === 'get_audit_history') {
 // POST Actions: Create Folder
 // ============================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (empty($_POST) && empty($_FILES) && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
+        header('Content-Type: application/json');
+        $serverMax = ini_get('post_max_size') ?: 'server limit';
+        echo json_encode(['success' => false, 'message' => "Upload failed: file size exceeds the server limit ({$serverMax})."]);
+        exit;
+    }
     $action = $_POST['action'] ?? '';
 
     // 1. Create Folder

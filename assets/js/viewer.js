@@ -175,11 +175,17 @@ document.addEventListener("DOMContentLoaded", function () {
     } else if (renderMode === "docx_fallback") {
         loadDocxDocument();
     } else if (window.pdfjsLib) {
-        pdfjsLib.getDocument({
+        const loadingTask = pdfjsLib.getDocument({
             url: streamUrl,
             cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/",
             cMapPacked: true
-        }).promise
+        });
+        loadingTask.onProgress = ({ loaded, total }) => {
+            if (loadingStatusText && total > 0) {
+                loadingStatusText.textContent = `Loading specimen: ${Math.round((loaded / total) * 100)}%`;
+            }
+        };
+        loadingTask.promise
         .then(pdf => {
             pdfDocument = pdf;
             totalPages = pdf.numPages;
@@ -517,6 +523,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function attachDrawingListeners(canvas, pageNum) {
         canvas.style.touchAction = "none";
+        canvas.style.cursor = (activeTool === "pan") ? "default" : (activeTool === "eraser" ? "cell" : "crosshair");
         canvas.addEventListener("mousedown", (e) => handleStartDrawing(e, canvas, pageNum));
         canvas.addEventListener("mousemove", (e) => handleDrawMove(e, canvas, pageNum));
         canvas.addEventListener("touchstart", (e) => handleStartDrawing(e, canvas, pageNum), { passive: false });
@@ -544,7 +551,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // Hit-Testing: Check if an annotation on pageNum is under cursor
-    function hitTestAnnotation(pageNum, xRel, yRel, canvasWidth, canvasHeight) {
+    function hitTestAnnotation(pageNum, xRel, yRel, canvasWidth, canvasHeight, extraTolerance = 0) {
         const selfLayer = getActiveSelfLayer();
         if (!selfLayer || !selfLayer.visible || !Array.isArray(selfLayer.strokes)) return null;
 
@@ -561,17 +568,17 @@ document.addEventListener("DOMContentLoaded", function () {
                 const posY = item.yRel * canvasHeight;
                 const lines = (item.content || "").split("\n");
                 const lineHeight = 18;
-                const padding = 8;
+                const padding = 8 + extraTolerance;
                 let maxW = 40;
                 lines.forEach(l => { maxW = Math.max(maxW, l.length * 8.5 + padding * 2); });
                 const boxW = maxW;
                 const boxH = lines.length * lineHeight + padding * 2;
 
-                if (pixelX >= posX - 4 && pixelX <= posX + boxW + 4 && pixelY >= posY - 4 && pixelY <= posY + boxH + 4) {
+                if (pixelX >= posX - 4 - extraTolerance && pixelX <= posX + boxW + 4 + extraTolerance && pixelY >= posY - 4 - extraTolerance && pixelY <= posY + boxH + 4 + extraTolerance) {
                     return item;
                 }
             } else if (item.points && item.points.length >= 2) {
-                const tol = Math.max(10, (item.width || 2) * 2.0);
+                const tol = Math.max(10, (item.width || 2) * 2.0) + extraTolerance;
                 for (let j = 0; j < item.points.length - 1; j++) {
                     const p1 = item.points[j];
                     const p2 = item.points[j + 1];
@@ -587,6 +594,36 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         }
         return null;
+    }
+
+    function eraseAnnotation(item, pageNum) {
+        if (!item) return;
+        const selfLayer = getActiveSelfLayer();
+        if (!selfLayer || !Array.isArray(selfLayer.strokes)) return;
+
+        const idx = selfLayer.strokes.indexOf(item);
+        if (idx !== -1) {
+            const deleted = selfLayer.strokes.splice(idx, 1)[0];
+            if (selectedAnnotation === deleted) selectedAnnotation = null;
+            updateStrokeStats();
+            renderPageAnnotations(pageNum || deleted.page);
+            if (deleted.id) {
+                fetch(`view.php?action=delete_stroke&id=${docId}${versionQueryParam}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+                    body: JSON.stringify({ id: deleted.id })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.history_event) {
+                        prependHistoryEvent(data.history_event);
+                    } else {
+                        fetchAnnotationHistory();
+                    }
+                })
+                .catch(err => console.error("Error erasing stroke:", err));
+            }
+        }
     }
 
     function handleStartDrawing(e, canvas, pageNum) {
@@ -627,6 +664,17 @@ document.addEventListener("DOMContentLoaded", function () {
             } else {
                 selectedAnnotation = null;
                 renderAllPagesAnnotations();
+            }
+            return;
+        }
+
+        // --- ERASER TOOL ---
+        if (activeTool === "eraser") {
+            isDrawing = true;
+            activeDrawingPage = pageNum;
+            const hit = hitTestAnnotation(pageNum, coords.xRel, coords.yRel, rect.width, rect.height, 8);
+            if (hit) {
+                eraseAnnotation(hit, pageNum);
             }
             return;
         }
@@ -694,6 +742,18 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
+        // --- ERASER BRUSH SWEEP ---
+        if (activeTool === "eraser") {
+            canvas.style.cursor = "cell";
+            if (isDrawing) {
+                const hit = hitTestAnnotation(pageNum, coords.xRel, coords.yRel, rect.width, rect.height, 8);
+                if (hit) {
+                    eraseAnnotation(hit, pageNum);
+                }
+            }
+            return;
+        }
+
         // --- DRAWING FREEHAND / HIGHLIGHTER ---
         if (!isDrawing || !currentStroke || activeDrawingPage !== pageNum) return;
         currentStroke.points.push(coords);
@@ -704,6 +764,11 @@ document.addEventListener("DOMContentLoaded", function () {
         if (drawRafId) {
             cancelAnimationFrame(drawRafId);
             drawRafId = null;
+        }
+
+        if (activeTool === "eraser") {
+            isDrawing = false;
+            return;
         }
 
         if (activeTool === "pan") {
@@ -739,32 +804,7 @@ document.addEventListener("DOMContentLoaded", function () {
             if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
 
             e.preventDefault();
-            const selfLayer = getActiveSelfLayer();
-            if (!selfLayer) return;
-
-            const idx = selfLayer.strokes.indexOf(selectedAnnotation);
-            if (idx !== -1) {
-                const deleted = selfLayer.strokes.splice(idx, 1)[0];
-                updateStrokeStats();
-                if (deleted && deleted.page) {
-                    renderPageAnnotations(deleted.page);
-                }
-                if (deleted && deleted.id) {
-                    fetch(`view.php?action=delete_stroke&id=${docId}${versionQueryParam}`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
-                        body: JSON.stringify({ id: deleted.id })
-                    })
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data && data.history_event) {
-                            prependHistoryEvent(data.history_event);
-                        }
-                    })
-                    .catch(err => console.error("Error deleting stroke:", err));
-                }
-            }
-            selectedAnnotation = null;
+            eraseAnnotation(selectedAnnotation, selectedAnnotation.page);
         }
     });
 
@@ -1679,10 +1719,15 @@ document.addEventListener("DOMContentLoaded", function () {
             activeTool = this.dataset.tool || "pen";
 
             const annoCanvases = document.querySelectorAll(".pdf-annotation-canvas");
-            annoCanvases.forEach(c => c.style.pointerEvents = "auto");
+            annoCanvases.forEach(c => {
+                c.style.pointerEvents = "auto";
+                c.style.cursor = (activeTool === "pan") ? "default" : (activeTool === "eraser" ? "cell" : "crosshair");
+            });
 
             if (activeTool === "pan") {
                 if (workspaceCenterStage) workspaceCenterStage.style.cursor = "default";
+            } else if (activeTool === "eraser") {
+                if (workspaceCenterStage) workspaceCenterStage.style.cursor = "cell";
             } else {
                 if (workspaceCenterStage) workspaceCenterStage.style.cursor = "crosshair";
             }
@@ -1697,8 +1742,10 @@ document.addEventListener("DOMContentLoaded", function () {
             this.classList.add("is-selected");
             activeColor = this.dataset.color || "#16a34a";
             const selfLayer = getActiveSelfLayer();
-            if (selfLayer) {
+            if (selfLayer && (!selfLayer.strokes || selfLayer.strokes.length === 0)) {
                 selfLayer.color = activeColor;
+                const dot = document.querySelector(`#layerRow_${selfLayer.layerId} .layer-color-indicator`);
+                if (dot) dot.style.backgroundColor = activeColor;
             }
         });
     });
@@ -2313,7 +2360,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0;">
                         <span style="font-family: monospace; font-size: 12.5px; font-weight: 700; color: var(--ink);">${escapeHtml(v.version_number)}</span>
                         ${statusPill}
-                        <span style="font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(v.author_name || 'System')} • ${escapeHtml(v.created_at || '')}</span>
+                        <span title="${escapeHtml(v.created_at || '')} by ${escapeHtml(v.author_name || 'System')}" style="font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(v.author_name || 'System')} • ${escapeHtml(v.created_at || '')}</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 2px; flex-shrink: 0;">
                         <a href="${targetUrl}" class="btn-action" style="width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; color: ${isCurrentlyViewed ? 'var(--green)' : 'var(--ink)'}; text-decoration: none;" title="${isCurrentlyViewed ? 'Currently viewing' : 'Preview snapshot'}">
@@ -2328,6 +2375,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     </div>
                 </div>
                 <div class="version-details-panel" style="display: none; margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--border); font-size: 11.5px; color: var(--muted);">
+                    <div><strong>Created:</strong> ${escapeHtml(v.created_at || '')} by ${escapeHtml(v.author_name || 'System')}</div>
                     <div><strong>File:</strong> ${escapeHtml(v.file_original_name || '')} ${fileSizeFormatted ? `(${fileSizeFormatted})` : ''}</div>
                     ${v.change_summary ? `<div style="margin-top: 2px; color: var(--ink);"><strong>Note:</strong> ${escapeHtml(v.change_summary)}</div>` : ''}
                 </div>
