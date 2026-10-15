@@ -1,0 +1,1017 @@
+/* ==========================================================================
+   EDMS EXPLORER COMPONENT STYLESHEET (decoupled from styles.css)
+   Includes: Action Popover, Drive Move Modal, Table Pagination,
+   Upload Dropzone, Batch Upload Ingestion Dock, and Drag-Marquee Selection.
+   ========================================================================== */
+
+/* ============================================================
+   Action Popover Menu (3-Dots Context Menu)
+   ============================================================ */
+.edms-action-popover {
+    position: fixed;
+    z-index: 1100;
+    min-width: 155px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-modal);
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    transform-origin: top right;
+}
+
+.popover-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.12s ease;
+}
+
+.popover-item:hover {
+    background: var(--surface-light);
+    color: var(--green);
+}
+
+.popover-item svg {
+    width: 14px;
+    height: 14px;
+    color: var(--muted);
+    flex-shrink: 0;
+    transition: color 0.12s ease;
+}
+
+.popover-item:hover svg {
+    color: var(--green);
+}
+
+.popover-item.is-archive {
+    color: var(--ink);
+}
+
+.popover-item.is-archive:hover {
+    background: var(--amber-soft, var(--surface-light));
+    color: var(--amber-dark, var(--green-dark));
+}
+
+.popover-item.is-archive svg {
+    color: var(--muted);
+}
+
+.popover-item.is-archive:hover svg {
+    color: var(--amber-dark, var(--green));
+}
+
+.popover-item.is-danger {
+    color: var(--red);
+}
+
+.popover-item.is-danger:hover {
+    background: var(--red-soft);
+    color: var(--red-ink);
+}
+
+.popover-item.is-danger svg {
+    color: var(--red);
+}
+
+.popover-item.is-danger:hover svg {
+    color: var(--red-ink);
+}
+
+.popover-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 3px 0;
+}
+
+/* ============================================================
+   Google Drive Style "Move To" Modal Navigator
+   ============================================================ */
+.modal-dialog-drive {
+    max-width: 480px;
+    width: 95%;
+}
+
+.drive-move-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.drive-move-label {
+    color: var(--muted);
+}
+
+.drive-move-target-name {
+    color: var(--ink);
+    font-weight: 600;
+}
+
+.drive-move-path-bar {
+    display: flex;
+    align-items: center;
+    padding: 6px 10px;
+    background: var(--surface-light);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    overflow-x: auto;
+}
+
+.drive-move-breadcrumbs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+}
+
+.drive-crumb-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: all 0.12s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.drive-crumb-btn:hover {
+    background: var(--green-soft);
+    color: var(--green);
+}
+
+.drive-crumb-btn.is-current {
+    color: var(--ink);
+    cursor: default;
+    background: transparent;
+}
+
+.drive-crumb-sep {
+    color: var(--muted);
+    font-size: 11px;
+    opacity: 0.7;
+}
+
+.drive-move-explorer {
+    height: 220px;
+    max-height: 220px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.drive-move-list {
+    display: flex;
+    flex-direction: column;
+    padding: 4px;
+    gap: 2px;
+}
+
+.drive-folder-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.12s ease;
+}
+
+.drive-folder-row:hover:not(.is-disabled) {
+    background: var(--surface-light);
+    border-color: var(--border);
+}
+
+.drive-folder-row.is-selected {
+    background: var(--green-soft);
+    border-color: var(--green);
+}
+
+.drive-folder-row.is-selected:hover {
+    background: var(--green-soft);
+    border-color: var(--green);
+}
+
+.drive-folder-row.is-disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    background: var(--surface-light);
+}
+
+.drive-folder-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+}
+
+.drive-folder-icon {
+    width: 18px;
+    height: 18px;
+    color: var(--green);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.drive-folder-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.drive-folder-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.drive-folder-row.is-selected .drive-folder-name {
+    color: var(--green-dark);
+    font-weight: 600;
+}
+
+.drive-folder-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.12s ease;
+    flex-shrink: 0;
+}
+
+.drive-folder-nav-btn:hover {
+    background: var(--wrapper-border);
+    color: var(--green);
+    border-color: var(--green);
+}
+
+.drive-folder-nav-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.drive-move-empty {
+    padding: 30px 16px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 12.5px;
+}
+
+.drive-move-current-target {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.drive-move-current-target strong {
+    color: var(--green-dark);
+    font-weight: 600;
+}
+
+/* ============================================================
+   Explorer Table Pagination Bar
+   ============================================================ */
+.explorer-pagination-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-top: 8px;
+    box-shadow: var(--shadow-sm);
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.pagination-info {
+    font-size: 12.5px;
+    color: var(--muted);
+}
+
+.pagination-info strong {
+    color: var(--ink);
+    font-weight: 600;
+}
+
+.pagination-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.pagination-per-page {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pagination-label {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+}
+
+.pagination-select {
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pagination-select:focus {
+    border-color: var(--green);
+    box-shadow: 0 0 0 2px var(--green-ring);
+}
+
+.pagination-nav-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pagination-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    padding: 0;
+}
+
+.pagination-btn svg {
+    width: 14px;
+    height: 14px;
+    color: var(--muted);
+    transition: color 0.15s ease;
+}
+
+.pagination-btn:hover:not(:disabled):not(.is-disabled) {
+    background: var(--surface-light);
+    border-color: var(--green);
+}
+
+.pagination-btn:hover:not(:disabled):not(.is-disabled) svg {
+    color: var(--green);
+}
+
+.pagination-btn:disabled,
+.pagination-btn.is-disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: var(--surface-light);
+    border-color: var(--border);
+}
+
+.pagination-pages {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.pagination-page-btn {
+    min-width: 28px;
+    height: 28px;
+    padding: 0 6px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pagination-page-btn:hover:not(.is-active) {
+    background: var(--surface-light);
+    border-color: var(--green);
+    color: var(--green);
+}
+
+.pagination-page-btn.is-active {
+    background: var(--green);
+    border-color: var(--green);
+    color: var(--surface);
+    cursor: default;
+    box-shadow: var(--shadow-sm);
+}
+
+.pagination-ellipsis {
+    padding: 0 4px;
+    font-size: 12px;
+    color: var(--muted);
+    user-select: none;
+}
+
+/* ============================================================
+   Upload Document Modal & Drag-and-Drop Dropzone
+   ============================================================ */
+.upload-dropzone {
+    position: relative;
+    border: 2px dashed var(--border-dashed, var(--border));
+    border-radius: 8px;
+    background: var(--surface-light);
+    padding: 24px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.upload-dropzone:hover,
+.upload-dropzone.is-dragover {
+    border-color: var(--green);
+    background: var(--green-soft);
+}
+
+.upload-file-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    z-index: 2;
+}
+
+.dropzone-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none;
+}
+
+.dropzone-icon {
+    width: 40px;
+    height: 40px;
+    color: var(--green);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.dropzone-icon svg {
+    width: 32px;
+    height: 32px;
+}
+
+.dropzone-text {
+    font-size: 13px;
+    color: var(--ink);
+}
+
+.dropzone-text strong {
+    color: var(--green-dark);
+}
+
+.dropzone-hint {
+    font-size: 11.5px;
+    color: var(--muted);
+}
+
+/* Selected File Pill */
+.selected-file-preview {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--surface-light);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-top: 10px;
+}
+
+.preview-file-icon {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.preview-file-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.preview-file-details {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.preview-file-name {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.preview-file-size {
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.btn-clear-selected-file {
+    background: transparent;
+    border: none;
+    font-size: 18px;
+    line-height: 1;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: all 0.12s ease;
+}
+
+.btn-clear-selected-file:hover {
+    color: var(--red-ink);
+    background: var(--red-soft);
+}
+
+
+/* ==========================================================================
+   BATCH DRAG-AND-DROP UPLOAD & CONFIRMATION MODAL
+   ========================================================================== */
+
+/* Fullscreen Drag-and-Drop Ingestion Overlay on Explorer */
+.explorer-drag-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: var(--modal-backdrop-bg);
+    backdrop-filter: blur(2px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+}
+
+.explorer-drag-overlay.is-active {
+    display: flex;
+    opacity: 1;
+}
+
+.drag-overlay-card {
+    background: var(--surface);
+    border: 2px dashed var(--green);
+    border-radius: 14px;
+    padding: 32px 48px;
+    text-align: center;
+    box-shadow: var(--shadow-modal);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    max-width: 90%;
+}
+
+.drag-overlay-icon {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background: var(--green-soft);
+    color: var(--green);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 4px;
+}
+
+.drag-overlay-icon svg {
+    width: 30px;
+    height: 30px;
+}
+
+.drag-overlay-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--ink);
+}
+
+.drag-overlay-subtitle {
+    font-size: 13px;
+    color: var(--text);
+}
+
+.drag-overlay-subtitle strong {
+    color: var(--green-ink);
+}
+
+.drag-overlay-hint {
+    font-size: 11.5px;
+    color: var(--muted);
+}
+
+/* Specific Folder Drop-Target Highlight */
+.item-card-row.is-drop-target {
+    background: var(--green-soft) !important;
+    border-color: var(--green) !important;
+    box-shadow: 0 0 0 2px var(--green-ring) !important;
+}
+
+/* Batch Upload Confirmation Modal */
+.batch-upload-summary-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--green-soft);
+    border: 1px solid var(--green-line);
+    border-radius: 8px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: var(--green-ink);
+}
+
+.batch-upload-summary-bar strong {
+    font-weight: 700;
+}
+
+.batch-upload-size {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--green-ink);
+    opacity: 0.85;
+}
+
+.batch-upload-file-list {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-light);
+    display: flex;
+    flex-direction: column;
+}
+
+.batch-file-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--surface);
+    transition: background 0.12s ease;
+}
+
+.batch-file-item:not(:last-child) {
+    border-bottom: 1px solid var(--surface-muted);
+}
+
+.batch-file-item:hover {
+    background: var(--surface-light);
+}
+
+.batch-file-icon {
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--green);
+}
+
+.batch-file-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.batch-file-details {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.batch-file-name {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.batch-file-size {
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.batch-file-remove-btn {
+    background: transparent;
+    border: none;
+    font-size: 16px;
+    line-height: 1;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 4px;
+    transition: all 0.12s ease;
+}
+
+.batch-file-remove-btn:hover {
+    color: var(--red-ink);
+    background: var(--red-soft);
+}
+
+/* ==========================================================================
+   FLOATING UPLOAD DOCK (GOOGLE DRIVE STYLE PROGRESS TRAY)
+   ========================================================================== */
+.edms-upload-dock {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 360px;
+    max-width: calc(100vw - 32px);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow-modal);
+    z-index: 1050;
+    overflow: hidden;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.upload-dock-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--ink);
+    color: var(--surface);
+    cursor: pointer;
+    user-select: none;
+}
+
+.upload-dock-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--surface);
+    min-width: 0;
+}
+
+.upload-dock-title span:last-child {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.upload-dock-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.dock-btn-icon {
+    background: transparent;
+    border: none;
+    color: var(--muted-light);
+    cursor: pointer;
+    padding: 3px 6px;
+    border-radius: 4px;
+    line-height: 1;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.12s ease, background 0.12s ease;
+}
+
+.dock-btn-icon:hover {
+    color: var(--surface);
+    background: var(--text-slate-dark);
+}
+
+.dock-chevron-icon {
+    transition: transform 0.2s ease;
+}
+
+.edms-upload-dock.is-minimized .upload-dock-body,
+.edms-upload-dock.is-minimized .upload-dock-progress-wrapper {
+    display: none;
+}
+
+.edms-upload-dock.is-minimized .dock-chevron-icon {
+    transform: rotate(180deg);
+}
+
+.upload-dock-progress-wrapper {
+    width: 100%;
+    height: 4px;
+    background: var(--surface-muted);
+    overflow: hidden;
+}
+
+.upload-dock-progress-bar {
+    height: 100%;
+    background: var(--green);
+    width: 0%;
+    transition: width 0.25s ease;
+}
+
+.upload-dock-body {
+    max-height: 220px;
+    overflow-y: auto;
+    background: var(--surface);
+}
+
+.upload-dock-item-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.dock-item-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--surface-muted);
+    font-size: 12px;
+}
+
+.dock-item-row:last-child {
+    border-bottom: none;
+}
+
+.dock-item-icon {
+    width: 18px;
+    height: 18px;
+    color: var(--green);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.dock-item-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.dock-item-details {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.dock-item-name {
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dock-item-status-text {
+    font-size: 10.5px;
+    color: var(--muted);
+}
+
+.dock-item-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+}
+
+.dock-item-state.is-waiting {
+    color: var(--muted-light);
+}
+
+.dock-item-state.is-uploading {
+    color: var(--green);
+}
+
+.dock-item-state.is-success {
+    color: var(--green);
+}
+
+.dock-item-state.is-error {
+    color: var(--red);
+}
+
+.upload-dock-spinner,
+.dock-spinner-sm {
+    width: 13px;
+    height: 13px;
+    border: 2px solid var(--muted-light);
+    border-top-color: var(--green);
+    border-radius: 50%;
+    animation: dockSpin 0.75s linear infinite;
+    display: inline-block;
+}
+
+.upload-dock-header .upload-dock-spinner {
+    border: 2px solid var(--muted);
+    border-top-color: var(--green-muted);
+}
+
+@keyframes dockSpin {
+    to { transform: rotate(360deg); }
+}
+
+/* ==========================================================================
+   DRAG SELECTION MARQUEE & CARD SELECTION
+   ========================================================================== */
+.selection-marquee {
+    position: fixed;
+    background: var(--green-ring);
+    border: 1px solid var(--green);
+    border-radius: 3px;
+    pointer-events: none;
+    z-index: 999;
+}
+
+.explorer-item-card.is-selected {
+    background: var(--green-soft) !important;
+    border-color: var(--green) !important;
+}
+
+.popover-header-label {
+    padding: 6px 10px 4px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--surface-muted);
+    margin-bottom: 2px;
+}
+

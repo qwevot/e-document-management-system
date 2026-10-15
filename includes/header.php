@@ -20,6 +20,11 @@ $initials = strtoupper(($words[0][0] ?? 'U') . ($words[1][0] ?? ''));
     <title><?php echo e($pageTitle); ?> - EDMS</title>
     <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/styles.css">
     <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/responsive.css">
+    <?php if (!empty($extraCss)): ?>
+        <?php foreach ((array)$extraCss as $cssFile): ?>
+            <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/<?php echo e($cssFile); ?>">
+        <?php endforeach; ?>
+    <?php endif; ?>
     <script>
         window.BASE_URL = <?php echo json_encode(BASE_URL); ?>;
     </script>
