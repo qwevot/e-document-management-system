@@ -1,6 +1,7 @@
 <?php
 $pageTitle = 'My Workspace';
 $activeNav = 'my-workspace';
+$extraCss  = ['explorer.css'];
 
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -38,8 +39,10 @@ $totalAttentionCount = count($pendingReviews) + count($recentVerdicts);
 // 2. My Workspace: Documents authored by user OR where user is a contributor
 $myDocsStmt = $pdo->prepare("
     SELECT DISTINCT d.id, d.name, d.version, d.status, d.file_extension, d.updated_at, d.created_at,
+           d.parent_id, p.name AS parent_name,
            (d.created_by = :uid1) AS is_owner
     FROM dms_nodes d
+    LEFT JOIN dms_nodes p ON d.parent_id = p.id
     LEFT JOIN dms_document_contributors c ON d.id = c.document_id AND c.user_id = :uid2
     WHERE d.node_type = 'document'
       AND d.is_deleted = 0
@@ -53,13 +56,15 @@ $myDocs = $myDocsStmt->fetchAll(PDO::FETCH_ASSOC);
 // 3. Recently Opened Documents: Aggregated by most recent access by current user
 $recentTouchedStmt = $pdo->prepare("
     SELECT d.id, d.name, d.version, d.status, d.file_extension,
+           d.parent_id, p.name AS parent_name,
            MAX(l.created_at) AS last_touched_at
     FROM dms_nodes d
+    LEFT JOIN dms_nodes p ON d.parent_id = p.id
     INNER JOIN system_logs l ON l.entity_type = 'document' AND l.entity_id = d.id AND l.user_id = :uid
     WHERE d.node_type = 'document'
       AND d.is_deleted = 0
       AND l.action IN ('document.view', 'document.download', 'document.upload', 'version.upload', 'document.review_requested')
-    GROUP BY d.id, d.name, d.version, d.status, d.file_extension
+    GROUP BY d.id, d.name, d.version, d.status, d.file_extension, d.parent_id, p.name
     ORDER BY last_touched_at DESC
     LIMIT 15
 ");
@@ -76,6 +81,12 @@ function ws_status_badge(string $status): string {
         'obsolete'  => 'badge-obsolete',
         default     => 'badge-active',
     };
+}
+
+function ws_loc_badge(?int $pid, ?string $pname): string {
+    $url = $pid ? "explorer.php?mode=project&folder=$pid" : 'explorer.php?mode=project';
+    $name = e($pname ?: 'Projects');
+    return "<a href=\"$url\" class=\"location-badge\" title=\"Located in: $name\">" . render_icon('folder') . "<span class=\"loc-name\">$name</span></a>";
 }
 ?>
 
@@ -138,7 +149,7 @@ function ws_status_badge(string $status): string {
                     <div style="width: 32px;"></div>
                     <div class="col-hdr-name">Document</div>
                     <div class="col-hdr-owner">Role</div>
-                    <div class="col-hdr-version">Version</div>
+                    <div class="col-hdr-location">Location</div>
                     <div class="col-hdr-status">Status</div>
                     <div class="col-hdr-actions">Actions</div>
                 </div>
@@ -155,6 +166,9 @@ function ws_status_badge(string $status): string {
                                 <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-title" title="<?php echo e($doc['name']); ?>">
                                     <?php echo e($doc['name']); ?>
                                 </a>
+                                <?php if (!empty($doc['version'])): ?>
+                                    <span class="version-badge"><?php echo e($doc['version']); ?></span>
+                                <?php endif; ?>
                             </div>
                         </div>
 
@@ -164,9 +178,7 @@ function ws_status_badge(string $status): string {
                             </span>
                         </div>
 
-                        <div class="item-version-col">
-                            <span class="version-badge"><?php echo e($doc['version']); ?></span>
-                        </div>
+                        <div class="item-location-col"><?php echo ws_loc_badge($doc['parent_id'] ? (int)$doc['parent_id'] : null, $doc['parent_name'] ?? null); ?></div>
 
                         <div class="item-status-col">
                             <span class="status-badge <?php echo ws_status_badge($doc['status']); ?>">
@@ -175,11 +187,8 @@ function ws_status_badge(string $status): string {
                         </div>
 
                         <div class="item-actions-col">
-                            <button type="button" class="btn-action" title="Copy Document Link" onclick="copyWsDocLink(event, <?php echo (int)$doc['id']; ?>)">
-                                <?php echo render_icon('link'); ?>
-                            </button>
-                            <button type="button" class="btn-action" title="View Audit History" onclick="openWsAuditModal(<?php echo (int)$doc['id']; ?>, '<?php echo addslashes(e($doc['name'])); ?>')">
-                                <?php echo render_icon('history'); ?>
+                            <button type="button" class="btn-action btn-more-actions" title="More Actions" onclick="openWsDocMenu(event, <?php echo (int)$doc['id']; ?>, '<?php echo addslashes(e($doc['name'])); ?>')">
+                                <?php echo render_icon('more-v'); ?>
                             </button>
                         </div>
                     </div>
@@ -200,7 +209,7 @@ function ws_status_badge(string $status): string {
                     <div style="width: 32px;"></div>
                     <div class="col-hdr-name">Document</div>
                     <div class="col-hdr-modified">Last Accessed</div>
-                    <div class="col-hdr-version">Version</div>
+                    <div class="col-hdr-location">Location</div>
                     <div class="col-hdr-status">Status</div>
                     <div class="col-hdr-actions">Actions</div>
                 </div>
@@ -217,6 +226,9 @@ function ws_status_badge(string $status): string {
                                 <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-title" title="<?php echo e($doc['name']); ?>">
                                     <?php echo e($doc['name']); ?>
                                 </a>
+                                <?php if (!empty($doc['version'])): ?>
+                                    <span class="version-badge"><?php echo e($doc['version']); ?></span>
+                                <?php endif; ?>
                             </div>
                         </div>
 
@@ -226,9 +238,7 @@ function ws_status_badge(string $status): string {
                             </span>
                         </div>
 
-                        <div class="item-version-col">
-                            <span class="version-badge"><?php echo e($doc['version']); ?></span>
-                        </div>
+                        <div class="item-location-col"><?php echo ws_loc_badge($doc['parent_id'] ? (int)$doc['parent_id'] : null, $doc['parent_name'] ?? null); ?></div>
 
                         <div class="item-status-col">
                             <span class="status-badge <?php echo ws_status_badge($doc['status']); ?>">
@@ -237,11 +247,8 @@ function ws_status_badge(string $status): string {
                         </div>
 
                         <div class="item-actions-col">
-                            <button type="button" class="btn-action" title="Copy Document Link" onclick="copyWsDocLink(event, <?php echo (int)$doc['id']; ?>)">
-                                <?php echo render_icon('link'); ?>
-                            </button>
-                            <button type="button" class="btn-action" title="View Audit History" onclick="openWsAuditModal(<?php echo (int)$doc['id']; ?>, '<?php echo addslashes(e($doc['name'])); ?>')">
-                                <?php echo render_icon('history'); ?>
+                            <button type="button" class="btn-action btn-more-actions" title="More Actions" onclick="openWsDocMenu(event, <?php echo (int)$doc['id']; ?>, '<?php echo addslashes(e($doc['name'])); ?>')">
+                                <?php echo render_icon('more-v'); ?>
                             </button>
                         </div>
                     </div>
@@ -339,6 +346,13 @@ function ws_status_badge(string $status): string {
         </div>
     </div>
 
+</div>
+
+<div class="edms-action-popover" id="wsActionPopover" style="display: none;">
+    <a href="#" class="popover-item" id="wsPopActionView" style="text-decoration: none;"><?php echo render_icon('view'); ?><span>Open Workspace</span></a>
+    <a href="#" class="popover-item" id="wsPopActionDownload" style="text-decoration: none;"><?php echo render_icon('download'); ?><span>Download</span></a>
+    <button type="button" class="popover-item" id="wsPopActionCopyLink"><?php echo render_icon('link'); ?><span>Copy Link</span></button>
+    <button type="button" class="popover-item" id="wsPopActionAuditHistory"><?php echo render_icon('history'); ?><span>Audit History</span></button>
 </div>
 
 <!-- Modal: Document Audit History (Reusing existing EDMS modal architecture) -->
@@ -591,12 +605,29 @@ if (wsDropzone && wsFileInput) {
     });
 }
 
-// Close modals on backdrop click
-document.addEventListener('click', function(e) {
-    const auditModal = document.getElementById('modalAuditHistory');
-    if (auditModal && e.target === auditModal) closeWsAuditModal();
-    const uploadModal = document.getElementById('modalUploadDoc');
-    if (uploadModal && e.target === uploadModal) closeWsUploadModal();
+function openWsDocMenu(e, id, name) {
+    e.stopPropagation();
+    const p = document.getElementById('wsActionPopover');
+    p.querySelector('#wsPopActionView').href = `view.php?id=${id}`;
+    p.querySelector('#wsPopActionDownload').href = `download.php?id=${id}`;
+    p.querySelector('#wsPopActionCopyLink').onclick = ev => { p.style.display = 'none'; copyWsDocLink(ev, id); };
+    p.querySelector('#wsPopActionAuditHistory').onclick = () => { p.style.display = 'none'; openWsAuditModal(id, name); };
+    const r = e.currentTarget.getBoundingClientRect();
+    p.style.cssText = `display:flex; left:${Math.max(10, r.right - 165)}px; top:${r.bottom + 160 > window.innerHeight ? Math.max(10, r.top - 160) : r.bottom + 4}px;`;
+}
+document.addEventListener('click', e => {
+    const p = document.getElementById('wsActionPopover');
+    if (p && !p.contains(e.target) && !e.target.closest('.btn-more-actions')) p.style.display = 'none';
+    if (e.target.id === 'modalAuditHistory') closeWsAuditModal();
+    if (e.target.id === 'modalUploadDoc') closeWsUploadModal();
+});
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        const p = document.getElementById('wsActionPopover');
+        if (p) p.style.display = 'none';
+        closeWsAuditModal();
+        closeWsUploadModal();
+    }
 });
 </script>
 
