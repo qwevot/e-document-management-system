@@ -178,11 +178,14 @@ document.addEventListener("DOMContentLoaded", function () {
         const loadingTask = pdfjsLib.getDocument({
             url: streamUrl,
             cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/",
-            cMapPacked: true
+            cMapPacked: true,
+            disableAutoFetch: true,
+            disableStream: false,
+            rangeChunkSize: 131072
         });
         loadingTask.onProgress = ({ loaded, total }) => {
             if (loadingStatusText && total > 0) {
-                loadingStatusText.textContent = `Loading specimen: ${Math.round((loaded / total) * 100)}%`;
+                loadingStatusText.textContent = `Streaming document: ${Math.round((loaded / total) * 100)}%`;
             }
         };
         loadingTask.promise

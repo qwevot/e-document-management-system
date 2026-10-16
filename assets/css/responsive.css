@@ -28,10 +28,210 @@
    2. TABLET BREAKPOINT (max-width: 1024px)
    ========================================================================== */
 @media (max-width: 1024px) {
-    /* My Workspace: Stack 2-Column Dashboard Grid vertically */
+    /* My Workspace: Stack 2-Column Dashboard Grid vertically & convert sidebar to horizontal chips */
     .workspace-dashboard-grid {
-        grid-template-columns: 1fr !important;
-        gap: 20px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        gap: 12px !important;
+    }
+
+    .ws-mailbox-sidebar {
+        position: static !important;
+        top: auto !important;
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+        padding: 6px 8px !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: none !important;
+        gap: 6px !important;
+        background: var(--surface) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 8px !important;
+    }
+
+    .ws-mailbox-sidebar::-webkit-scrollbar {
+        display: none !important;
+    }
+
+    .ws-mailbox-heading {
+        display: none !important;
+    }
+
+    .ws-mailbox-group {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 6px !important;
+        flex-shrink: 0 !important;
+    }
+
+    .ws-mailbox-divider {
+        width: 1px !important;
+        height: 22px !important;
+        margin: 0 4px !important;
+        flex-shrink: 0 !important;
+        background: var(--border) !important;
+    }
+
+    .ws-mailbox-item {
+        flex-shrink: 0 !important;
+        width: auto !important;
+        padding: 5px 12px !important;
+        border-radius: 20px !important;
+        white-space: nowrap !important;
+        font-size: 12px !important;
+        gap: 6px !important;
+    }
+
+    .ws-mailbox-icon {
+        width: 14px !important;
+        height: 14px !important;
+    }
+
+    .ws-status-dot {
+        width: 7px !important;
+        height: 7px !important;
+    }
+
+    .ws-mailbox-count {
+        font-size: 10px !important;
+        padding: 1px 6px !important;
+    }
+
+    /* Contain document wrapper and prevent wide children from expanding grid */
+    .workspace-dashboard-grid .explorer-wrapper {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+    }
+
+    /* Isolated internal horizontal scroll track for table */
+    .workspace-dashboard-grid .explorer-card-list {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        box-sizing: border-box !important;
+        padding-bottom: 6px !important;
+    }
+
+    .workspace-dashboard-grid .explorer-card-list[style*="display: none"] {
+        display: none !important;
+    }
+
+    /* Synchronize table header and item cards */
+    .workspace-dashboard-grid .explorer-table-header {
+        display: flex !important;
+        align-items: center !important;
+        width: 100% !important;
+        min-width: 660px !important;
+        padding: 8px 14px !important;
+        gap: 12px !important;
+        box-sizing: border-box !important;
+    }
+
+    .workspace-dashboard-grid .explorer-item-card {
+        display: flex;
+        align-items: center;
+        width: 100% !important;
+        min-width: 660px !important;
+        padding: 8px 14px !important;
+        gap: 12px !important;
+        box-sizing: border-box !important;
+    }
+
+    .workspace-dashboard-grid .explorer-item-card[style*="display: none"] {
+        display: none !important;
+    }
+
+    /* Icon / placeholder column */
+    .workspace-dashboard-grid .explorer-table-header > div:first-child,
+    .workspace-dashboard-grid .item-icon-col {
+        width: 32px !important;
+        min-width: 32px !important;
+        max-width: 32px !important;
+        height: 32px !important;
+        flex-shrink: 0 !important;
+    }
+
+    /* Synchronized column definitions */
+    .workspace-dashboard-grid .col-hdr-name,
+    .workspace-dashboard-grid .item-main-col {
+        flex: 1 1 0% !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
+    }
+
+    .workspace-dashboard-grid .item-title-row {
+        min-width: 0 !important;
+        overflow: hidden !important;
+    }
+
+    .workspace-dashboard-grid .item-title {
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+
+    .workspace-dashboard-grid .col-hdr-owner,
+    .workspace-dashboard-grid .item-owner-col {
+        display: flex !important;
+        width: 130px !important;
+        min-width: 130px !important;
+        max-width: 130px !important;
+        flex-shrink: 0 !important;
+    }
+
+    .workspace-dashboard-grid .col-hdr-modified,
+    .workspace-dashboard-grid .item-modified-col {
+        display: flex !important;
+        width: 125px !important;
+        min-width: 125px !important;
+        max-width: 125px !important;
+        flex-shrink: 0 !important;
+    }
+
+    .workspace-dashboard-grid .col-hdr-location,
+    .workspace-dashboard-grid .item-location-col {
+        display: flex !important;
+        width: 120px !important;
+        min-width: 120px !important;
+        max-width: 120px !important;
+        flex-shrink: 0 !important;
+    }
+
+    .workspace-dashboard-grid .col-hdr-status,
+    .workspace-dashboard-grid .item-status-col {
+        display: flex !important;
+        width: 80px !important;
+        min-width: 80px !important;
+        max-width: 80px !important;
+        justify-content: center !important;
+        flex-shrink: 0 !important;
+    }
+
+    .workspace-dashboard-grid .col-hdr-actions,
+    .workspace-dashboard-grid .item-actions-col {
+        display: flex !important;
+        width: 60px !important;
+        min-width: 60px !important;
+        max-width: 60px !important;
+        justify-content: flex-end !important;
+        flex-shrink: 0 !important;
     }
 
     /* Explorer / Archives: Hide non-essential location column */
@@ -97,21 +297,33 @@
         border-right: 1px solid var(--glass-white-12) !important;
     }
 
+    .app {
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow-x: hidden !important;
+    }
+
     body.sidebar-collapsed .main {
         margin-left: 0 !important;
         width: 100% !important;
+        max-width: 100% !important;
     }
 
     .main {
         margin-left: 0 !important;
         width: 100% !important;
-        min-width: 0;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        overflow-x: hidden !important;
         transition: none;
     }
 
     /* --- Topbar Header --- */
     .topbar {
         height: 56px;
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
         padding: 0 16px;
         position: sticky;
         top: 0;
@@ -302,6 +514,7 @@
         display: block;
         min-width: 0;
         flex: 0 1 auto;
+        max-width: 17ch !important;
     }
 
     .item-type-badge,
@@ -666,5 +879,32 @@
     .dock-btn svg {
         width: 16px;
         height: 16px;
+    }
+
+    /* My Workspace Mobile Phone Harmonization */
+    .workspace-dashboard-grid .explorer-toolbar-card {
+        flex-direction: column !important;
+        gap: 10px !important;
+    }
+
+    .workspace-dashboard-grid .explorer-search-form {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    .workspace-dashboard-grid .toolbar-actions {
+        width: 100% !important;
+        display: flex !important;
+        gap: 8px !important;
+    }
+
+    .workspace-dashboard-grid .toolbar-actions .btn {
+        flex: 1 1 calc(50% - 4px) !important;
+        justify-content: center !important;
+    }
+
+    /* Keep all horizontal scroll columns preserved in Workspace */
+    .workspace-dashboard-grid .item-modified-col {
+        display: flex !important;
     }
 }

@@ -253,6 +253,19 @@ function get_initials(?string $name): string
 }
 
 /**
+ * Render small 22px avatar element with image fallback to initials.
+ */
+function render_user_avatar_sm(?string $name, ?string $avatar): string
+{
+    $initials = e(get_initials($name));
+    if (!empty($avatar)) {
+        $src = e(BASE_URL . '/' . ltrim($avatar, '/\\'));
+        return '<span class="user-avatar-sm"><img src="' . $src . '" alt="" loading="lazy" onerror="this.remove()">' . $initials . '</span>';
+    }
+    return '<span class="user-avatar-sm">' . $initials . '</span>';
+}
+
+/**
  * High-performance recursive descendant node ID collector using CTE
  * Collects all nested descendant IDs of given root IDs in a single query.
  */

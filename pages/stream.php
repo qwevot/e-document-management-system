@@ -141,11 +141,56 @@ if (($ifNoneMatch !== '' && trim($ifNoneMatch) === $etag) ||
     exit;
 }
 
+// Range request handling (RFC 7233 Byte Serving)
+$start = 0;
+$end = $fileSize - 1;
+$isRangeRequest = false;
+
+if (isset($_SERVER['HTTP_RANGE']) && preg_match('/bytes=\s*(\d*)-(\d*)/i', $_SERVER['HTTP_RANGE'], $matches)) {
+    $rangeStart = $matches[1];
+    $rangeEnd   = $matches[2];
+
+    if ($rangeStart === '' && $rangeEnd !== '') {
+        // Suffix byte range: e.g. bytes=-500 (last 500 bytes)
+        $start = $fileSize - (int)$rangeEnd;
+        if ($start < 0) {
+            $start = 0;
+        }
+    } elseif ($rangeStart !== '' && $rangeEnd === '') {
+        // Range from start offset to EOF: e.g. bytes=500-
+        $start = (int)$rangeStart;
+    } elseif ($rangeStart !== '' && $rangeEnd !== '') {
+        // Explicit range: e.g. bytes=500-1000
+        $start = (int)$rangeStart;
+        $end   = (int)$rangeEnd;
+    }
+
+    if ($start <= $end && $start < $fileSize) {
+        if ($end >= $fileSize) {
+            $end = $fileSize - 1;
+        }
+        $isRangeRequest = true;
+    } else {
+        http_response_code(416);
+        header("Content-Range: bytes */{$fileSize}");
+        exit;
+    }
+}
+
+$contentLength = $end - $start + 1;
+
+if ($isRangeRequest) {
+    http_response_code(206);
+    header("Content-Range: bytes {$start}-{$end}/{$fileSize}");
+} else {
+    http_response_code(200);
+}
+
 // Set HTTP inline headers
 header('Content-Type: ' . $mimeType);
 header('Content-Disposition: inline; filename="' . rawurlencode($inlineFilename) . '"; filename*=UTF-8\'\'' . rawurlencode($inlineFilename));
 header('Content-Transfer-Encoding: binary');
-header('Content-Length: ' . $fileSize);
+header('Content-Length: ' . $contentLength);
 header('Accept-Ranges: bytes');
 header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
 header('ETag: ' . $etag);
@@ -157,6 +202,30 @@ if ($versionId > 0) {
 header('Pragma: public');
 header('X-Content-Type-Options: nosniff');
 
-// Stream physical file
-readfile($physicalFilePath);
+// Stream physical file slice
+$fp = fopen($physicalFilePath, 'rb');
+if (!$fp) {
+    http_response_code(500);
+    die('Unable to open file for streaming.');
+}
+
+if ($start > 0) {
+    fseek($fp, $start);
+}
+
+$bytesRemaining = $contentLength;
+$bufferSize = 65536; // 64 KB chunk
+
+while ($bytesRemaining > 0 && !feof($fp) && !connection_aborted()) {
+    $readLength = min($bufferSize, $bytesRemaining);
+    $data = fread($fp, $readLength);
+    if ($data === false) {
+        break;
+    }
+    echo $data;
+    flush();
+    $bytesRemaining -= strlen($data);
+}
+
+fclose($fp);
 exit;

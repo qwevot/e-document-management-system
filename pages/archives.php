@@ -307,6 +307,7 @@ $allFilterTypes = array_values(array_filter($fileTypesStmt->fetchAll(PDO::FETCH_
 // 2. Query Obsolete Items (According to Project Tree Mode or Flat Documents Mode)
 $baseSelect = 'SELECT dms_nodes.*, 
                       COALESCE(u.full_name, u.username, "System") AS creator_name,
+                      u.avatar AS creator_avatar,
                       p.name AS parent_name
                FROM dms_nodes
                LEFT JOIN users u ON dms_nodes.created_by = u.id
@@ -495,7 +496,7 @@ function render_archives_card_list($items, $viewMode, $searchQ, $folderId = null
 
                 <!-- 2. Owner Column -->
                 <div class="item-owner-col" title="Owner: <?php echo e($item['creator_name']); ?>">
-                    <span class="user-avatar-sm"><?php echo e(get_initials($item['creator_name'])); ?></span>
+                    <?php echo render_user_avatar_sm($item['creator_name'], $item['creator_avatar'] ?? null); ?>
                     <span class="owner-name"><?php echo e($item['creator_name']); ?></span>
                 </div>
 

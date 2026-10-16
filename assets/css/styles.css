@@ -1108,6 +1108,18 @@ body.sidebar-collapsed .main {
     justify-content: center;
     text-transform: uppercase;
     flex-shrink: 0;
+    overflow: hidden;
+    position: relative;
+}
+
+.user-avatar-sm img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
 }
 
 .owner-name {
@@ -2308,6 +2320,33 @@ MY WORKSPACE PAGE & DASHBOARD GRID
     .workspace-dashboard-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* Ensure workspace rows stay aligned and long filenames never blow bars out */
+.workspace-dashboard-grid .explorer-table-header,
+.workspace-dashboard-grid .explorer-item-card {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.workspace-dashboard-grid .col-hdr-name,
+.workspace-dashboard-grid .item-main-col {
+    flex: 1 1 0%;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.workspace-dashboard-grid .item-title-row {
+    min-width: 0;
+    overflow: hidden;
+}
+
+.workspace-dashboard-grid .item-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Gmail-style Mailbox Sidebar */

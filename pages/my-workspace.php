@@ -18,6 +18,7 @@ $myDocsStmt = $pdo->prepare("
     SELECT DISTINCT d.id, d.name, d.version, d.status, d.file_extension, d.updated_at, d.created_at,
            d.parent_id, p.name AS parent_name,
            COALESCE(u.full_name, u.username, 'System') AS creator_name,
+           u.avatar AS creator_avatar,
            (d.created_by = :uid1) AS is_owner
     FROM dms_nodes d
     LEFT JOIN users u ON d.created_by = u.id
@@ -37,6 +38,7 @@ $recentTouchedStmt = $pdo->prepare("
     SELECT d.id, d.name, d.version, d.status, d.file_extension,
            d.parent_id, p.name AS parent_name,
            COALESCE(u.full_name, u.username, 'System') AS creator_name,
+           u.avatar AS creator_avatar,
            MAX(l.created_at) AS last_touched_at
     FROM dms_nodes d
     LEFT JOIN users u ON d.created_by = u.id
@@ -45,7 +47,7 @@ $recentTouchedStmt = $pdo->prepare("
     WHERE d.node_type = 'document'
       AND d.is_deleted = 0
       AND l.action IN ('document.view', 'document.download', 'document.upload', 'version.upload', 'document.review_requested')
-    GROUP BY d.id, d.name, d.version, d.status, d.file_extension, d.parent_id, p.name, u.full_name, u.username
+    GROUP BY d.id, d.name, d.version, d.status, d.file_extension, d.parent_id, p.name, u.full_name, u.username, u.avatar
     ORDER BY last_touched_at DESC
     LIMIT 15
 ");
@@ -94,7 +96,6 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
             <button type="button" class="ws-mailbox-item" data-filter="recent" onclick="filterWorkspace(this, 'recent')">
                 <span class="ws-mailbox-icon"><?php echo render_icon('history'); ?></span>
                 <span class="ws-mailbox-label">Recently Opened</span>
-                <span class="ws-mailbox-count"><?php echo $totalRecent; ?></span>
             </button>
         </div>
 
@@ -198,7 +199,7 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
 
                         <!-- Owner Column -->
                         <div class="item-owner-col" title="Created by <?php echo e($doc['creator_name']); ?>">
-                            <span class="user-avatar-sm"><?php echo e(get_initials($doc['creator_name'])); ?></span>
+                            <?php echo render_user_avatar_sm($doc['creator_name'], $doc['creator_avatar'] ?? null); ?>
                             <span class="owner-name"><?php echo e($doc['creator_name']); ?></span>
                         </div>
 
@@ -264,7 +265,7 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
 
                         <!-- Owner Column -->
                         <div class="item-owner-col" title="Created by <?php echo e($doc['creator_name']); ?>">
-                            <span class="user-avatar-sm"><?php echo e(get_initials($doc['creator_name'])); ?></span>
+                            <?php echo render_user_avatar_sm($doc['creator_name'], $doc['creator_avatar'] ?? null); ?>
                             <span class="owner-name"><?php echo e($doc['creator_name']); ?></span>
                         </div>
 
