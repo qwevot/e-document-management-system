@@ -2080,10 +2080,15 @@ document.addEventListener("DOMContentLoaded", function () {
                         setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
                     }, mimeType, 0.95);
                 } else {
-                    // Export Native PDF with annotations
+                    // Export Native PDF with annotations (Load PDF-Lib on-demand)
                     if (typeof PDFLib === "undefined" || !PDFLib.PDFDocument) {
-                        alert("PDF export engine is still loading. Please try again shortly.");
-                        return;
+                        await new Promise((resolve, reject) => {
+                            const script = document.createElement("script");
+                            script.src = "../assets/vendor/pdf-lib.min.js";
+                            script.onload = () => resolve();
+                            script.onerror = () => reject(new Error("Failed to load PDF export engine."));
+                            document.head.appendChild(script);
+                        });
                     }
 
                     const streamUrl = config.streamUrl || `stream.php?id=${config.docId}`;

@@ -1475,7 +1475,6 @@ window.EDMS_WORKSPACE_CONFIG = {
 <?php if ($isSupportedViewer): ?>
 <?php if ($renderMode === 'pdf'): ?>
 <script src="../assets/vendor/pdfjs/pdf.min.js"></script>
-<script src="../assets/vendor/pdf-lib.min.js"></script>
 <?php elseif ($renderMode === 'docx_fallback'): ?>
 <script src="../assets/vendor/jszip.min.js"></script>
 <script src="../assets/vendor/docx-preview.min.js"></script>

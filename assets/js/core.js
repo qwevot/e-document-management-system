@@ -200,5 +200,21 @@
     }
     initSidebarClock();
 
+    // Auto-close notification dropdown on click-outside or escape
+    document.addEventListener("click", function (e) {
+        const notif = document.getElementById("notifDropdown");
+        if (notif && notif.hasAttribute("open") && !notif.contains(e.target)) {
+            notif.removeAttribute("open");
+        }
+    });
+    document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") {
+            const notif = document.getElementById("notifDropdown");
+            if (notif && notif.hasAttribute("open")) {
+                notif.removeAttribute("open");
+            }
+        }
+    });
+
 })();
 

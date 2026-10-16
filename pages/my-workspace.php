@@ -13,35 +13,14 @@ $pdo = db();
 $user = current_user() ?? ['id' => 1, 'full_name' => 'User', 'role' => 'viewer'];
 $userId = (int)($user['id'] ?? 1);
 
-// 1. Notifications / Requires Attention
-// A: Inbound review requests assigned to current user
-$pendingReviews = get_pending_reviews_for_user($userId);
-
-// B: Submissions by current user that have been approved or rejected
-$verdictsStmt = $pdo->prepare("
-    SELECT r.id AS review_id, r.version, r.status AS review_status, r.comments, r.reviewed_at,
-           d.id AS document_id, d.name AS document_name, d.file_extension,
-           u.full_name AS reviewer_name
-    FROM dms_document_reviews r
-    JOIN dms_nodes d ON r.document_id = d.id
-    LEFT JOIN users u ON r.reviewer_id = u.id
-    WHERE r.requested_by = :uid
-      AND r.status IN ('approved', 'rejected')
-      AND d.is_deleted = 0
-    ORDER BY r.reviewed_at DESC
-    LIMIT 6
-");
-$verdictsStmt->execute(['uid' => $userId]);
-$recentVerdicts = $verdictsStmt->fetchAll(PDO::FETCH_ASSOC);
-
-$totalAttentionCount = count($pendingReviews) + count($recentVerdicts);
-
-// 2. My Workspace: Documents authored by user OR where user is a contributor
+// 1. My Workspace: Documents authored by user OR where user is a contributor
 $myDocsStmt = $pdo->prepare("
     SELECT DISTINCT d.id, d.name, d.version, d.status, d.file_extension, d.updated_at, d.created_at,
            d.parent_id, p.name AS parent_name,
+           COALESCE(u.full_name, u.username, 'System') AS creator_name,
            (d.created_by = :uid1) AS is_owner
     FROM dms_nodes d
+    LEFT JOIN users u ON d.created_by = u.id
     LEFT JOIN dms_nodes p ON d.parent_id = p.id
     LEFT JOIN dms_document_contributors c ON d.id = c.document_id AND c.user_id = :uid2
     WHERE d.node_type = 'document'
@@ -57,19 +36,25 @@ $myDocs = $myDocsStmt->fetchAll(PDO::FETCH_ASSOC);
 $recentTouchedStmt = $pdo->prepare("
     SELECT d.id, d.name, d.version, d.status, d.file_extension,
            d.parent_id, p.name AS parent_name,
+           COALESCE(u.full_name, u.username, 'System') AS creator_name,
            MAX(l.created_at) AS last_touched_at
     FROM dms_nodes d
+    LEFT JOIN users u ON d.created_by = u.id
     LEFT JOIN dms_nodes p ON d.parent_id = p.id
     INNER JOIN system_logs l ON l.entity_type = 'document' AND l.entity_id = d.id AND l.user_id = :uid
     WHERE d.node_type = 'document'
       AND d.is_deleted = 0
       AND l.action IN ('document.view', 'document.download', 'document.upload', 'version.upload', 'document.review_requested')
-    GROUP BY d.id, d.name, d.version, d.status, d.file_extension, d.parent_id, p.name
+    GROUP BY d.id, d.name, d.version, d.status, d.file_extension, d.parent_id, p.name, u.full_name, u.username
     ORDER BY last_touched_at DESC
     LIMIT 15
 ");
 $recentTouchedStmt->execute(['uid' => $userId]);
 $recentDocs = $recentTouchedStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$statusCounts = array_count_values(array_column($myDocs, 'status'));
+$totalMyDocs = count($myDocs);
+$totalRecent = count($recentDocs);
 
 function ws_status_badge(string $status): string {
     return match ($status) {
@@ -94,13 +79,66 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
     <h1>Welcome, <?php echo e($fullName); ?>!</h1>
 </div>
     
-<!-- Main 2-Column Dashboard Grid: Documents Left (Rectangle 3), Notifications Right (Rectangle 2) -->
+<!-- Main 2-Column Dashboard Grid: Gmail-style Mailbox Left, Documents Right -->
 <div class="workspace-dashboard-grid">
 
-    <!-- Left Column: Document Tabs (Rectangle 3) -->
+    <!-- Left Column: Mailbox Category Sidebar -->
+    <aside class="ws-mailbox-sidebar">
+        <div class="ws-mailbox-group">
+            <div class="ws-mailbox-heading">WORKSPACE</div>
+            <button type="button" class="ws-mailbox-item is-active" data-filter="all" onclick="filterWorkspace(this, 'all')">
+                <span class="ws-mailbox-icon"><?php echo render_icon('workspace'); ?></span>
+                <span class="ws-mailbox-label">My Workspace</span>
+                <span class="ws-mailbox-count"><?php echo $totalMyDocs; ?></span>
+            </button>
+            <button type="button" class="ws-mailbox-item" data-filter="recent" onclick="filterWorkspace(this, 'recent')">
+                <span class="ws-mailbox-icon"><?php echo render_icon('history'); ?></span>
+                <span class="ws-mailbox-label">Recently Opened</span>
+                <span class="ws-mailbox-count"><?php echo $totalRecent; ?></span>
+            </button>
+        </div>
+
+        <div class="ws-mailbox-divider"></div>
+
+        <div class="ws-mailbox-group">
+            <div class="ws-mailbox-heading">STATUS</div>
+            <button type="button" class="ws-mailbox-item" data-filter="active" onclick="filterWorkspace(this, 'active')">
+                <span class="ws-status-dot" style="background: var(--info-blue);"></span>
+                <span class="ws-mailbox-label">Active</span>
+                <span class="ws-mailbox-count"><?php echo $statusCounts['active'] ?? 0; ?></span>
+            </button>
+            <button type="button" class="ws-mailbox-item" data-filter="hold" onclick="filterWorkspace(this, 'hold')">
+                <span class="ws-status-dot" style="background: var(--amber);"></span>
+                <span class="ws-mailbox-label">Hold</span>
+                <span class="ws-mailbox-count"><?php echo $statusCounts['hold'] ?? 0; ?></span>
+            </button>
+            <button type="button" class="ws-mailbox-item" data-filter="rejected" onclick="filterWorkspace(this, 'rejected')">
+                <span class="ws-status-dot" style="background: var(--red);"></span>
+                <span class="ws-mailbox-label">Rejected</span>
+                <span class="ws-mailbox-count"><?php echo $statusCounts['rejected'] ?? 0; ?></span>
+            </button>
+            <button type="button" class="ws-mailbox-item" data-filter="published" onclick="filterWorkspace(this, 'published')">
+                <span class="ws-status-dot" style="background: var(--green);"></span>
+                <span class="ws-mailbox-label">Published</span>
+                <span class="ws-mailbox-count"><?php echo $statusCounts['published'] ?? 0; ?></span>
+            </button>
+            <button type="button" class="ws-mailbox-item" data-filter="suspend" onclick="filterWorkspace(this, 'suspend')">
+                <span class="ws-status-dot" style="background: var(--red-soft, #fca5a5); border: 1px solid var(--red);"></span>
+                <span class="ws-mailbox-label">Suspend</span>
+                <span class="ws-mailbox-count"><?php echo $statusCounts['suspend'] ?? 0; ?></span>
+            </button>
+            <button type="button" class="ws-mailbox-item" data-filter="obsolete" onclick="filterWorkspace(this, 'obsolete')">
+                <span class="ws-status-dot" style="background: var(--slate);"></span>
+                <span class="ws-mailbox-label">Obsolete</span>
+                <span class="ws-mailbox-count"><?php echo $statusCounts['obsolete'] ?? 0; ?></span>
+            </button>
+        </div>
+    </aside>
+
+    <!-- Right Column: Document Feeds Stage -->
     <div class="explorer-wrapper" style="margin: 0;">
 
-            <!-- Top Action & Search Bar -->
+        <!-- Top Action & Search Bar -->
         <div class="explorer-toolbar-card" style="margin-bottom: 16px;">
             <form method="GET" action="explorer.php" class="explorer-search-form" id="wsSearchForm">
                 <div class="explorer-search-box">
@@ -110,30 +148,16 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                 </div>
             </form>
 
-            <div class="toolbar-actions">
+            <div class="toolbar-actions" style="display: flex; gap: 8px;">
+                <a href="explorer.php" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;">
+                    <?php echo render_icon('explorer'); ?>
+                    <span>Browse All</span>
+                </a>
                 <button type="button" id="btnUploadDoc" class="btn btn-primary" onclick="openWsUploadModal()">
                     <?php echo render_icon('cloud-upload'); ?>
                     <span>Upload Document</span>
                 </button>
             </div>
-        </div>
-        
-        <!-- Tab Switcher Bar: My Workspace & Recently Opened -->
-        <div class="explorer-filter-card">
-            <div class="pill-tabs" id="wsPillTabs">
-                <button type="button" class="pill-tab active" id="tabBtnMyWorkspace" onclick="switchWsTab('my-workspace')" style="border: none; cursor: pointer;">
-                    <?php echo render_icon('workspace'); ?>
-                    <span>My Workspace</span>
-                </button>
-                <button type="button" class="pill-tab" id="tabBtnRecent" onclick="switchWsTab('recent')" style="border: none; cursor: pointer;">
-                    <?php echo render_icon('history'); ?>
-                    <span>Recently Opened</span>
-                </button>
-            </div>
-            <a href="explorer.php" class="btn btn-secondary" style="padding: 4px 10px; font-size: 11.5px;">
-                <?php echo render_icon('explorer'); ?>
-                <span>Browse All</span>
-            </a>
         </div>
 
         <!-- Tab 1: My Workspace List -->
@@ -148,15 +172,15 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                 <div class="explorer-table-header">
                     <div style="width: 32px;"></div>
                     <div class="col-hdr-name">Document</div>
-                    <div class="col-hdr-owner">Role</div>
+                    <div class="col-hdr-owner">Owner</div>
                     <div class="col-hdr-location">Location</div>
                     <div class="col-hdr-status">Status</div>
-                    <div class="col-hdr-actions">Actions</div>
+                    <div class="col-hdr-actions"></div>
                 </div>
 
                 <?php foreach ($myDocs as $doc): ?>
                     <?php $extIcon = $doc['file_extension'] ?: 'pdf'; ?>
-                    <div class="explorer-item-card is-document">
+                    <div class="explorer-item-card is-document" data-status="<?php echo e($doc['status']); ?>">
                         <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($doc['name']); ?>">
                             <?php echo render_icon($extIcon); ?>
                         </a>
@@ -172,10 +196,10 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                             </div>
                         </div>
 
-                        <div class="item-owner-col">
-                            <span style="font-size: 11.5px; color: var(--muted); font-weight: 500;">
-                                <?php echo !empty($doc['is_owner']) ? 'Author' : 'Contributor'; ?>
-                            </span>
+                        <!-- Owner Column -->
+                        <div class="item-owner-col" title="Created by <?php echo e($doc['creator_name']); ?>">
+                            <span class="user-avatar-sm"><?php echo e(get_initials($doc['creator_name'])); ?></span>
+                            <span class="owner-name"><?php echo e($doc['creator_name']); ?></span>
                         </div>
 
                         <div class="item-location-col"><?php echo ws_loc_badge($doc['parent_id'] ? (int)$doc['parent_id'] : null, $doc['parent_name'] ?? null); ?></div>
@@ -194,6 +218,11 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                     </div>
                 <?php endforeach; ?>
             <?php endif; ?>
+            <div class="explorer-empty-card" id="wsFilterEmpty" style="display: none; padding: 32px 16px;">
+                <div class="empty-icon"><?php echo render_icon('search'); ?></div>
+                <h3 class="empty-title">No matching documents</h3>
+                <p class="empty-subtitle">There are no documents matching this status filter in your workspace.</p>
+            </div>
         </div>
 
         <!-- Tab 2: Recently Opened List (Hidden by default) -->
@@ -208,15 +237,16 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                 <div class="explorer-table-header">
                     <div style="width: 32px;"></div>
                     <div class="col-hdr-name">Document</div>
+                    <div class="col-hdr-owner">Owner</div>
                     <div class="col-hdr-modified">Last Accessed</div>
                     <div class="col-hdr-location">Location</div>
                     <div class="col-hdr-status">Status</div>
-                    <div class="col-hdr-actions">Actions</div>
+                    <div class="col-hdr-actions"></div>
                 </div>
 
                 <?php foreach ($recentDocs as $doc): ?>
                     <?php $extIcon = $doc['file_extension'] ?: 'pdf'; ?>
-                    <div class="explorer-item-card is-document">
+                    <div class="explorer-item-card is-document" data-status="<?php echo e($doc['status']); ?>">
                         <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($doc['name']); ?>">
                             <?php echo render_icon($extIcon); ?>
                         </a>
@@ -230,6 +260,12 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                                     <span class="version-badge"><?php echo e($doc['version']); ?></span>
                                 <?php endif; ?>
                             </div>
+                        </div>
+
+                        <!-- Owner Column -->
+                        <div class="item-owner-col" title="Created by <?php echo e($doc['creator_name']); ?>">
+                            <span class="user-avatar-sm"><?php echo e(get_initials($doc['creator_name'])); ?></span>
+                            <span class="owner-name"><?php echo e($doc['creator_name']); ?></span>
                         </div>
 
                         <div class="item-modified-col">
@@ -256,94 +292,6 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
             <?php endif; ?>
         </div>
 
-    </div>
-
-    <!-- Right Column: Notifications & Requires Attention (Rectangle 2) -->
-    <div class="explorer-wrapper" style="margin: 0;">
-        <div class="explorer-toolbar-card" style="padding: 10px 14px; min-height: 48px; display: flex; align-items: center; justify-content: space-between;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="display: inline-flex; color: var(--green);"><?php echo render_icon('notification'); ?></span>
-                <span style="font-weight: 700; font-size: 13.5px; color: var(--ink);">Notifications</span>
-            </div>
-            <?php if ($totalAttentionCount > 0): ?>
-                <span class="status-badge badge-publish" style="font-size: 10px;"><?php echo $totalAttentionCount; ?> new</span>
-            <?php endif; ?>
-        </div>
-
-        <div class="explorer-card-list">
-            <?php if ($totalAttentionCount === 0): ?>
-                <div class="explorer-empty-card" style="padding: 32px 16px;">
-                    <div class="empty-icon"><?php echo render_icon('check'); ?></div>
-                    <h3 class="empty-title">All caught up</h3>
-                    <p class="empty-subtitle">No pending reviews or alerts.</p>
-                </div>
-            <?php else: ?>
-                <!-- Pending Approvals Assigned to User -->
-                <?php foreach ($pendingReviews as $pr): ?>
-                    <?php $extIcon = $pr['file_extension'] ?: 'pdf'; ?>
-                    <div class="explorer-item-card is-document">
-                        <a href="view.php?id=<?php echo (int)$pr['document_id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($pr['document_name']); ?>">
-                            <?php echo render_icon($extIcon); ?>
-                        </a>
-
-                        <div class="item-main-col">
-                            <div class="item-title-row">
-                                <a href="view.php?id=<?php echo (int)$pr['document_id']; ?>" class="item-title" title="<?php echo e($pr['document_name']); ?>">
-                                    <?php echo e($pr['document_name']); ?>
-                                </a>
-                            </div>
-                        </div>
-
-                        <div class="item-status-col">
-                            <span class="status-badge badge-hold" title="Review requested by <?php echo e($pr['requested_by_name']); ?> • <?php echo date('M j, Y • H:i', strtotime($pr['review_requested_at'])); ?>">
-                                Review
-                            </span>
-                        </div>
-
-                        <div class="item-actions-col">
-                            <a href="view.php?id=<?php echo (int)$pr['document_id']; ?>" class="btn-action" title="Review Document">
-                                <?php echo render_icon('view'); ?>
-                            </a>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-
-                <!-- Verdicts on User Submissions -->
-                <?php foreach ($recentVerdicts as $vd): ?>
-                    <?php 
-                    $extIcon = $vd['file_extension'] ?: 'pdf';
-                    $isApprove = ($vd['review_status'] === 'approved');
-                    $badgeCls = $isApprove ? 'badge-publish' : 'badge-rejected';
-                    $badgeText = $isApprove ? 'Approved' : 'Rejected';
-                    ?>
-                    <div class="explorer-item-card is-document">
-                        <a href="view.php?id=<?php echo (int)$vd['document_id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($vd['document_name']); ?>">
-                            <?php echo render_icon($extIcon); ?>
-                        </a>
-
-                        <div class="item-main-col">
-                            <div class="item-title-row">
-                                <a href="view.php?id=<?php echo (int)$vd['document_id']; ?>" class="item-title" title="<?php echo e($vd['document_name']); ?>">
-                                    <?php echo e($vd['document_name']); ?>
-                                </a>
-                            </div>
-                        </div>
-
-                        <div class="item-status-col">
-                            <span class="status-badge <?php echo $badgeCls; ?>" title="Reviewed by <?php echo e($vd['reviewer_name'] ?? 'Reviewer'); ?> • <?php echo date('M j, Y • H:i', strtotime($vd['reviewed_at'])); ?>">
-                                <?php echo $badgeText; ?>
-                            </span>
-                        </div>
-
-                        <div class="item-actions-col">
-                            <a href="view.php?id=<?php echo (int)$vd['document_id']; ?>" class="btn-action" title="View Document">
-                                <?php echo render_icon('view'); ?>
-                            </a>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-            <?php endif; ?>
-        </div>
     </div>
 
 </div>
@@ -451,22 +399,50 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
 </div>
 
 <script>
-function switchWsTab(tab) {
-    const btnMyWs = document.getElementById('tabBtnMyWorkspace');
-    const btnRecent = document.getElementById('tabBtnRecent');
+let currentWsFilter = 'all';
+
+function filterWorkspace(btn, filter) {
+    document.querySelectorAll('.ws-mailbox-item').forEach(el => el.classList.remove('is-active'));
+    if (btn) btn.classList.add('is-active');
+    currentWsFilter = filter;
+    applyWorkspaceFilters();
+}
+
+function applyWorkspaceFilters() {
     const paneMyWs = document.getElementById('paneMyWorkspace');
     const paneRecent = document.getElementById('paneRecent');
+    const emptyFilterEl = document.getElementById('wsFilterEmpty');
+    const q = wsSearch ? wsSearch.value.trim().toLowerCase() : '';
 
-    if (tab === 'my-workspace') {
-        btnMyWs.classList.add('active');
-        btnRecent.classList.remove('active');
-        paneMyWs.style.display = '';
-        paneRecent.style.display = 'none';
-    } else {
-        btnRecent.classList.add('active');
-        btnMyWs.classList.remove('active');
-        paneRecent.style.display = '';
+    if (currentWsFilter === 'recent') {
         paneMyWs.style.display = 'none';
+        paneRecent.style.display = '';
+        if (emptyFilterEl) emptyFilterEl.style.display = 'none';
+        paneRecent.querySelectorAll('.explorer-item-card.is-document').forEach(card => {
+            const titleEl = card.querySelector('.item-title');
+            const title = titleEl ? titleEl.textContent.toLowerCase() : '';
+            card.style.display = (q === '' || title.includes(q)) ? '' : 'none';
+        });
+        return;
+    }
+
+    paneRecent.style.display = 'none';
+    paneMyWs.style.display = '';
+
+    let visibleCount = 0;
+    const cards = paneMyWs.querySelectorAll('.explorer-item-card.is-document');
+    cards.forEach(card => {
+        const matchStatus = (currentWsFilter === 'all' || card.dataset.status === currentWsFilter);
+        const titleEl = card.querySelector('.item-title');
+        const title = titleEl ? titleEl.textContent.toLowerCase() : '';
+        const matchSearch = (q === '' || title.includes(q));
+        const visible = matchStatus && matchSearch;
+        card.style.display = visible ? '' : 'none';
+        if (visible) visibleCount++;
+    });
+
+    if (emptyFilterEl) {
+        emptyFilterEl.style.display = (visibleCount === 0 && cards.length > 0) ? 'block' : 'none';
     }
 }
 
@@ -507,11 +483,7 @@ if (wsSearch) {
     wsSearch.addEventListener('input', function() {
         const q = this.value.trim().toLowerCase();
         if (wsClear) wsClear.style.display = q.length > 0 ? 'block' : 'none';
-        document.querySelectorAll('#paneMyWorkspace .explorer-item-card, #paneRecent .explorer-item-card').forEach(card => {
-            const titleEl = card.querySelector('.item-title');
-            const title = titleEl ? titleEl.textContent.toLowerCase() : '';
-            card.style.display = (q === '' || title.includes(q)) ? '' : 'none';
-        });
+        applyWorkspaceFilters();
     });
 }
 
