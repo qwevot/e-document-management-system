@@ -1,9 +1,9 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
 
-// Already logged in? Go straight to the explorer.
+// Already logged in? Go straight to My Workspace.
 if (current_user() !== null) {
-    header('Location: pages/explorer.php');
+    header('Location: pages/my-workspace.php');
     exit;
 }
 
@@ -40,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     log_activity('auth.login', 'user', (int)$user['id'], ['username' => $user['username']], 'success', (int)$user['id'], $user['username'], $user['role']);
 
-                    header('Location: pages/explorer.php');
+                    header('Location: pages/my-workspace.php');
                     exit;
                 }
 

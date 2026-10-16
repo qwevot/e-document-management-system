@@ -54,6 +54,10 @@ $recentTouchedStmt = $pdo->prepare("
 $recentTouchedStmt->execute(['uid' => $userId]);
 $recentDocs = $recentTouchedStmt->fetchAll(PDO::FETCH_ASSOC);
 
+// 4. Pending Review Requests: Documents awaiting user's review approval
+$pendingReviews = get_pending_reviews_for_user($userId);
+$totalPending = count($pendingReviews);
+
 $statusCounts = array_count_values(array_column($myDocs, 'status'));
 $totalMyDocs = count($myDocs);
 $totalRecent = count($recentDocs);
@@ -96,6 +100,13 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
             <button type="button" class="ws-mailbox-item" data-filter="recent" onclick="filterWorkspace(this, 'recent')">
                 <span class="ws-mailbox-icon"><?php echo render_icon('history'); ?></span>
                 <span class="ws-mailbox-label">Recently Opened</span>
+            </button>
+            <button type="button" class="ws-mailbox-item" data-filter="pending" onclick="filterWorkspace(this, 'pending')">
+                <span class="ws-mailbox-icon"><?php echo render_icon('tasks'); ?></span>
+                <span class="ws-mailbox-label">Pending Review</span>
+                <?php if ($totalPending > 0): ?>
+                    <span class="ws-mailbox-count" style="background: var(--amber-soft); color: var(--amber-ink); font-weight: 700;"><?php echo $totalPending; ?></span>
+                <?php endif; ?>
             </button>
         </div>
 
@@ -293,6 +304,76 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
             <?php endif; ?>
         </div>
 
+        <!-- Tab 3: Pending Review List (Hidden by default) -->
+        <div id="panePendingReview" class="explorer-card-list" style="display: none;">
+            <?php if (empty($pendingReviews)): ?>
+                <div class="explorer-empty-card" style="padding: 32px 16px;">
+                    <div class="empty-icon"><?php echo render_icon('tasks'); ?></div>
+                    <h3 class="empty-title">No pending reviews</h3>
+                    <p class="empty-subtitle">Documents requiring your approval or review will be listed here.</p>
+                </div>
+            <?php else: ?>
+                <div class="explorer-table-header">
+                    <div style="width: 32px;"></div>
+                    <div class="col-hdr-name">Document</div>
+                    <div class="col-hdr-owner">Requester</div>
+                    <div class="col-hdr-modified">Requested At</div>
+                    <div class="col-hdr-location">Location</div>
+                    <div class="col-hdr-status">Status</div>
+                    <div class="col-hdr-actions"></div>
+                </div>
+
+                <?php foreach ($pendingReviews as $rev): ?>
+                    <?php $extIcon = $rev['file_extension'] ?: 'pdf'; ?>
+                    <div class="explorer-item-card is-document" data-status="<?php echo e($rev['document_status']); ?>">
+                        <a href="view.php?id=<?php echo (int)$rev['document_id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($rev['document_name']); ?>">
+                            <?php echo render_icon($extIcon); ?>
+                        </a>
+
+                        <div class="item-main-col">
+                            <div class="item-title-row">
+                                <a href="view.php?id=<?php echo (int)$rev['document_id']; ?>" class="item-title" title="<?php echo e($rev['document_name']); ?>">
+                                    <?php echo e($rev['document_name']); ?>
+                                </a>
+                                <?php if (!empty($rev['target_version'])): ?>
+                                    <span class="version-badge"><?php echo e($rev['target_version']); ?></span>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+
+                        <!-- Requester Column -->
+                        <div class="item-owner-col" title="Requested by <?php echo e($rev['requested_by_name']); ?>">
+                            <?php echo render_user_avatar_sm($rev['requested_by_name'], $rev['requester_avatar'] ?? null); ?>
+                            <span class="owner-name"><?php echo e($rev['requested_by_name']); ?></span>
+                        </div>
+
+                        <div class="item-modified-col">
+                            <span style="font-size: 11px; color: var(--muted);">
+                                <?php echo date('M j, Y • H:i', strtotime($rev['review_requested_at'])); ?>
+                            </span>
+                        </div>
+
+                        <div class="item-location-col">
+                            <?php echo ws_loc_badge(null, $rev['parent_folder_name'] ?? null); ?>
+                        </div>
+
+                        <div class="item-status-col">
+                            <span class="status-badge badge-hold" title="Review Pending">
+                                Pending
+                            </span>
+                        </div>
+
+                        <div class="item-actions-col">
+                            <a href="view.php?id=<?php echo (int)$rev['document_id']; ?>" class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px; white-space: nowrap; height: 26px; display: inline-flex; align-items: center; gap: 4px;" title="Open document to review">
+                                <?php echo render_icon('view'); ?>
+                                <span>Review</span>
+                            </a>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </div>
+
     </div>
 
 </div>
@@ -412,26 +493,46 @@ function filterWorkspace(btn, filter) {
 function applyWorkspaceFilters() {
     const paneMyWs = document.getElementById('paneMyWorkspace');
     const paneRecent = document.getElementById('paneRecent');
+    const panePending = document.getElementById('panePendingReview');
     const emptyFilterEl = document.getElementById('wsFilterEmpty');
     const q = wsSearch ? wsSearch.value.trim().toLowerCase() : '';
 
     if (currentWsFilter === 'recent') {
-        paneMyWs.style.display = 'none';
-        paneRecent.style.display = '';
+        if (paneMyWs) paneMyWs.style.display = 'none';
+        if (panePending) panePending.style.display = 'none';
+        if (paneRecent) {
+            paneRecent.style.display = '';
+            paneRecent.querySelectorAll('.explorer-item-card.is-document').forEach(card => {
+                const titleEl = card.querySelector('.item-title');
+                const title = titleEl ? titleEl.textContent.toLowerCase() : '';
+                card.style.display = (q === '' || title.includes(q)) ? '' : 'none';
+            });
+        }
         if (emptyFilterEl) emptyFilterEl.style.display = 'none';
-        paneRecent.querySelectorAll('.explorer-item-card.is-document').forEach(card => {
-            const titleEl = card.querySelector('.item-title');
-            const title = titleEl ? titleEl.textContent.toLowerCase() : '';
-            card.style.display = (q === '' || title.includes(q)) ? '' : 'none';
-        });
         return;
     }
 
-    paneRecent.style.display = 'none';
-    paneMyWs.style.display = '';
+    if (currentWsFilter === 'pending') {
+        if (paneMyWs) paneMyWs.style.display = 'none';
+        if (paneRecent) paneRecent.style.display = 'none';
+        if (panePending) {
+            panePending.style.display = '';
+            panePending.querySelectorAll('.explorer-item-card.is-document').forEach(card => {
+                const titleEl = card.querySelector('.item-title');
+                const title = titleEl ? titleEl.textContent.toLowerCase() : '';
+                card.style.display = (q === '' || title.includes(q)) ? '' : 'none';
+            });
+        }
+        if (emptyFilterEl) emptyFilterEl.style.display = 'none';
+        return;
+    }
+
+    if (paneRecent) paneRecent.style.display = 'none';
+    if (panePending) panePending.style.display = 'none';
+    if (paneMyWs) paneMyWs.style.display = '';
 
     let visibleCount = 0;
-    const cards = paneMyWs.querySelectorAll('.explorer-item-card.is-document');
+    const cards = paneMyWs ? paneMyWs.querySelectorAll('.explorer-item-card.is-document') : [];
     cards.forEach(card => {
         const matchStatus = (currentWsFilter === 'all' || card.dataset.status === currentWsFilter);
         const titleEl = card.querySelector('.item-title');
