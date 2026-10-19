@@ -224,7 +224,12 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                         </div>
 
                         <div class="item-actions-col">
-                            <button type="button" class="btn-action btn-more-actions" title="More Actions" onclick="openWsDocMenu(event, <?php echo (int)$doc['id']; ?>, '<?php echo addslashes(e($doc['name'])); ?>')">
+                            <button type="button" class="btn-action btn-more-actions" 
+                                    data-id="<?php echo (int)$doc['id']; ?>" 
+                                    data-name="<?php echo htmlspecialchars($doc['name'], ENT_QUOTES, 'UTF-8'); ?>" 
+                                    data-type="document" 
+                                    data-location="<?php echo htmlspecialchars($doc['parent_name'] ?? 'Projects', ENT_QUOTES, 'UTF-8'); ?>" 
+                                    title="More Actions">
                                 <?php echo render_icon('more-v'); ?>
                             </button>
                         </div>
@@ -296,7 +301,12 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                         </div>
 
                         <div class="item-actions-col">
-                            <button type="button" class="btn-action btn-more-actions" title="More Actions" onclick="openWsDocMenu(event, <?php echo (int)$doc['id']; ?>, '<?php echo addslashes(e($doc['name'])); ?>')">
+                            <button type="button" class="btn-action btn-more-actions" 
+                                    data-id="<?php echo (int)$doc['id']; ?>" 
+                                    data-name="<?php echo htmlspecialchars($doc['name'], ENT_QUOTES, 'UTF-8'); ?>" 
+                                    data-type="document" 
+                                    data-location="<?php echo htmlspecialchars($doc['parent_name'] ?? 'Projects', ENT_QUOTES, 'UTF-8'); ?>" 
+                                    title="More Actions">
                                 <?php echo render_icon('more-v'); ?>
                             </button>
                         </div>
@@ -408,35 +418,7 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
 
 </div>
 
-<div class="edms-action-popover" id="wsActionPopover" style="display: none;">
-    <a href="#" class="popover-item" id="wsPopActionView" style="text-decoration: none;"><?php echo render_icon('view'); ?><span>Open Workspace</span></a>
-    <a href="#" class="popover-item" id="wsPopActionDownload" style="text-decoration: none;"><?php echo render_icon('download'); ?><span>Download</span></a>
-    <button type="button" class="popover-item" id="wsPopActionCopyLink"><?php echo render_icon('link'); ?><span>Copy Link</span></button>
-    <button type="button" class="popover-item" id="wsPopActionAuditHistory"><?php echo render_icon('history'); ?><span>Audit History</span></button>
-</div>
-
-<!-- Modal: Document Audit History (Reusing existing EDMS modal architecture) -->
-<div class="edms-modal-backdrop" id="modalAuditHistory">
-    <div class="edms-modal-dialog" style="max-width: 540px; width: 90%;">
-        <div class="edms-modal-header">
-            <div class="edms-modal-title">
-                <?php echo render_icon('history'); ?>
-                <span>Audit History: <strong id="auditModalDocName" style="font-weight: 600;">Document</strong></span>
-            </div>
-            <button type="button" class="btn-modal-close" onclick="closeWsAuditModal()" title="Close">&times;</button>
-        </div>
-        <div class="edms-modal-body" style="max-height: 440px; overflow-y: auto; padding: 16px;">
-            <div id="auditModalFeed" class="annotation-history-feed" style="max-height: none; overflow: visible;">
-                <div class="history-empty-state">
-                    <span>Loading audit records...</span>
-                </div>
-            </div>
-        </div>
-        <div class="edms-modal-footer">
-            <button type="button" class="btn btn-secondary" onclick="closeWsAuditModal()">Close</button>
-        </div>
-    </div>
-</div>
+<?php require_once __DIR__ . '/../includes/item_actions.php'; ?>
 
 <!-- Modal: Upload Document (Reusing existing EDMS Upload Specimen Modal) -->
 <div class="edms-modal-backdrop" id="modalUploadDoc">
@@ -653,35 +635,6 @@ function applyWorkspaceFilters() {
     }
 }
 
-function openWsAuditModal(docId, docName) {
-    const modal = document.getElementById('modalAuditHistory');
-    const nameEl = document.getElementById('auditModalDocName');
-    const feedEl = document.getElementById('auditModalFeed');
-
-    if (!modal) return;
-    if (nameEl) nameEl.textContent = docName;
-    if (feedEl) feedEl.innerHTML = '<div class="history-empty-state"><span>Loading audit records...</span></div>';
-
-    modal.classList.add('is-open');
-
-    fetch(`explorer.php?action=get_audit_history&doc_id=${docId}`, {
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (feedEl && data.success) {
-            feedEl.innerHTML = data.html || '<div class="history-empty-state"><span>No audit records recorded yet.</span></div>';
-        }
-    })
-    .catch(() => {
-        if (feedEl) feedEl.innerHTML = '<div class="history-empty-state" style="color:var(--red);"><span>Failed to load audit history.</span></div>';
-    });
-}
-
-function closeWsAuditModal() {
-    const modal = document.getElementById('modalAuditHistory');
-    if (modal) modal.classList.remove('is-open');
-}
 
 // Real-time Workspace Search + Explorer Submission
 const wsSearch = document.getElementById('wsSearchInput');
@@ -784,27 +737,11 @@ if (wsDropzone && wsFileInput) {
     });
 }
 
-function openWsDocMenu(e, id, name) {
-    e.stopPropagation();
-    const p = document.getElementById('wsActionPopover');
-    p.querySelector('#wsPopActionView').href = `view.php?id=${id}`;
-    p.querySelector('#wsPopActionDownload').href = `download.php?id=${id}`;
-    p.querySelector('#wsPopActionCopyLink').onclick = ev => { p.style.display = 'none'; copyWsDocLink(ev, id); };
-    p.querySelector('#wsPopActionAuditHistory').onclick = () => { p.style.display = 'none'; openWsAuditModal(id, name); };
-    const r = e.currentTarget.getBoundingClientRect();
-    p.style.cssText = `display:flex; left:${Math.max(10, r.right - 165)}px; top:${r.bottom + 160 > window.innerHeight ? Math.max(10, r.top - 160) : r.bottom + 4}px;`;
-}
 document.addEventListener('click', e => {
-    const p = document.getElementById('wsActionPopover');
-    if (p && !p.contains(e.target) && !e.target.closest('.btn-more-actions')) p.style.display = 'none';
-    if (e.target.id === 'modalAuditHistory') closeWsAuditModal();
     if (e.target.id === 'modalUploadDoc') closeWsUploadModal();
 });
 document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
-        const p = document.getElementById('wsActionPopover');
-        if (p) p.style.display = 'none';
-        closeWsAuditModal();
         closeWsUploadModal();
     }
 });

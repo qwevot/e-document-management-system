@@ -7,7 +7,7 @@ require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/versioning.php';
 
 /**
- * Retrieve eligible reviewers (Admins, Super Admins, and Engineers).
+ * Retrieve eligible reviewers across all roles.
  */
 function get_eligible_reviewers(?int $excludeUserId = null): array
 {
@@ -15,7 +15,7 @@ function get_eligible_reviewers(?int $excludeUserId = null): array
     $sql = "
         SELECT id, username, full_name, role, department, avatar 
         FROM users 
-        WHERE role IN ('super admin', 'admin', 'engineer')
+        WHERE 1=1
     ";
     $params = [];
     if ($excludeUserId !== null && $excludeUserId > 0) {

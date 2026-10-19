@@ -6,7 +6,6 @@
     // ============================================================
     function initExplorerAjax() {
         const cardListContainer = document.getElementById("explorerCardList");
-        if (!cardListContainer) return; // Not on Explorer page
 
         const searchInput = document.getElementById("explorerSearchInput");
         const clearBtn = document.getElementById("explorerSearchClear");
@@ -38,6 +37,10 @@
 
         // Collect current state and perform AJAX fetch
         function performAjaxUpdate(targetPage = null) {
+            if (!cardListContainer) {
+                window.location.reload();
+                return;
+            }
             if (abortController) {
                 abortController.abort(); // Cancel any prior pending request
             }
@@ -189,51 +192,53 @@
         });
 
         // 7. Delegated Pagination Controls & Table Column Sorting
-        cardListContainer.addEventListener("click", function (e) {
-            const pageBtn = e.target.closest(".pagination-btn, .pagination-page-btn");
-            if (pageBtn && !pageBtn.disabled && !pageBtn.classList.contains("is-disabled") && !pageBtn.classList.contains("is-active")) {
-                e.preventDefault();
-                const targetPage = parseInt(pageBtn.dataset.page, 10);
-                if (targetPage > 0) {
-                    performAjaxUpdate(targetPage);
+        if (cardListContainer) {
+            cardListContainer.addEventListener("click", function (e) {
+                const pageBtn = e.target.closest(".pagination-btn, .pagination-page-btn");
+                if (pageBtn && !pageBtn.disabled && !pageBtn.classList.contains("is-disabled") && !pageBtn.classList.contains("is-active")) {
+                    e.preventDefault();
+                    const targetPage = parseInt(pageBtn.dataset.page, 10);
+                    if (targetPage > 0) {
+                        performAjaxUpdate(targetPage);
+                    }
+                    return;
                 }
-                return;
-            }
 
-            const sortCol = e.target.closest(".sortable-col");
-            if (sortCol) {
-                e.preventDefault();
-                const targetSort = sortCol.dataset.sort;
-                const targetOrder = sortCol.dataset.order || "asc";
-                if (targetSort === "default" || targetSort === "reset") {
-                    currentSort = "name";
-                    currentOrder = "asc";
-                } else if (targetSort) {
-                    currentSort = targetSort;
-                    currentOrder = targetOrder;
-                }
-                performAjaxUpdate(1);
-            }
-        });
-
-        // Keyboard accessibility for sort headers
-        cardListContainer.addEventListener("keydown", function (e) {
-            if (e.key === "Enter" || e.key === " ") {
                 const sortCol = e.target.closest(".sortable-col");
                 if (sortCol) {
                     e.preventDefault();
-                    sortCol.click();
+                    const targetSort = sortCol.dataset.sort;
+                    const targetOrder = sortCol.dataset.order || "asc";
+                    if (targetSort === "default" || targetSort === "reset") {
+                        currentSort = "name";
+                        currentOrder = "asc";
+                    } else if (targetSort) {
+                        currentSort = targetSort;
+                        currentOrder = targetOrder;
+                    }
+                    performAjaxUpdate(1);
                 }
-            }
-        });
+            });
 
-        cardListContainer.addEventListener("change", function (e) {
-            const perPageSelect = e.target.closest("#paginationPerPageSelect");
-            if (perPageSelect) {
-                currentPerPage = parseInt(perPageSelect.value, 10) || 25;
-                performAjaxUpdate(1); // Return to page 1 with new page size
-            }
-        });
+            // Keyboard accessibility for sort headers
+            cardListContainer.addEventListener("keydown", function (e) {
+                if (e.key === "Enter" || e.key === " ") {
+                    const sortCol = e.target.closest(".sortable-col");
+                    if (sortCol) {
+                        e.preventDefault();
+                        sortCol.click();
+                    }
+                }
+            });
+
+            cardListContainer.addEventListener("change", function (e) {
+                const perPageSelect = e.target.closest("#paginationPerPageSelect");
+                if (perPageSelect) {
+                    currentPerPage = parseInt(perPageSelect.value, 10) || 25;
+                    performAjaxUpdate(1); // Return to page 1 with new page size
+                }
+            });
+        }
 
         // Helper for generic modal open/close
         function openModal(modalEl, focusInputEl) {
@@ -1029,12 +1034,12 @@
         }
 
         // Delegated Item Click Handler (3-Dots Popover: Always Single Selection)
-        cardListContainer.addEventListener("click", function (e) {
+        document.addEventListener("click", function (e) {
             // Check 3-Dots button
             const btn = e.target.closest(".btn-more-actions");
             if (!btn || !popover) return;
             e.preventDefault();
-            e.stopPropagation();
+            e.stopImmediatePropagation();
 
             isContextMenuActive = false; // Explicitly NOT right-click context menu
 
@@ -1113,7 +1118,7 @@
 
         // Close popover when clicking anywhere else
         document.addEventListener("click", function (e) {
-            if (popover && !popover.contains(e.target)) {
+            if (popover && !popover.contains(e.target) && !e.target.closest(".btn-more-actions")) {
                 hidePopover();
             }
         });
@@ -1557,8 +1562,9 @@
             });
         }
 
-        // Checkbox Direct Click Selection Toggle
-        cardListContainer.addEventListener("change", function (e) {
+        if (cardListContainer) {
+            // Checkbox Direct Click Selection Toggle
+            cardListContainer.addEventListener("change", function (e) {
             const cb = e.target.closest(".item-checkbox");
             if (!cb) return;
             const card = cb.closest(".explorer-item-card");
@@ -1770,6 +1776,7 @@
             popover.style.left = Math.max(10, left) + "px";
             popover.style.top = Math.max(10, top) + "px";
         });
+        }
     }
 
     // Initialize on DOM Ready

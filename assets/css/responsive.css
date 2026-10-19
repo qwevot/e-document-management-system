@@ -48,10 +48,13 @@
         max-width: 100% !important;
         min-width: 0 !important;
         box-sizing: border-box !important;
-        padding: 6px 8px !important;
+        padding: 6px 8px 8px !important;
         overflow-x: auto !important;
         -webkit-overflow-scrolling: touch !important;
-        scrollbar-width: none !important;
+        scrollbar-width: thin !important;
+        scrollbar-color: var(--border) transparent !important;
+        mask-image: linear-gradient(to right, black calc(100% - 36px), transparent 100%);
+        -webkit-mask-image: linear-gradient(to right, black calc(100% - 36px), transparent 100%);
         gap: 6px !important;
         background: var(--surface) !important;
         border: 1px solid var(--border) !important;
@@ -59,7 +62,17 @@
     }
 
     .ws-mailbox-sidebar::-webkit-scrollbar {
-        display: none !important;
+        height: 3px !important;
+        display: block !important;
+    }
+
+    .ws-mailbox-sidebar::-webkit-scrollbar-track {
+        background: transparent !important;
+    }
+
+    .ws-mailbox-sidebar::-webkit-scrollbar-thumb {
+        background: var(--border) !important;
+        border-radius: 4px !important;
     }
 
     .ws-mailbox-heading {
@@ -906,5 +919,24 @@
     /* Keep all horizontal scroll columns preserved in Workspace */
     .workspace-dashboard-grid .item-modified-col {
         display: flex !important;
+    }
+
+    
+    /* Header Notification Dropdown Viewport Anchoring */
+    .notif-dropdown {
+        position: static !important;
+    }
+
+    .notif-dropdown .notif-popover-menu {
+        position: fixed !important;
+        top: 60px !important;
+        left: 12px !important;
+        right: 12px !important;
+        width: auto !important;
+        max-width: calc(100vw - 24px) !important;
+        max-height: calc(100vh - 80px) !important;
+        border-radius: 12px !important;
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.28) !important;
+        z-index: 1050 !important;
     }
 }

@@ -190,8 +190,8 @@ $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTT
 if ($action) {
     header('Content-Type: application/json');
 
-    // Viewers are strictly barred from modifying annotations or layers
-    if (!can_edit_dms($currentUser) && in_array($action, ['save_annotations', 'create_layer', 'save_layer', 'delete_layer'], true)) {
+    // Viewers are barred from modifying annotations or layers unless explicitly permitted (e.g. assigned as reviewer)
+    if (!$canAnnotate && !can_edit_dms($currentUser) && in_array($action, ['save_annotations', 'create_layer', 'save_layer', 'delete_layer'], true)) {
         echo json_encode(['success' => false, 'message' => 'Access denied: Viewers have read-only permissions and cannot create or modify annotations.']);
         exit;
     }
@@ -946,7 +946,7 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
                 <!-- Submit for Review Trigger -->
                 <button type="button" class="btn-workspace-action" id="btnOpenSubmitReviewModal" title="Submit document for review &amp; formal approval" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.4); color: var(--ink);">
                     <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><polyline points="9 15 11 17 15 13"></polyline></svg>
-                    <span>Submit Review</span>
+                    <span>Ask for Approval</span>
                 </button>
             <?php elseif ($isDocHold): ?>
                 <?php if ($canActOnReview): ?>
@@ -1275,7 +1275,7 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
                     <div id="reviewersListContainer" style="max-height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border); border-radius: 8px; padding: 6px; background: var(--surface);">
                         <?php if (empty($eligibleReviewers)): ?>
                             <div style="font-size: 12px; color: var(--muted); padding: 14px; text-align: center;">
-                                No eligible reviewers found (requires Admin or Engineer role).
+                                No eligible reviewers found.
                             </div>
                         <?php else: ?>
                             <?php foreach ($eligibleReviewers as $r): 

@@ -26,6 +26,13 @@ $hdrVerdictsStmt = db()->prepare("
 ");
 $hdrVerdictsStmt->execute(['uid' => $hdrUserId]);
 $hdrRecentVerdicts = $hdrVerdictsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Filter out notifications marked as read
+$hdrDismissed = isset($_COOKIE['edms_read_notifs_' . $hdrUserId]) ? explode(',', (string)$_COOKIE['edms_read_notifs_' . $hdrUserId]) : [];
+if (!empty($hdrDismissed)) {
+    $hdrPendingReviews = array_values(array_filter($hdrPendingReviews, fn($r) => !in_array('rev_' . $r['review_id'], $hdrDismissed, true)));
+    $hdrRecentVerdicts = array_values(array_filter($hdrRecentVerdicts, fn($v) => !in_array('ver_' . $v['review_id'], $hdrDismissed, true)));
+}
 $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
 ?>
 <!DOCTYPE html>
@@ -73,7 +80,7 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
                             <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
                         </svg>
                         <?php if ($hdrNotifCount > 0): ?>
-                            <span style="position: absolute; top: -3px; right: -3px; background: var(--red); color: #fff; font-size: 9.5px; font-weight: 700; border-radius: 9px; min-width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; padding: 0 4px; border: 1.5px solid var(--green); line-height: 1;">
+                            <span id="notifBellBadge" style="position: absolute; top: -3px; right: -3px; background: var(--red); color: #fff; font-size: 9.5px; font-weight: 700; border-radius: 9px; min-width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; padding: 0 4px; border: 1.5px solid var(--green); line-height: 1;">
                                 <?php echo $hdrNotifCount; ?>
                             </span>
                         <?php endif; ?>
@@ -84,21 +91,22 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
                             <span style="font-weight: 700; font-size: 12.5px; color: var(--ink);">Notifications</span>
                         </div>
 
-                        <?php if ($hdrNotifCount === 0): ?>
-                            <div style="padding: 24px 12px; text-align: center; color: var(--muted);">
-                                <div style="margin-bottom: 4px; font-size: 12.5px; font-weight: 600; color: var(--ink);">All caught up</div>
-                                <div style="font-size: 11px;">No pending reviews or alerts.</div>
-                            </div>
-                        <?php else: ?>
+                        <div id="notifEmptyState" style="<?php echo $hdrNotifCount === 0 ? '' : 'display: none; '; ?>padding: 24px 12px; text-align: center; color: var(--muted);">
+                            <div style="margin-bottom: 4px; font-size: 12.5px; font-weight: 600; color: var(--ink);">All caught up</div>
+                            <div style="font-size: 11px;">No pending reviews or alerts.</div>
+                        </div>
+
+                        <?php if ($hdrNotifCount > 0): ?>
                             <?php foreach ($hdrPendingReviews as $pr): ?>
                                 <?php $ext = $pr['file_extension'] ?: 'pdf'; ?>
-                                <a href="<?php echo BASE_URL; ?>/pages/view.php?id=<?php echo (int)$pr['document_id']; ?>" class="popover-item" style="text-decoration: none; padding: 8px 10px; gap: 10px; border-radius: 6px; margin-bottom: 2px;">
+                                <a href="<?php echo BASE_URL; ?>/pages/view.php?id=<?php echo (int)$pr['document_id']; ?>" class="popover-item notif-item" data-notif-id="rev_<?php echo $pr['review_id']; ?>" style="text-decoration: none; padding: 8px 10px; gap: 8px; border-radius: 6px; margin-bottom: 2px;">
                                     <span style="color: var(--muted); display: inline-flex; flex-shrink: 0;"><?php echo render_icon($ext); ?></span>
                                     <span style="flex: 1; min-width: 0;">
                                         <span style="display: block; font-weight: 600; font-size: 12px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><?php echo e($pr['document_name']); ?></span>
                                         <span style="display: block; font-size: 10.5px; color: var(--muted);">Requested by <?php echo e($pr['requested_by_name']); ?></span>
                                     </span>
                                     <span class="status-badge badge-hold" style="font-size: 9px; flex-shrink: 0;">Review</span>
+                                    <button type="button" title="Mark as read" onclick="dismissNotif(event, 'rev_<?php echo $pr['review_id']; ?>')" style="background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 5px; font-size: 13px; line-height: 1; border-radius: 4px;" onmouseover="this.style.color='var(--green)'; this.style.background='var(--surface-light)';" onmouseout="this.style.color='var(--muted)'; this.style.background='none';">✓</button>
                                 </a>
                             <?php endforeach; ?>
 
@@ -109,23 +117,60 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
                                 $badgeCls = $isApprove ? 'badge-publish' : 'badge-rejected';
                                 $badgeText = $isApprove ? 'Approved' : 'Rejected';
                                 ?>
-                                <a href="<?php echo BASE_URL; ?>/pages/view.php?id=<?php echo (int)$vd['document_id']; ?>" class="popover-item" style="text-decoration: none; padding: 8px 10px; gap: 10px; border-radius: 6px; margin-bottom: 2px;">
+                                <a href="<?php echo BASE_URL; ?>/pages/view.php?id=<?php echo (int)$vd['document_id']; ?>" class="popover-item notif-item" data-notif-id="ver_<?php echo $vd['review_id']; ?>" style="text-decoration: none; padding: 8px 10px; gap: 8px; border-radius: 6px; margin-bottom: 2px;">
                                     <span style="color: var(--muted); display: inline-flex; flex-shrink: 0;"><?php echo render_icon($ext); ?></span>
                                     <span style="flex: 1; min-width: 0;">
                                         <span style="display: block; font-weight: 600; font-size: 12px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><?php echo e($vd['document_name']); ?></span>
                                         <span style="display: block; font-size: 10.5px; color: var(--muted);"><?php echo $badgeText; ?> by <?php echo e($vd['reviewer_name'] ?? 'Reviewer'); ?></span>
                                     </span>
                                     <span class="status-badge <?php echo $badgeCls; ?>" style="font-size: 9px; flex-shrink: 0;"><?php echo $badgeText; ?></span>
+                                    <button type="button" title="Mark as read" onclick="dismissNotif(event, 'ver_<?php echo $vd['review_id']; ?>')" style="background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 5px; font-size: 13px; line-height: 1; border-radius: 4px;" onmouseover="this.style.color='var(--green)'; this.style.background='var(--surface-light)';" onmouseout="this.style.color='var(--muted)'; this.style.background='none';">✓</button>
                                 </a>
                             <?php endforeach; ?>
                         <?php endif; ?>
 
-                        <div style="border-top: 1px solid var(--surface-muted); margin-top: 4px; padding-top: 4px;">
-                            <a href="<?php echo BASE_URL; ?>/pages/my-workspace.php" class="popover-item" style="text-decoration: none; justify-content: center; font-size: 11.5px; color: var(--green); font-weight: 600;">
+                        <div style="border-top: 1px solid var(--surface-muted); margin-top: 4px; padding-top: 6px; display: flex; align-items: center; justify-content: space-between; padding-inline: 6px;">
+                            <?php if ($hdrNotifCount > 0): ?>
+                                <button type="button" id="btnMarkAllNotifs" onclick="dismissNotif(event, 'all')" style="background: none; border: none; color: var(--muted); cursor: pointer; font-size: 11px; padding: 0; text-decoration: underline;">
+                                    Mark all as read
+                                </button>
+                            <?php endif; ?>
+                            <a href="<?php echo BASE_URL; ?>/pages/my-workspace.php" class="popover-item" style="text-decoration: none; font-size: 11.5px; color: var(--green); font-weight: 600; width: auto; padding: 2px 0; margin-left: auto;">
                                 Go to Workspace →
                             </a>
                         </div>
                     </div>
+                    <script>
+                    function dismissNotif(e, id) {
+                        if (e) { e.preventDefault(); e.stopPropagation(); }
+                        const cName = 'edms_read_notifs_<?php echo $hdrUserId; ?>';
+                        const cur = (document.cookie.split('; ').find(r => r.startsWith(cName + '=')) || '').split('=')[1] || '';
+                        let ids = cur ? cur.split(',') : [];
+                        if (id === 'all') {
+                            document.querySelectorAll('.notif-item').forEach(el => {
+                                if (el.dataset.notifId) ids.push(el.dataset.notifId);
+                                el.remove();
+                            });
+                        } else {
+                            ids.push(id);
+                            const item = document.querySelector(`.notif-item[data-notif-id="${id}"]`);
+                            if (item) item.remove();
+                        }
+                        document.cookie = `${cName}=${[...new Set(ids)].join(',')}; path=/; max-age=2592000`;
+                        const remaining = document.querySelectorAll('.notif-item').length;
+                        const badge = document.getElementById('notifBellBadge');
+                        if (badge) {
+                            if (remaining > 0) badge.textContent = remaining;
+                            else badge.remove();
+                        }
+                        if (remaining === 0) {
+                            const empty = document.getElementById('notifEmptyState');
+                            const btnAll = document.getElementById('btnMarkAllNotifs');
+                            if (btnAll) btnAll.remove();
+                            if (empty) empty.style.display = 'block';
+                        }
+                    }
+                    </script>
                 </details>
                 <a href="<?php echo BASE_URL; ?>/pages/profile.php" class="user-profile-link" title="My Profile">
                     <div class="user-avatar">
