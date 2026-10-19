@@ -990,8 +990,7 @@
         let marqueeEl = null;
 
         function updateSelectionUI() {
-            if (!cardListContainer) return;
-            cardListContainer.querySelectorAll(".explorer-item-card").forEach(card => {
+            document.querySelectorAll(".explorer-item-card").forEach(card => {
                 const id = card.dataset.id;
                 const isSel = selectedItemsMap.has(id);
                 card.classList.toggle("is-selected", isSel);
@@ -1562,9 +1561,8 @@
             });
         }
 
-        if (cardListContainer) {
-            // Checkbox Direct Click Selection Toggle
-            cardListContainer.addEventListener("change", function (e) {
+        // Checkbox Direct Click Selection Toggle
+        document.addEventListener("change", function (e) {
             const cb = e.target.closest(".item-checkbox");
             if (!cb) return;
             const card = cb.closest(".explorer-item-card");
@@ -1581,7 +1579,7 @@
         });
 
         // Double-click row card to open Workspace (Documents) or navigate inside (Folders)
-        cardListContainer.addEventListener("dblclick", function (e) {
+        document.addEventListener("dblclick", function (e) {
             if (e.target.closest("input, button, a, .item-checkbox, .btn-action, .btn-more-actions, .edms-action-popover, .edms-modal-backdrop")) {
                 return;
             }
@@ -1608,8 +1606,9 @@
         // 8D. Marquee Drag-to-Select & Contextual Right-Click Engine
         // ============================================================
         // 1. Mouse Drag Selection (Marquee / Lasso)
-        cardListContainer.addEventListener("mousedown", function (e) {
+        document.addEventListener("mousedown", function (e) {
             if (e.button !== 0) return; // Left click only
+            if (!e.target.closest(".explorer-card-list, #explorerCardList, .explorer-table-header")) return;
             if (e.target.closest("button, a, input, select, textarea, .btn-action, .edms-action-popover, .edms-modal-backdrop")) {
                 return;
             }
@@ -1651,6 +1650,7 @@
 
         window.addEventListener("mousemove", function (e) {
             if (!isMarqueeDragging || !marqueeEl) return;
+            e.preventDefault();
 
             const currentX = e.clientX;
             const currentY = e.clientY;
@@ -1667,9 +1667,10 @@
                 marqueeEl.style.height = h + "px";
 
                 const marqueeRect = marqueeEl.getBoundingClientRect();
-                const cards = cardListContainer.querySelectorAll(".explorer-item-card");
+                const cards = document.querySelectorAll(".explorer-item-card");
 
                 cards.forEach(card => {
+                    if (card.offsetParent === null) return;
                     const cardRect = card.getBoundingClientRect();
                     const intersects = !(
                         marqueeRect.right < cardRect.left ||
@@ -1679,6 +1680,7 @@
                     );
 
                     const itemData = getItemDataFromRow(card);
+                    if (!itemData) return;
                     if (intersects) {
                         selectedItemsMap.set(itemData.id, itemData);
                     } else if (!e.ctrlKey && !e.metaKey) {
@@ -1700,12 +1702,13 @@
         });
 
         // 2. Right-Click Context Menu (Single & Bulk)
-        cardListContainer.addEventListener("contextmenu", function (e) {
-            if (e.target.closest(".edms-modal-dialog")) return;
+        document.addEventListener("contextmenu", function (e) {
+            if (e.target.closest(".edms-modal-dialog, .edms-action-popover")) return;
+            const clickedCard = e.target.closest(".explorer-item-card");
+            if (!clickedCard) return;
 
             e.preventDefault();
             isContextMenuActive = true;
-            const clickedCard = e.target.closest(".explorer-item-card");
 
             if (clickedCard) {
                 const itemData = getItemDataFromRow(clickedCard);
@@ -1776,7 +1779,6 @@
             popover.style.left = Math.max(10, left) + "px";
             popover.style.top = Math.max(10, top) + "px";
         });
-        }
     }
 
     // Initialize on DOM Ready

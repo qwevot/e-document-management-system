@@ -183,7 +183,7 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                 </div>
             <?php else: ?>
                 <div class="explorer-table-header">
-                    <div style="width: 32px;"></div>
+                    <div class="col-hdr-checkbox-icon"></div>
                     <div class="col-hdr-name">Document</div>
                     <div class="col-hdr-owner">Owner</div>
                     <div class="col-hdr-location">Location</div>
@@ -193,7 +193,10 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
 
                 <?php foreach ($myDocs as $doc): ?>
                     <?php $extIcon = $doc['file_extension'] ?: 'pdf'; ?>
-                    <div class="explorer-item-card is-document" data-status="<?php echo e($doc['status']); ?>">
+                    <div class="explorer-item-card is-document" data-id="<?php echo (int)$doc['id']; ?>" data-name="<?php echo htmlspecialchars($doc['name'], ENT_QUOTES, 'UTF-8'); ?>" data-type="document" data-location="<?php echo htmlspecialchars($doc['parent_name'] ?? 'Projects', ENT_QUOTES, 'UTF-8'); ?>" data-status="<?php echo e($doc['status']); ?>">
+                        <div class="item-checkbox-col">
+                            <input type="checkbox" class="item-checkbox" value="<?php echo (int)$doc['id']; ?>" aria-label="Select item">
+                        </div>
                         <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($doc['name']); ?>">
                             <?php echo render_icon($extIcon); ?>
                         </a>
@@ -253,7 +256,7 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                 </div>
             <?php else: ?>
                 <div class="explorer-table-header">
-                    <div style="width: 32px;"></div>
+                    <div class="col-hdr-checkbox-icon"></div>
                     <div class="col-hdr-name">Document</div>
                     <div class="col-hdr-owner">Owner</div>
                     <div class="col-hdr-modified">Last Accessed</div>
@@ -264,7 +267,10 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
 
                 <?php foreach ($recentDocs as $doc): ?>
                     <?php $extIcon = $doc['file_extension'] ?: 'pdf'; ?>
-                    <div class="explorer-item-card is-document" data-status="<?php echo e($doc['status']); ?>">
+                    <div class="explorer-item-card is-document" data-id="<?php echo (int)$doc['id']; ?>" data-name="<?php echo htmlspecialchars($doc['name'], ENT_QUOTES, 'UTF-8'); ?>" data-type="document" data-location="<?php echo htmlspecialchars($doc['parent_name'] ?? 'Projects', ENT_QUOTES, 'UTF-8'); ?>" data-status="<?php echo e($doc['status']); ?>">
+                        <div class="item-checkbox-col">
+                            <input type="checkbox" class="item-checkbox" value="<?php echo (int)$doc['id']; ?>" aria-label="Select item">
+                        </div>
                         <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($doc['name']); ?>">
                             <?php echo render_icon($extIcon); ?>
                         </a>
