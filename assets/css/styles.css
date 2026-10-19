@@ -2431,7 +2431,92 @@ MY WORKSPACE PAGE & DASHBOARD GRID
     margin: 8px 6px;
 }
 
-/* Topbar Notification Dropdown */
+/* Topbar Notification Dropdown & Global Action Popovers */
 .notif-dropdown summary::-webkit-details-marker { display: none; }
 .notif-dropdown summary { list-style: none; }
+
+.edms-action-popover {
+    position: fixed;
+    z-index: 1100;
+    min-width: 155px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-modal);
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    transform-origin: top right;
+}
+
+.popover-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.12s ease;
+}
+
+.popover-item:hover {
+    background: var(--surface-light);
+    color: var(--green);
+}
+
+.popover-item svg {
+    width: 14px;
+    height: 14px;
+    color: var(--muted);
+    flex-shrink: 0;
+    transition: color 0.12s ease;
+}
+
+.popover-item.is-archive {
+    color: var(--ink);
+}
+
+.popover-item.is-archive:hover {
+    background: var(--amber-soft, var(--surface-light));
+    color: var(--amber-dark, var(--green-dark));
+}
+
+.popover-item.is-archive svg {
+    color: var(--muted);
+}
+
+.popover-item.is-archive:hover svg {
+    color: var(--amber-dark, var(--green));
+}
+
+.popover-item.is-danger {
+    color: var(--red);
+}
+
+.popover-item.is-danger:hover {
+    background: var(--red-soft);
+    color: var(--red-ink);
+}
+
+.popover-item.is-danger svg {
+    color: var(--red);
+}
+
+.popover-item.is-danger:hover svg {
+    color: var(--red-ink);
+}
+
+.popover-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 0;
+}
 

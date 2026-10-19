@@ -2738,6 +2738,20 @@ document.addEventListener("DOMContentLoaded", function () {
         modePublic.addEventListener("change", () => updateAccessModeUI("public"));
     }
 
+    function getContributorAvatarHtml(avatarPath, name, size = 28, bg = "var(--slate-soft)", color = "var(--ink)") {
+        const initial = escapeHtml(name ? name.charAt(0).toUpperCase() : "U");
+        if (avatarPath) {
+            const cleanPath = String(avatarPath).replace(/^[\\\/]+/, "");
+            const src = escapeHtml("../" + cleanPath);
+            return `<div style="width: ${size}px; height: ${size}px; border-radius: 50%; overflow: hidden; background: ${bg}; color: ${color}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                        <img src="${src}" alt="${escapeHtml(name || '')}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.remove();">
+                    </div>`;
+        }
+        return `<div style="width: ${size}px; height: ${size}px; border-radius: 50%; background: ${bg}; color: ${color}; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0;">
+                    ${initial}
+                </div>`;
+    }
+
     function renderContributorsList(searchQuery = "") {
         if (!contributorsListContainer) return;
 
@@ -2750,9 +2764,7 @@ document.addEventListener("DOMContentLoaded", function () {
             html += `
                 <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; background: var(--surface-light);">
                     <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
-                        <div style="width: 28px; height: 28px; border-radius: 50%; background: var(--slate-soft); color: var(--ink); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0;">
-                            ${escapeHtml(o.name ? o.name.charAt(0).toUpperCase() : 'O')}
-                        </div>
+                        ${getContributorAvatarHtml(o.avatar, o.name, 28, 'var(--slate-soft)', 'var(--ink)')}
                         <div style="min-width: 0;">
                             <div style="font-size: 12.5px; font-weight: 600; color: var(--ink);">${escapeHtml(o.name)}</div>
                             <div style="font-size: 10.5px; color: var(--muted);">@${escapeHtml(o.username || '')}</div>
@@ -2771,9 +2783,7 @@ document.addEventListener("DOMContentLoaded", function () {
             html += `
                 <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; background: var(--surface);">
                     <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
-                        <div style="width: 28px; height: 28px; border-radius: 50%; background: var(--success-badge-bg); color: var(--green-ink); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0;">
-                            ${escapeHtml(u.full_name ? u.full_name.charAt(0).toUpperCase() : 'U')}
-                        </div>
+                        ${getContributorAvatarHtml(u.avatar, u.full_name || u.username, 28, 'var(--success-badge-bg)', 'var(--green-ink)')}
                         <div style="min-width: 0;">
                             <div style="font-size: 12.5px; font-weight: 600; color: var(--ink);">${escapeHtml(u.full_name || u.username)}</div>
                             <div style="font-size: 10.5px; color: var(--muted);">@${escapeHtml(u.username)} &bull; ${escapeHtml(u.department || 'Staff')}</div>
@@ -2804,9 +2814,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     html += `
                         <div class="user-add-item" data-uid="${uId}" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; border: 1px dashed var(--border); background: var(--surface-light); cursor: pointer; transition: all 0.12s ease;">
                             <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
-                                <div style="width: 26px; height: 26px; border-radius: 50%; background: var(--slate-soft); color: var(--ink); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0;">
-                                    ${escapeHtml(u.full_name ? u.full_name.charAt(0).toUpperCase() : '+')}
-                                </div>
+                                ${getContributorAvatarHtml(u.avatar, u.full_name || u.username, 26, 'var(--slate-soft)', 'var(--ink)')}
                                 <div style="min-width: 0;">
                                     <div style="font-size: 12px; font-weight: 600; color: var(--ink);">${escapeHtml(u.full_name || u.username)}</div>
                                     <div style="font-size: 10px; color: var(--muted);">@${escapeHtml(u.username)}</div>

@@ -15,6 +15,11 @@ if (!$user) {
 $action = $_REQUEST['action'] ?? '';
 $userId = (int)($user['id'] ?? 1);
 
+if (!can_edit_dms($user) && in_array($action, ['submit_review', 'submit_verdict', 'cancel_review'], true)) {
+    echo json_encode(['success' => false, 'message' => 'Access denied: Viewers have read-only permissions and cannot participate in review workflows.']);
+    exit;
+}
+
 // 1. Get eligible reviewers
 if ($action === 'get_reviewers') {
     $reviewers = get_eligible_reviewers($userId);

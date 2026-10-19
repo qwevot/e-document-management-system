@@ -20,6 +20,16 @@ $isAjax = (isset($_GET['ajax']) && $_GET['ajax'] === '1') ||
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
+    // Disallow mutating operations if current user does not have edit permissions (e.g., viewers)
+    if (!can_edit_dms() && in_array($action, ['restore_node', 'batch_restore', 'purge_node', 'batch_purge'], true)) {
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Access denied: Viewers have read-only permissions and cannot restore or alter archived items.']);
+            exit;
+        }
+        redirect_to('archives', 'error', 'Access denied: Viewers have read-only permissions.');
+    }
+
     // 1. Restore Item (Folder / Document) to Active Workspace
     if ($action === 'restore_node') {
         $nodeId = isset($_POST['id']) && is_numeric($_POST['id']) ? (int)$_POST['id'] : 0;
@@ -702,10 +712,12 @@ include __DIR__ . '/../includes/header.php';
 <!-- Floating Action Popover Menu (3-Dots Context Menu for Archives) -->
 <div class="edms-action-popover" id="archiveActionPopover" style="display: none;">
     <div class="popover-header-label" id="archivePopoverHeaderLabel" style="display: none;">1 item selected</div>
+    <?php if (can_edit_dms()): ?>
     <button type="button" class="popover-item" id="popoverArchiveRestore">
         <?php echo render_icon('refresh'); ?>
         <span id="popoverArchiveRestoreLabel">Restore to Workspace</span>
     </button>
+    <?php endif; ?>
     <?php if ($isSuperAdmin): ?>
         <div class="popover-divider"></div>
         <button type="button" class="popover-item is-danger" id="popoverArchivePurge">

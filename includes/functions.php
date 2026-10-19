@@ -130,6 +130,18 @@ function is_super_admin(?array $user = null): bool
 }
 
 /**
+ * Check if user has modification/mutation rights in the DMS.
+ * Viewers are read-only specimens: strictly barred from creating, editing, uploading, or altering nodes.
+ */
+function can_edit_dms(?array $user = null): bool
+{
+    $u = $user ?? current_user();
+    if (!$u) return false;
+    $role = strtolower(trim($u['role'] ?? 'viewer'));
+    return !in_array($role, ['viewer', 'guest'], true);
+}
+
+/**
  * Ensure valid CSRF token on POST, or redirect back with error.
  */
 function require_csrf(string $fallbackPage = 'profile'): void

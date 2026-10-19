@@ -142,7 +142,8 @@ if ($submittedByUserId === 0) {
 }
 
 $isAdmin = in_array(strtolower($currentUser['role'] ?? ''), ['super admin', 'admin'], true);
-$isOwner = ((int)$doc['created_by'] === $userId || $isAdmin);
+$isViewer = !can_edit_dms($currentUser);
+$isOwner = (!$isViewer && ((int)$doc['created_by'] === $userId || $isAdmin));
 $accessMode = $doc['access_mode'] ?? 'restricted';
 $isContributor = is_document_contributor($docId, $userId);
 $canAnnotate = can_user_annotate_document($doc, $userId);
@@ -188,6 +189,12 @@ $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTT
 
 if ($action) {
     header('Content-Type: application/json');
+
+    // Viewers are strictly barred from modifying annotations or layers
+    if (!can_edit_dms($currentUser) && in_array($action, ['save_annotations', 'create_layer', 'save_layer', 'delete_layer'], true)) {
+        echo json_encode(['success' => false, 'message' => 'Access denied: Viewers have read-only permissions and cannot create or modify annotations.']);
+        exit;
+    }
 
     $ajaxVersionId = isset($_REQUEST['version_id']) && is_numeric($_REQUEST['version_id']) && (int)$_REQUEST['version_id'] > 0
         ? (int)$_REQUEST['version_id']
@@ -870,8 +877,12 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
             <?php if ($isSupportedViewer): ?>
                 <!-- Active Collaborator Presence Indicator -->
                 <div class="collaborator-presence-strip" title="Active Collaborators">
-                    <div class="presence-avatar is-self" title="<?php echo e($currentUser['full_name']); ?> (You)">
-                        <?php echo e(get_initials($currentUser['full_name'])); ?>
+                    <div class="presence-avatar is-self" title="<?php echo e($currentUser['full_name']); ?> (You)" style="overflow: hidden; padding: 0;">
+                        <?php if (!empty($currentUser['avatar']) && is_file(__DIR__ . '/../' . $currentUser['avatar'])): ?>
+                            <img src="<?php echo BASE_URL . '/' . e($currentUser['avatar']); ?>" alt="<?php echo e($currentUser['full_name']); ?>" style="width: 100%; height: 100%; object-fit: cover;">
+                        <?php else: ?>
+                            <?php echo e(get_initials($currentUser['full_name'])); ?>
+                        <?php endif; ?>
                     </div>
                 </div>
 

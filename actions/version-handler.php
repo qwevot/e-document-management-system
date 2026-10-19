@@ -12,6 +12,11 @@ $action = $_REQUEST['action'] ?? '';
 $user = current_user();
 $userId = (int)($user['id'] ?? 1);
 
+if (!can_edit_dms($user) && in_array($action, ['upload_revision', 'revert_version', 'publish_document'], true)) {
+    echo json_encode(['success' => false, 'message' => 'Access denied: Viewers have read-only permissions and cannot upload or alter document revisions.']);
+    exit;
+}
+
 // 1. Get version history for a document
 if ($action === 'get_versions') {
     $docId = isset($_GET['doc_id']) && is_numeric($_GET['doc_id']) ? (int)$_GET['doc_id'] : 0;

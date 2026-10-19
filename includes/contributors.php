@@ -13,7 +13,7 @@ function get_document_contributors(int $docId): array
     $pdo = db();
     $stmt = $pdo->prepare("
         SELECT c.id AS contributor_entry_id, c.created_at AS added_at,
-               u.id AS user_id, u.username, u.full_name, u.role, u.department, u.avatar
+            u.id AS user_id, u.username, u.full_name, u.role, u.department, u.avatar
         FROM dms_document_contributors c
         JOIN users u ON c.user_id = u.id
         WHERE c.document_id = :doc_id
@@ -39,20 +39,25 @@ function is_document_contributor(int $docId, int $userId): bool
         return false;
     }
 
-    // 2. Owner always has contributor rights
+    // 2. Viewers are strictly read-only and cannot have contributor (edit) rights
+    $uStmt = $pdo->prepare("SELECT role FROM users WHERE id = :id");
+    $uStmt->execute(['id' => $userId]);
+    $uRole = strtolower(trim($uStmt->fetchColumn() ?: 'viewer'));
+    if ($uRole === 'viewer' || $uRole === 'guest') {
+        return false;
+    }
+
+    // 3. Owner always has contributor rights
     if ((int)$doc['created_by'] === $userId) {
         return true;
     }
 
-    // 3. Super Admins & Admins always have contributor rights
-    $uStmt = $pdo->prepare("SELECT role FROM users WHERE id = :id");
-    $uStmt->execute(['id' => $userId]);
-    $uRole = strtolower($uStmt->fetchColumn() ?: '');
+    // 4. Super Admins & Admins always have contributor rights
     if (in_array($uRole, ['super admin', 'admin'], true)) {
         return true;
     }
 
-    // 4. Public access mode grants all authenticated users contributor rights
+    // 5. Public access mode grants non-viewer authenticated users contributor rights
     if (($doc['access_mode'] ?? 'restricted') === 'public') {
         return true;
     }

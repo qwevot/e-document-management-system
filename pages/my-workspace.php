@@ -28,7 +28,6 @@ $myDocsStmt = $pdo->prepare("
       AND d.is_deleted = 0
       AND (d.created_by = :uid3 OR c.user_id IS NOT NULL)
     ORDER BY d.updated_at DESC
-    LIMIT 15
 ");
 $myDocsStmt->execute(['uid1' => $userId, 'uid2' => $userId, 'uid3' => $userId]);
 $myDocs = $myDocsStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -165,10 +164,12 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                     <?php echo render_icon('explorer'); ?>
                     <span>Browse All</span>
                 </a>
-                <button type="button" id="btnUploadDoc" class="btn btn-primary" onclick="openWsUploadModal()">
-                    <?php echo render_icon('cloud-upload'); ?>
-                    <span>Upload Document</span>
-                </button>
+                <?php if (can_edit_dms($user)): ?>
+                    <button type="button" id="btnUploadDoc" class="btn btn-primary" onclick="openWsUploadModal()">
+                        <?php echo render_icon('cloud-upload'); ?>
+                        <span>Upload Document</span>
+                    </button>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -374,6 +375,35 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
             <?php endif; ?>
         </div>
 
+        <!-- Pagination Controls Footer (Identical to explorer.php) -->
+        <div class="explorer-pagination-bar" id="wsPaginationBar" style="display: none; margin-top: 12px;">
+            <div class="pagination-info">
+                <span>Showing <strong id="wsPagStart">1</strong>–<strong id="wsPagEnd">10</strong> of <strong id="wsPagTotal">0</strong> items</span>
+            </div>
+
+            <div class="pagination-actions">
+                <div class="pagination-per-page">
+                    <label for="wsPerPageSelect" class="pagination-label">Rows per page:</label>
+                    <select id="wsPerPageSelect" class="pagination-select" aria-label="Items per page" onchange="changeWsPerPage(this.value)">
+                        <option value="10">10</option>
+                        <option value="25" selected>25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
+
+                <div class="pagination-nav-group">
+                    <button type="button" class="pagination-btn" id="btnWsPagPrev" onclick="changeWsPage(wsCurrentPage - 1)" title="Previous Page">
+                        <?php echo render_icon('arrow-left'); ?>
+                    </button>
+                    <div class="pagination-pages" id="wsPagPages"></div>
+                    <button type="button" class="pagination-btn" id="btnWsPagNext" onclick="changeWsPage(wsCurrentPage + 1)" title="Next Page">
+                        <?php echo render_icon('chevron-right'); ?>
+                    </button>
+                </div>
+            </div>
+        </div>
+
     </div>
 
 </div>
@@ -482,11 +512,25 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
 
 <script>
 let currentWsFilter = 'all';
+let wsCurrentPage = 1;
+let wsPerPage = 25;
 
 function filterWorkspace(btn, filter) {
     document.querySelectorAll('.ws-mailbox-item').forEach(el => el.classList.remove('is-active'));
     if (btn) btn.classList.add('is-active');
     currentWsFilter = filter;
+    wsCurrentPage = 1;
+    applyWorkspaceFilters();
+}
+
+function changeWsPage(p) {
+    wsCurrentPage = p;
+    applyWorkspaceFilters();
+}
+
+function changeWsPerPage(val) {
+    wsPerPage = parseInt(val, 10) || 25;
+    wsCurrentPage = 1;
     applyWorkspaceFilters();
 }
 
@@ -495,56 +539,117 @@ function applyWorkspaceFilters() {
     const paneRecent = document.getElementById('paneRecent');
     const panePending = document.getElementById('panePendingReview');
     const emptyFilterEl = document.getElementById('wsFilterEmpty');
+    const pagBar = document.getElementById('wsPaginationBar');
     const q = wsSearch ? wsSearch.value.trim().toLowerCase() : '';
+
+    let activePane = null;
+    let targetCards = [];
 
     if (currentWsFilter === 'recent') {
         if (paneMyWs) paneMyWs.style.display = 'none';
         if (panePending) panePending.style.display = 'none';
         if (paneRecent) {
             paneRecent.style.display = '';
-            paneRecent.querySelectorAll('.explorer-item-card.is-document').forEach(card => {
-                const titleEl = card.querySelector('.item-title');
-                const title = titleEl ? titleEl.textContent.toLowerCase() : '';
-                card.style.display = (q === '' || title.includes(q)) ? '' : 'none';
-            });
+            activePane = paneRecent;
+            targetCards = Array.from(paneRecent.querySelectorAll('.explorer-item-card.is-document'));
         }
-        if (emptyFilterEl) emptyFilterEl.style.display = 'none';
-        return;
-    }
-
-    if (currentWsFilter === 'pending') {
+    } else if (currentWsFilter === 'pending') {
         if (paneMyWs) paneMyWs.style.display = 'none';
         if (paneRecent) paneRecent.style.display = 'none';
         if (panePending) {
             panePending.style.display = '';
-            panePending.querySelectorAll('.explorer-item-card.is-document').forEach(card => {
-                const titleEl = card.querySelector('.item-title');
-                const title = titleEl ? titleEl.textContent.toLowerCase() : '';
-                card.style.display = (q === '' || title.includes(q)) ? '' : 'none';
-            });
+            activePane = panePending;
+            targetCards = Array.from(panePending.querySelectorAll('.explorer-item-card.is-document'));
         }
-        if (emptyFilterEl) emptyFilterEl.style.display = 'none';
-        return;
+    } else {
+        if (paneRecent) paneRecent.style.display = 'none';
+        if (panePending) panePending.style.display = 'none';
+        if (paneMyWs) {
+            paneMyWs.style.display = '';
+            activePane = paneMyWs;
+            targetCards = Array.from(paneMyWs.querySelectorAll('.explorer-item-card.is-document'));
+        }
     }
 
-    if (paneRecent) paneRecent.style.display = 'none';
-    if (panePending) panePending.style.display = 'none';
-    if (paneMyWs) paneMyWs.style.display = '';
+    if (emptyFilterEl) emptyFilterEl.style.display = 'none';
 
-    let visibleCount = 0;
-    const cards = paneMyWs ? paneMyWs.querySelectorAll('.explorer-item-card.is-document') : [];
-    cards.forEach(card => {
-        const matchStatus = (currentWsFilter === 'all' || card.dataset.status === currentWsFilter);
+    // 1. Filter matching candidates
+    const matchingCards = targetCards.filter(card => {
+        const matchStatus = (currentWsFilter === 'recent' || currentWsFilter === 'pending' || currentWsFilter === 'all' || card.dataset.status === currentWsFilter);
         const titleEl = card.querySelector('.item-title');
         const title = titleEl ? titleEl.textContent.toLowerCase() : '';
         const matchSearch = (q === '' || title.includes(q));
-        const visible = matchStatus && matchSearch;
-        card.style.display = visible ? '' : 'none';
-        if (visible) visibleCount++;
+        return matchStatus && matchSearch;
     });
 
-    if (emptyFilterEl) {
-        emptyFilterEl.style.display = (visibleCount === 0 && cards.length > 0) ? 'block' : 'none';
+    const totalMatching = matchingCards.length;
+
+    // Show empty filter message if my workspace has cards but none matched filter/query
+    if (emptyFilterEl && activePane === paneMyWs) {
+        emptyFilterEl.style.display = (totalMatching === 0 && targetCards.length > 0) ? 'block' : 'none';
+    }
+
+    // 2. Pagination Math
+    const totalPages = Math.max(1, Math.ceil(totalMatching / wsPerPage));
+    if (wsCurrentPage > totalPages) wsCurrentPage = totalPages;
+    if (wsCurrentPage < 1) wsCurrentPage = 1;
+
+    const startIndex = (wsCurrentPage - 1) * wsPerPage;
+    const endIndex = Math.min(startIndex + wsPerPage, totalMatching);
+
+    // 3. Render items visibility
+    targetCards.forEach(card => card.style.display = 'none');
+    for (let i = startIndex; i < endIndex; i++) {
+        if (matchingCards[i]) matchingCards[i].style.display = '';
+    }
+
+    // 4. Update Pagination Bar (Identical styling to explorer.php)
+    if (pagBar) {
+        if (totalMatching > 10) {
+            pagBar.style.display = 'flex';
+            const pagStart = document.getElementById('wsPagStart');
+            const pagEnd = document.getElementById('wsPagEnd');
+            const pagTotal = document.getElementById('wsPagTotal');
+            const btnPrev = document.getElementById('btnWsPagPrev');
+            const btnNext = document.getElementById('btnWsPagNext');
+            const pagPages = document.getElementById('wsPagPages');
+
+            if (pagStart) pagStart.textContent = totalMatching > 0 ? (startIndex + 1) : 0;
+            if (pagEnd) pagEnd.textContent = endIndex;
+            if (pagTotal) pagTotal.textContent = totalMatching;
+
+            if (btnPrev) {
+                btnPrev.disabled = wsCurrentPage <= 1;
+                btnPrev.classList.toggle('is-disabled', wsCurrentPage <= 1);
+            }
+            if (btnNext) {
+                btnNext.disabled = wsCurrentPage >= totalPages;
+                btnNext.classList.toggle('is-disabled', wsCurrentPage >= totalPages);
+            }
+
+            if (pagPages) {
+                let html = '';
+                const windowSize = 2;
+                const startP = Math.max(1, wsCurrentPage - windowSize);
+                const endP = Math.min(totalPages, wsCurrentPage + windowSize);
+
+                if (startP > 1) {
+                    html += `<button type="button" class="pagination-page-btn" onclick="changeWsPage(1)">1</button>`;
+                    if (startP > 2) html += `<span class="pagination-ellipsis">&hellip;</span>`;
+                }
+                for (let p = startP; p <= endP; p++) {
+                    const activeCls = (p === wsCurrentPage) ? 'is-active' : '';
+                    html += `<button type="button" class="pagination-page-btn ${activeCls}" onclick="changeWsPage(${p})">${p}</button>`;
+                }
+                if (endP < totalPages) {
+                    if (endP < totalPages - 1) html += `<span class="pagination-ellipsis">&hellip;</span>`;
+                    html += `<button type="button" class="pagination-page-btn" onclick="changeWsPage(${totalPages})">${totalPages}</button>`;
+                }
+                pagPages.innerHTML = html;
+            }
+        } else {
+            pagBar.style.display = 'none';
+        }
     }
 }
 

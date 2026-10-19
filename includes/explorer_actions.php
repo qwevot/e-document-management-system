@@ -34,6 +34,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $action = $_POST['action'] ?? '';
 
+    // Disallow mutating operations if current user does not have edit permissions (e.g., viewers)
+    if (!can_edit_dms() && in_array($action, ['create_folder', 'rename_node', 'batch_move', 'batch_archive', 'move_node', 'delete_node', 'upload_document'], true)) {
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Access denied: Viewers have read-only permissions and cannot modify or upload documents.']);
+            exit;
+        }
+        redirect_to('explorer', 'error', 'Access denied: Viewers have read-only permissions.');
+    }
+
     // 1. Create Folder
     if ($action === 'create_folder') {
         $folderName = trim($_POST['name'] ?? '');

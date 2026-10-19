@@ -79,7 +79,7 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
                         <?php endif; ?>
                     </summary>
 
-                    <div class="edms-action-popover" style="position: absolute; right: 0; top: calc(100% + 10px); width: 340px; max-height: 420px; overflow-y: auto; padding: 6px; box-shadow: var(--shadow-modal); z-index: 1000; border: 1px solid var(--border);">
+                    <div class="edms-action-popover notif-popover-menu" style="position: absolute; right: 0; top: calc(100% + 10px); width: 340px; max-height: 420px; overflow-y: auto; padding: 6px; background: var(--surface); box-shadow: var(--shadow-modal); z-index: 1000; border: 1px solid var(--border);">
                         <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--surface-muted); margin-bottom: 4px;">
                             <span style="font-weight: 700; font-size: 12.5px; color: var(--ink);">Notifications</span>
                         </div>

@@ -514,6 +514,7 @@ require_once __DIR__ . '/../includes/header.php';
             </div>
         </form>
 
+        <?php if (can_edit_dms()): ?>
         <div class="toolbar-actions">
             <button type="button" id="btnNewFolder" class="btn btn-secondary" style="<?php echo $viewMode === 'project' ? '' : 'display: none;'; ?>">
                 <?php echo render_icon('plus'); ?>
@@ -524,6 +525,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <span>Upload Document</span>
             </button>
         </div>
+        <?php endif; ?>
     </div>
 
     <!-- Filter & Navigation Card: Projects vs Documents Mode + Filters -->
@@ -792,6 +794,7 @@ require_once __DIR__ . '/../includes/header.php';
         <?php echo render_icon('history'); ?>
         <span>Audit History</span>
     </button>
+    <?php if (can_edit_dms()): ?>
     <button type="button" class="popover-item" id="popoverActionRename">
         <?php echo render_icon('edit'); ?>
         <span>Rename</span>
@@ -805,6 +808,7 @@ require_once __DIR__ . '/../includes/header.php';
         <?php echo render_icon('archive'); ?>
         <span id="popoverActionDeleteLabel">Move to Archives</span>
     </button>
+    <?php endif; ?>
 </div>
 
 <!-- Modal: Rename Item -->
