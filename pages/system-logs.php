@@ -164,6 +164,10 @@ include __DIR__ . '/../includes/header.php';
                             $detailJson = $hasDetails ? json_encode($detailsArr, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '';
                             $detailSnippet = $hasDetails ? json_encode($detailsArr, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '';
                             $roleSlug = strtolower(str_replace(' ', '-', (string)($lg['role'] ?? 'viewer')));
+                            $isFail = str_contains($lg['action'], 'failed') || str_contains($lg['action'], 'error') || str_contains($lg['action'], 'missing');
+                            $badgeStyle = $isFail
+                                ? "color: var(--red-ink); background: var(--red-soft); border-color: var(--red-line);"
+                                : "color: var(--green-dark); background: var(--green-soft); border-color: var(--green-line);";
                         ?>
                         <tr>
                             <td class="no-col"><?php echo $rowNum; ?></td>
@@ -171,7 +175,7 @@ include __DIR__ . '/../includes/header.php';
                                 <?php echo date('M d, Y H:i:s', strtotime($lg['created_at'])); ?>
                             </td>
                             <td>
-                                <code style="font-size: 12px; font-weight: 600; color: var(--green-dark); background: var(--green-soft); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--green-line); white-space: nowrap;">
+                                <code style="font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid; white-space: nowrap; <?php echo $badgeStyle; ?>">
                                     <?php echo e($lg['action']); ?>
                                 </code>
                             </td>

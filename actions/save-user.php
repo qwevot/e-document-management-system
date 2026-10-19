@@ -33,6 +33,10 @@ if ($id === $currentUserId && $role !== 'super admin') {
 $st = $pdo->prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id <> ?');
 $st->execute([$username, $id]);
 if ($st->fetch()) {
+    log_activity('user.save_failed', 'user', $id > 0 ? $id : null, [
+        'attempted_username' => $username,
+        'reason'             => 'Username collision'
+    ], 'failure');
     redirect_to('users', 'error', 'That username already exists.');
 }
 

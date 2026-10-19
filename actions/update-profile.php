@@ -59,6 +59,11 @@ if ($action === 'update_profile') {
         $_SESSION['user']['avatar'] = $avatarPath;
     }
 
+    log_activity('user.profile_update', 'user', $userId, [
+        'full_name'      => $fullNameVal,
+        'avatar_updated' => $avatarUpdated
+    ], 'success');
+
     redirect_to('profile', 'success', 'Profile information updated successfully.');
 }
 
@@ -84,12 +89,15 @@ if ($action === 'update_password') {
     $currentHash = $st->fetchColumn();
 
     if (!$currentHash || !password_verify($currentPassword, $currentHash)) {
+        log_activity('user.password_change_failed', 'user', $userId, ['reason' => 'Incorrect current password'], 'failure');
         redirect_to('profile', 'error', 'Incorrect current password. Please try again.');
     }
 
     $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
     $stUp = $pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?');
     $stUp->execute([$newHash, $userId]);
+
+    log_activity('user.password_change', 'user', $userId, ['status' => 'success']);
 
     redirect_to('profile', 'success', 'Password successfully changed.');
 }

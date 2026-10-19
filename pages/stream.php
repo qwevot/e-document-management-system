@@ -61,6 +61,11 @@ if ($versionId > 0) {
 $physicalFilePath = __DIR__ . '/../' . ltrim($doc['file_path'], '/\\');
 
 if (!file_exists($physicalFilePath) || !is_readable($physicalFilePath)) {
+    log_activity('document.file_missing', 'document', $nodeId, [
+        'file_path'     => $doc['file_path'] ?? '',
+        'operation'     => 'stream',
+        'document_name' => $doc['name'] ?? ''
+    ], 'failure');
     http_response_code(404);
     die('Physical file does not exist on disk.');
 }

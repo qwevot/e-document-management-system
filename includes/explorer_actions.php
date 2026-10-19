@@ -69,6 +69,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // Check for duplicate name under same parent
             if (is_node_duplicate($pdo, $postParentId, $folderName)) {
+                log_activity('folder.create_failed', 'folder', null, [
+                    'name'      => $folderName,
+                    'parent_id' => $postParentId,
+                    'reason'    => 'Duplicate folder name collision'
+                ], 'failure');
                 if ($isAjax) {
                     header('Content-Type: application/json');
                     echo json_encode(['success' => false, 'message' => "A folder named \"{$folderName}\" already exists here.", 'duplicate' => true]);
@@ -133,6 +138,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $nodeType = $nodeData['node_type'] ?? 'document';
 
             if (is_node_duplicate($pdo, $nodeParentId, $newName, $nodeId)) {
+                log_activity('node.rename_failed', $nodeType, $nodeId, [
+                    'current_name'   => $oldName,
+                    'attempted_name' => $newName,
+                    'reason'         => 'Item with this name already exists in destination folder'
+                ], 'failure');
                 if ($isAjax) {
                     header('Content-Type: application/json');
                     echo json_encode(['success' => false, 'message' => "An item named \"{$newName}\" already exists in this folder.", 'duplicate' => true]);
@@ -488,6 +498,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 UPLOAD_ERR_NO_FILE   => 'No file was selected for upload.',
                 default              => 'File upload failed with error code: ' . $errorCode
             };
+            if ($errorCode !== UPLOAD_ERR_NO_FILE) {
+                log_activity('document.upload_failed', 'document', null, [
+                    'error_code' => $errorCode,
+                    'reason'     => $errMessage
+                ], 'failure');
+            }
             if ($isAjax) {
                 header('Content-Type: application/json');
                 echo json_encode(['success' => false, 'message' => $errMessage]);
@@ -530,6 +546,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $relativeStoragePath = 'uploads/documents/' . $yearMonth . '/' . $safeStorageName;
 
             if (!move_uploaded_file($tmpPath, $destinationPath)) {
+                log_activity('document.upload_failed', 'document', null, [
+                    'filename' => $originalName,
+                    'reason'   => 'Failed to move file to physical storage directory'
+                ], 'failure');
                 if ($isAjax) {
                     header('Content-Type: application/json');
                     echo json_encode(['success' => false, 'message' => 'Failed to store file in physical repository.']);
@@ -550,6 +570,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (file_exists($destinationPath)) {
                         @unlink($destinationPath);
                     }
+                    log_activity('document.upload_failed', 'document', null, [
+                        'name'      => $docName,
+                        'parent_id' => $postParentId,
+                        'reason'    => 'Duplicate document name collision'
+                    ], 'failure');
                     if ($isAjax) {
                         header('Content-Type: application/json');
                         echo json_encode([

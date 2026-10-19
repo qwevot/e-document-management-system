@@ -751,6 +751,7 @@ document.addEventListener('keydown', e => {
         closeWsUploadModal();
     }
 });
+applyWorkspaceFilters();
 </script>
 
 <?php
