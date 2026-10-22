@@ -829,13 +829,6 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
                 <?php else: ?>
                     <button type="button" class="workspace-badge badge-version" id="btnBadgeVersion" title="View Revision Lineage" style="cursor:pointer; background: var(--green-tint-surface); border: 1px dashed var(--green-tint-border); display: inline-flex; align-items: center; gap: 4px;">
                         <span><?php echo e($doc['version'] ?? 'v1.0'); ?></span>
-                        <?php if ($activeReviewStatus === 'rejected'): ?>
-                            <span style="color:var(--red); font-weight:700;">(REJECTED)</span>
-                        <?php elseif ($activeReviewStatus === 'approved' || $doc['status'] === 'published'): ?>
-                            <span style="color:var(--green); font-weight:700;">(APPROVED)</span>
-                        <?php elseif ($doc['status'] === 'hold'): ?>
-                            <span style="color:var(--amber-ink); font-weight:700;">(HOLD)</span>
-                        <?php endif; ?>
                     </button>
                 <?php endif; ?>
             </div>
@@ -939,6 +932,13 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
                 <button type="button" class="btn-workspace-action" id="btnOpenDocAccessModal" title="Manage Document Contributors &amp; Access Mode" style="color: var(--ink);">
                     <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
                     <span>Access</span>
+                </button>
+            <?php endif; ?>
+
+            <?php if ($isDocPublished && $isContributor): ?>
+                <button type="button" class="btn-workspace-action" title="Suspend for Revision" style="color: var(--red);" onclick="document.getElementById('modalSuspendDoc').classList.add('is-open')">
+                    <?php echo render_icon('close'); ?>
+                    <span>Suspend</span>
                 </button>
             <?php endif; ?>
 
@@ -1120,9 +1120,7 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
                                 </span>
                                 <span>Version History</span>
                             </div>
-                            <?php if ($isDocHold): ?>
-                                <!-- leave blank -->
-                            <?php elseif ($canUploadRevision && !$isHistoricalSnapshot && !$isArchived): ?>
+                            <?php if ($canUploadRevision && !$isHistoricalSnapshot && !$isArchived): ?>
                                 <button type="button" class="btn btn-primary" id="btnOpenUploadRevisionModal" style="padding: 4px 10px; font-size: 11.5px; display: inline-flex; align-items: center; gap: 4px;">
                                     <?php echo render_icon('plus'); ?>
                                     <span>Upload Revision</span>
@@ -1451,6 +1449,26 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
         </form>
     </div>
 </div>
+
+<?php if ($isDocPublished && $isContributor): ?>
+<!-- Modal: Suspend Document Confirmation -->
+<div class="edms-modal-backdrop" id="modalSuspendDoc" onclick="if(event.target===this)this.classList.remove('is-open')">
+    <div class="edms-modal-dialog" style="max-width: 440px;">
+        <div class="edms-modal-header">
+            <div class="edms-modal-title" style="color: var(--red-ink)"><?php echo render_icon('close'); ?><span>Suspend Document</span></div>
+            <button type="button" class="btn-modal-close" onclick="document.getElementById('modalSuspendDoc').classList.remove('is-open')">&times;</button>
+        </div>
+        <div class="edms-modal-body">
+            <p style="font-size: 13.5px; margin: 0 0 6px;">Are you sure you want to suspend <strong><?php echo e($doc['name']); ?></strong>?</p>
+            <p style="font-size: 12px; color: var(--muted); margin: 0;">This will freeze the document for a major revision cycle.</p>
+        </div>
+        <div class="edms-modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('modalSuspendDoc').classList.remove('is-open')">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="this.disabled=true;this.textContent='Suspending...';fetch('../actions/version-handler.php',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'action=suspend_document&doc_id=<?php echo (int)$docId; ?>'}).then(()=>location.reload())">Suspend</button>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- Pass Initial Document Configuration to JS -->
 <script>

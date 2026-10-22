@@ -1013,7 +1013,8 @@
                 type: card.dataset.type || "document",
                 location: card.dataset.location || "Root",
                 ext: card.dataset.ext || "pdf",
-                version: card.dataset.version || "v1.0"
+                version: card.dataset.version || "v1.0",
+                status: card.dataset.status || "active"
             };
         }
 
@@ -1049,20 +1050,26 @@
             const nodeExt = btn.dataset.ext || "pdf";
             const nodeVersion = btn.dataset.version || "v1.0";
 
+            const card = btn.closest(".explorer-item-card");
+            const nodeStatus = (card ? card.dataset.status : "") || btn.dataset.status || "active";
+
             currentActiveItem = {
                 id: nodeId,
                 name: nodeName,
                 type: nodeType,
                 location: nodeLocation,
                 ext: nodeExt,
-                version: nodeVersion
+                version: nodeVersion,
+                status: nodeStatus
             };
 
             // 3-Dots actions are strictly single-item actions:
+            const isObsolete = (nodeStatus === "obsolete");
             if (popoverHeaderLabel) popoverHeaderLabel.style.display = "none";
-            if (popoverRename) popoverRename.style.display = "flex";
+            if (popoverRename) popoverRename.style.display = isObsolete ? "none" : "flex";
+            if (popoverMove) popoverMove.style.display = isObsolete ? "none" : "flex";
             if (popoverActionMoveLabel) popoverActionMoveLabel.textContent = "Move to...";
-            if (popoverActionDeleteLabel) popoverActionDeleteLabel.textContent = "Move to Archives";
+            if (popoverActionDeleteLabel) popoverActionDeleteLabel.textContent = isObsolete ? "Restore" : "Trash";
 
             // Configure Open Workspace link in popover
             if (popoverView) {
@@ -1484,6 +1491,14 @@
         // --- Action: Delete / Archive ---
         if (popoverDelete) {
             popoverDelete.addEventListener("click", function () {
+                if (currentActiveItem && currentActiveItem.status === "obsolete") {
+                    hidePopover();
+                    const fd = new FormData();
+                    fd.append("action", "restore_node");
+                    fd.append("id", currentActiveItem.id);
+                    fetch("explorer.php", { method: "POST", body: fd }).then(() => window.location.reload());
+                    return;
+                }
                 const isBulk = isContextMenuActive && selectedItemsMap.size > 1;
                 const itemsToArchive = isBulk ? Array.from(selectedItemsMap.values()) : (currentActiveItem ? [currentActiveItem] : []);
                 hidePopover();
@@ -1736,7 +1751,7 @@
                 if (popoverAuditHistory) popoverAuditHistory.style.display = "none";
                 if (popoverRename) popoverRename.style.display = "none";
                 if (popoverActionMoveLabel) popoverActionMoveLabel.textContent = `Move ${count} items...`;
-                if (popoverActionDeleteLabel) popoverActionDeleteLabel.textContent = `Move to Archives (${count})`;
+                if (popoverActionDeleteLabel) popoverActionDeleteLabel.textContent = `Trash (${count})`;
             } else {
                 const singleItem = Array.from(selectedItemsMap.values())[0];
                 currentActiveItem = singleItem;
@@ -1758,9 +1773,11 @@
                 if (popoverAuditHistory) {
                     popoverAuditHistory.style.display = singleItem.type === "document" ? "flex" : "none";
                 }
-                if (popoverRename) popoverRename.style.display = "flex";
+                const isObsolete = (singleItem.status === "obsolete");
+                if (popoverRename) popoverRename.style.display = isObsolete ? "none" : "flex";
+                if (popoverMove) popoverMove.style.display = isObsolete ? "none" : "flex";
                 if (popoverActionMoveLabel) popoverActionMoveLabel.textContent = "Move to...";
-                if (popoverActionDeleteLabel) popoverActionDeleteLabel.textContent = "Move to Archives";
+                if (popoverActionDeleteLabel) popoverActionDeleteLabel.textContent = isObsolete ? "Restore" : "Trash";
             }
 
             // Position Context Popover at cursor with boundary safety

@@ -35,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     // Disallow mutating operations if current user does not have edit permissions (e.g., viewers)
-    if (!can_edit_dms() && in_array($action, ['create_folder', 'rename_node', 'batch_move', 'batch_archive', 'move_node', 'delete_node', 'upload_document'], true)) {
+    if (!can_edit_dms() && in_array($action, ['create_folder', 'rename_node', 'batch_move', 'batch_archive', 'move_node', 'delete_node', 'restore_node', 'upload_document'], true)) {
         if ($isAjax) {
             header('Content-Type: application/json');
             echo json_encode(['success' => false, 'message' => 'Access denied: Viewers have read-only permissions and cannot modify or upload documents.']);
@@ -480,6 +480,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? 'explorer.php'));
             exit;
         }
+    }
+
+    // 5B. Restore Item (from Workspace / Archives)
+    if ($action === 'restore_node') {
+        $nodeId = isset($_POST['id']) && is_numeric($_POST['id']) ? (int)$_POST['id'] : 0;
+        $currUid = (int)(current_user()['id'] ?? 0);
+        $isAdmin = in_array(current_role(), ['super admin', 'admin'], true) ? 1 : 0;
+
+        $stmt = $pdo->prepare("UPDATE dms_nodes SET is_deleted = 0, status = 'active', updated_at = NOW() WHERE id = ? AND (created_by = ? OR ? = 1)");
+        $stmt->execute([$nodeId, $currUid, $isAdmin]);
+
+        log_activity('node.restore', 'document', $nodeId, [], 'success');
+
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => true, 'message' => 'Document restored to active workspace.']);
+            exit;
+        }
+        header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? 'my-workspace.php'));
+        exit;
     }
 
     // 6. Upload Document Specimen

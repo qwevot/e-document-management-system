@@ -66,13 +66,6 @@ function create_document_version(
         return ['success' => false, 'message' => 'Document not found.'];
     }
 
-    if ($doc['status'] === 'hold') {
-        return [
-            'success' => false, 
-            'message' => 'Document is currently frozen on Hold for formal review. Retract the review submission or wait for reviewer sign-off before uploading new revisions.'
-        ];
-    }
-
     if ($doc['status'] === 'obsolete') {
         return ['success' => false, 'message' => 'Cannot upload revisions to an obsolete document.'];
     }
@@ -82,8 +75,8 @@ function create_document_version(
     $nextVer = calculate_next_version($currentVer, 'minor');
     $summary = trim($changeSummary ?? '') ?: ("Revision update to " . $nextVer);
 
-    // If document was published, new revision sets status to active (working draft)
-    $newStatus = 'active';
+    // If document was suspended or on hold, revision sets status to hold; otherwise active
+    $newStatus = in_array($doc['status'], ['suspend', 'hold'], true) ? 'hold' : 'active';
 
     $pdo->beginTransaction();
     try {

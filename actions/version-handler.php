@@ -12,7 +12,7 @@ $action = $_REQUEST['action'] ?? '';
 $user = current_user();
 $userId = (int)($user['id'] ?? 1);
 
-if (!can_edit_dms($user) && in_array($action, ['upload_revision', 'revert_version', 'publish_document'], true)) {
+if (!can_edit_dms($user) && in_array($action, ['upload_revision', 'revert_version', 'publish_document', 'suspend_document'], true)) {
     echo json_encode(['success' => false, 'message' => 'Access denied: Viewers have read-only permissions and cannot upload or alter document revisions.']);
     exit;
 }
@@ -30,6 +30,16 @@ if ($action === 'get_versions') {
         'success'  => true,
         'versions' => $versions
     ]);
+    exit;
+}
+
+// 1B. Suspend document for major revision
+if ($action === 'suspend_document' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $docId = (int)($_POST['doc_id'] ?? 0);
+    $pdo = db();
+    $pdo->prepare("UPDATE dms_nodes SET status = 'suspend', updated_at = NOW() WHERE id = ? AND status = 'published'")->execute([$docId]);
+    log_activity('document.suspend', 'document', $docId, ['reason' => 'Major revision requested']);
+    echo json_encode(['success' => true]);
     exit;
 }
 

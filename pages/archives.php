@@ -5,14 +5,17 @@ $extraCss  = ['explorer.css'];
 
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/auth.php';
 
 require_login();
+require_role('super admin', 'admin');
+
 $pdo = db();
 $currentUser = current_user();
 $isSuperAdmin = is_super_admin($currentUser);
 
 $isAjax = (isset($_GET['ajax']) && $_GET['ajax'] === '1') || 
-          (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest');
+        (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest');
 
 // ============================================================
 // POST Actions: Restore / Permanently Purge Document
@@ -307,21 +310,21 @@ $fileTypesStmt = $pdo->query("
     SELECT DISTINCT LOWER(TRIM(LEADING '.' FROM file_extension)) AS ext
     FROM dms_nodes
     WHERE node_type = 'document'
-      AND (status = 'obsolete' OR is_deleted = 1)
-      AND file_extension IS NOT NULL
-      AND file_extension != ''
+    AND (status = 'obsolete' OR is_deleted = 1)
+    AND file_extension IS NOT NULL
+    AND file_extension != ''
     ORDER BY ext ASC
 ");
 $allFilterTypes = array_values(array_filter($fileTypesStmt->fetchAll(PDO::FETCH_COLUMN)));
 
 // 2. Query Obsolete Items (According to Project Tree Mode or Flat Documents Mode)
 $baseSelect = 'SELECT dms_nodes.*, 
-                      COALESCE(u.full_name, u.username, "System") AS creator_name,
-                      u.avatar AS creator_avatar,
-                      p.name AS parent_name
-               FROM dms_nodes
-               LEFT JOIN users u ON dms_nodes.created_by = u.id
-               LEFT JOIN dms_nodes p ON dms_nodes.parent_id = p.id';
+                    COALESCE(u.full_name, u.username, "System") AS creator_name,
+                    u.avatar AS creator_avatar,
+                    p.name AS parent_name
+                FROM dms_nodes
+                LEFT JOIN users u ON dms_nodes.created_by = u.id
+                LEFT JOIN dms_nodes p ON dms_nodes.parent_id = p.id';
 
 $baseCount = 'SELECT COUNT(*) FROM dms_nodes';
 
@@ -654,11 +657,6 @@ include __DIR__ . '/../includes/header.php';
             </div>
         </form>
 
-        <div class="toolbar-actions" style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 12px; color: var(--muted); font-weight: 500;">
-                Repository: <strong style="color: var(--amber-dark);">Archives (Obsolete)</strong>
-            </span>
-        </div>
     </div>
 
     <!-- Filter & Navigation Card: Projects vs Documents Mode + Filters -->

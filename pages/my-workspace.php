@@ -25,11 +25,14 @@ $myDocsStmt = $pdo->prepare("
     LEFT JOIN dms_nodes p ON d.parent_id = p.id
     LEFT JOIN dms_document_contributors c ON d.id = c.document_id AND c.user_id = :uid2
     WHERE d.node_type = 'document'
-      AND d.is_deleted = 0
-      AND (d.created_by = :uid3 OR c.user_id IS NOT NULL)
+      AND (
+          (d.is_deleted = 0 AND (d.created_by = :uid3 OR c.user_id IS NOT NULL))
+          OR
+          (d.is_deleted = 1 AND d.status = 'obsolete' AND d.created_by = :uid4)
+      )
     ORDER BY d.updated_at DESC
 ");
-$myDocsStmt->execute(['uid1' => $userId, 'uid2' => $userId, 'uid3' => $userId]);
+$myDocsStmt->execute(['uid1' => $userId, 'uid2' => $userId, 'uid3' => $userId, 'uid4' => $userId]);
 $myDocs = $myDocsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // 3. Recently Opened Documents: Aggregated by most recent access by current user
@@ -58,7 +61,7 @@ $pendingReviews = get_pending_reviews_for_user($userId);
 $totalPending = count($pendingReviews);
 
 $statusCounts = array_count_values(array_column($myDocs, 'status'));
-$totalMyDocs = count($myDocs);
+$totalMyDocs = count($myDocs) - ($statusCounts['obsolete'] ?? 0);
 $totalRecent = count($recentDocs);
 
 function ws_status_badge(string $status): string {
@@ -140,7 +143,7 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
             </button>
             <button type="button" class="ws-mailbox-item" data-filter="obsolete" onclick="filterWorkspace(this, 'obsolete')">
                 <span class="ws-status-dot" style="background: var(--slate);"></span>
-                <span class="ws-mailbox-label">Obsolete</span>
+                <span class="ws-mailbox-label">Obsolete (Trash)</span>
                 <span class="ws-mailbox-count"><?php echo $statusCounts['obsolete'] ?? 0; ?></span>
             </button>
         </div>
@@ -563,7 +566,10 @@ function applyWorkspaceFilters() {
 
     // 1. Filter matching candidates
     const matchingCards = targetCards.filter(card => {
-        const matchStatus = (currentWsFilter === 'recent' || currentWsFilter === 'pending' || currentWsFilter === 'all' || card.dataset.status === currentWsFilter);
+        const status = card.dataset.status;
+        const matchStatus = (currentWsFilter === 'recent' || currentWsFilter === 'pending')
+            ? true
+            : (currentWsFilter === 'all' ? status !== 'obsolete' : status === currentWsFilter);
         const titleEl = card.querySelector('.item-title');
         const title = titleEl ? titleEl.textContent.toLowerCase() : '';
         const matchSearch = (q === '' || title.includes(q));

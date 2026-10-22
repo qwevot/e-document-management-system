@@ -8,7 +8,6 @@ $role      = current_role();
 $mainNavItems = [
     ['my-workspace', 'pages/my-workspace.php', 'My Workspace', 'workspace'],
     ['explorer',     'pages/explorer.php',     'Document Explorer', 'explorer'],
-    ['archives',     'pages/archives.php',     'Archives', 'archive'],
     ['sign-documents', 'pages/sign-documents.php', 'Sign Documents', 'sign-documents'],
 ];
 
@@ -16,8 +15,9 @@ $mainNavItems = [
 $adminNavItems = [];
 if (in_array($role, ['super admin', 'admin'], true)) {
     $adminNavItems = [
-        ['users', 'pages/users.php', 'Users & Roles', 'users'],
-        ['system-logs', 'pages/system-logs.php', 'System Logs', 'system-logs'],
+        ['archives',    'pages/archives.php',     'Archives', 'archive'],
+        ['users',       'pages/users.php',        'Users & Roles', 'users'],
+        ['system-logs', 'pages/system-logs.php',  'System Logs', 'system-logs'],
     ];
 }
 ?>

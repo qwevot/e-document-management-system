@@ -102,8 +102,8 @@ function can_user_annotate_document(array $doc, int $userId): bool
  */
 function can_user_upload_revision(array $doc, int $userId): bool
 {
-    // Revisions can be uploaded in Active (Draft) or Rejected status
-    if (!in_array($doc['status'] ?? '', ['active', 'rejected'], true)) {
+    // Revisions can be uploaded in Active, Rejected, Suspend, or Hold status
+    if (!in_array($doc['status'] ?? '', ['active', 'rejected', 'suspend', 'hold'], true)) {
         return false;
     }
 

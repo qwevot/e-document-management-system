@@ -33,9 +33,9 @@
         <span id="popoverActionMoveLabel">Move to...</span>
     </button>
     <div class="popover-divider"></div>
-    <button type="button" class="popover-item is-archive" id="popoverActionDelete">
+    <button type="button" class="popover-item is-danger" id="popoverActionDelete">
         <?php echo render_icon('archive'); ?>
-        <span id="popoverActionDeleteLabel">Move to Archives</span>
+        <span id="popoverActionDeleteLabel">Trash</span>
     </button>
     <?php endif; ?>
 </div>
@@ -124,7 +124,7 @@
     <div class="edms-modal-dialog">
         <div class="edms-modal-header">
             <div class="edms-modal-title" style="color: var(--amber-dark, var(--ink));">
-                <span>Move to Archives</span>
+                <span>Trash</span>
             </div>
             <button type="button" class="btn-modal-close" id="btnCloseDeleteModal" title="Close modal">&times;</button>
         </div>
