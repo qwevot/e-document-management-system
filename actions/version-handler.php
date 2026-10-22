@@ -13,6 +13,11 @@ $user = current_user();
 $userId = (int)($user['id'] ?? 1);
 
 if (!can_edit_dms($user) && in_array($action, ['upload_revision', 'revert_version', 'publish_document', 'suspend_document'], true)) {
+    $targetDocId = (int)($_REQUEST['doc_id'] ?? 0);
+    log_activity('auth.access_denied', 'document', $targetDocId ?: null, [
+        'attempted_action' => $action,
+        'reason'           => 'Read-only viewer attempted version modification'
+    ], 'failure');
     echo json_encode(['success' => false, 'message' => 'Access denied: Viewers have read-only permissions and cannot upload or alter document revisions.']);
     exit;
 }
@@ -38,6 +43,7 @@ if ($action === 'suspend_document' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $docId = (int)($_POST['doc_id'] ?? 0);
     $pdo = db();
     $pdo->prepare("UPDATE dms_nodes SET status = 'suspend', updated_at = NOW() WHERE id = ? AND status = 'published'")->execute([$docId]);
+    $pdo->prepare("UPDATE dms_document_versions SET change_summary = CONCAT(COALESCE(change_summary, ''), ' (SUSPENDED)') WHERE document_id = ? AND is_current = 1 AND change_summary NOT LIKE '%(SUSPENDED)%'")->execute([$docId]);
     log_activity('document.suspend', 'document', $docId, ['reason' => 'Major revision requested']);
     echo json_encode(['success' => true]);
     exit;

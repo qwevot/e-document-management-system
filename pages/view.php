@@ -102,14 +102,20 @@ $currentUser = current_user() ?? ['id' => 1, 'full_name' => 'Dr. Ruan Mei'];
 $userId = (int)($currentUser['id'] ?? 1);
 $userName = $currentUser['full_name'] ?? 'Collaborator';
 
-// Record document access telemetry (throttled to avoid redundant spam on page reload)
-$viewThrottleKey = 'last_doc_view_' . $docId . '_' . $userId;
-if (!isset($_SESSION[$viewThrottleKey]) || (time() - (int)$_SESSION[$viewThrottleKey]) > 60) {
-    $_SESSION[$viewThrottleKey] = time();
-    log_activity('document.view', 'document', $docId, [
-        'name'    => $doc['name'],
-        'version' => $activeVersionName
-    ], 'success');
+// Record document access telemetry (only on genuine full-page loads, never on background AJAX calls)
+$isAjaxRequest = !empty($_REQUEST['action']) 
+    || (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
+    || (isset($_SERVER['CONTENT_TYPE']) && str_contains($_SERVER['CONTENT_TYPE'], 'application/json'));
+
+if (!$isAjaxRequest) {
+    $viewThrottleKey = 'last_doc_view_' . $docId . '_' . $userId;
+    if (!isset($_SESSION[$viewThrottleKey]) || (time() - (int)$_SESSION[$viewThrottleKey]) > 30) {
+        $_SESSION[$viewThrottleKey] = time();
+        log_activity('document.view', 'document', $docId, [
+            'name'    => $doc['name'],
+            'version' => $activeVersionName
+        ], 'success');
+    }
 }
 
 // Review and workflow query
@@ -192,6 +198,10 @@ if ($action) {
 
     // Viewers are barred from modifying annotations or layers unless explicitly permitted (e.g. assigned as reviewer)
     if (!$canAnnotate && !can_edit_dms($currentUser) && in_array($action, ['save_annotations', 'create_layer', 'save_layer', 'delete_layer'], true)) {
+        log_activity('auth.access_denied', 'document', $docId, [
+            'attempted_action' => $action,
+            'reason'           => 'Read-only viewer attempted annotation modification'
+        ], 'failure');
         echo json_encode(['success' => false, 'message' => 'Access denied: Viewers have read-only permissions and cannot create or modify annotations.']);
         exit;
     }
@@ -431,6 +441,14 @@ if ($action) {
             exit;
         }
 
+        // System Activity Log: Record once per viewing session
+        if (!empty($data['is_first_session_stroke'])) {
+            log_activity('document.annotate', 'document', $docId, [
+                'version_id' => $ajaxVersionId,
+                'details'    => 'Annotated document during review session'
+            ]);
+        }
+
         $page = isset($data['page']) ? (int)$data['page'] : 1;
         $tool = in_array($data['tool'], ['pen', 'highlighter', 'text'], true) ? $data['tool'] : 'pen';
         $color = trim($data['color'] ?? '#16a34a');
@@ -517,7 +535,7 @@ if ($action) {
         $textSnippet = mb_strlen($rawText) > 35 ? mb_substr($rawText, 0, 32) . '...' : $rawText;
         $createDetails = ($tool === 'text')
             ? ('Added comment: "' . $textSnippet . '"')
-            : (($tool === 'highlighter') ? 'Highlighted section' : 'Drawn freehand');
+            : (($tool === 'highlighter') ? 'Highlighted section' : (in_array($data['tool'] ?? '', ['rect', 'circle', 'arrow', 'line'], true) ? ('Added ' . $data['tool'] . ' shape') : 'Drawn freehand'));
 
         $logStmt = $pdo->prepare("
             INSERT INTO dms_annotation_history (document_id, version_id, user_id, action_type, tool_type, page_number, details)
@@ -560,6 +578,13 @@ if ($action) {
         $rawInput = file_get_contents('php://input');
         $data = json_decode($rawInput, true);
         $annoId = isset($data['id']) ? (int)$data['id'] : (int)($_POST['id'] ?? 0);
+
+        if (!empty($data['is_first_session_stroke'])) {
+            log_activity('document.annotate', 'document', $docId, [
+                'version_id' => $ajaxVersionId,
+                'details'    => 'Annotated document during review session'
+            ]);
+        }
 
         if ($annoId > 0) {
             $findStmt = $pdo->prepare("SELECT tool_type, page_number, payload_json FROM dms_annotations WHERE id = :id");
@@ -978,12 +1003,28 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
                     <button type="button" class="dock-btn" data-tool="pan" id="toolPan" title="Pan / Navigate (Hand)">
                         <?php echo render_icon('hand'); ?>
                     </button>
+                    <button type="button" class="dock-btn" data-tool="select" id="toolSelect" title="Select / Transform (Cursor)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M3 3l7 18 2.5-7.5L20 11 3 3z"/></svg>
+                    </button>
                     <button type="button" class="dock-btn is-active" data-tool="pen" id="toolPen" title="Freehand Brush">
                         <?php echo render_icon('pen'); ?>
                     </button>
                     <button type="button" class="dock-btn" data-tool="highlighter" id="toolHighlighter" title="Highlight">
                         <?php echo render_icon('highlighter'); ?>
                     </button>
+                    <div id="dockShapesGroup" style="position: relative;">
+                        <button type="button" class="dock-btn" data-tool="rect" id="toolShapes" title="Shapes (Rectangle, Circle, Arrow, Line)">
+                            <span id="toolShapesIcon" style="display: flex; align-items: center; justify-content: center; pointer-events: none;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="3" y="3" width="10" height="10" rx="1.5"/><circle cx="15" cy="15" r="5"/></svg>
+                            </span>
+                        </button>
+                        <div id="dockShapesMenu" style="display: none; position: absolute; left: calc(100% + 8px); top: 0; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-lg); border-radius: var(--radius-lg); padding: 4px; z-index: 50; flex-direction: column; gap: 4px;">
+                            <button type="button" class="dock-btn shape-opt" data-shape="rect" title="Rectangle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></button>
+                            <button type="button" class="dock-btn shape-opt" data-shape="circle" title="Circle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="12" cy="12" r="9"/></svg></button>
+                            <button type="button" class="dock-btn shape-opt" data-shape="arrow" title="Arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>
+                            <button type="button" class="dock-btn shape-opt" data-shape="line" title="Line"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><line x1="5" y1="19" x2="19" y2="5"/></svg></button>
+                        </div>
+                    </div>
                     <button type="button" class="dock-btn" data-tool="eraser" id="toolEraser" title="Stroke Eraser">
                         <?php echo render_icon('eraser'); ?>
                     </button>
@@ -1020,10 +1061,13 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
 
                 <div class="tool-dock-divider"></div>
 
-                <!-- History Actions: Undo / Clear Layer -->
+                <!-- History Actions: Undo / Redo / Clear Layer -->
                 <div class="tool-dock-section">
                     <button type="button" class="dock-btn" id="btnUndoStroke" title="Undo Last Stroke">
                         <?php echo render_icon('undo'); ?>
+                    </button>
+                    <button type="button" class="dock-btn" id="btnRedoStroke" title="Redo Stroke" disabled style="opacity: 0.35; cursor: default;">
+                        <?php echo render_icon('redo'); ?>
                     </button>
                     <button type="button" class="dock-btn" id="btnClearMyLayer" title="Delete Current Group">
                         <?php echo render_icon('trash'); ?>

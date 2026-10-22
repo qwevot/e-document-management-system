@@ -36,6 +36,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Disallow mutating operations if current user does not have edit permissions (e.g., viewers)
     if (!can_edit_dms() && in_array($action, ['create_folder', 'rename_node', 'batch_move', 'batch_archive', 'move_node', 'delete_node', 'restore_node', 'upload_document'], true)) {
+        log_activity('auth.access_denied', 'node', null, [
+            'attempted_action' => $action,
+            'reason'           => 'Read-only viewer attempted repository modification'
+        ], 'failure');
         if ($isAjax) {
             header('Content-Type: application/json');
             echo json_encode(['success' => false, 'message' => 'Access denied: Viewers have read-only permissions and cannot modify or upload documents.']);

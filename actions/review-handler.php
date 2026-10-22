@@ -16,6 +16,11 @@ $action = $_REQUEST['action'] ?? '';
 $userId = (int)($user['id'] ?? 1);
 
 if (!can_edit_dms($user) && in_array($action, ['submit_review', 'cancel_review'], true)) {
+    $targetDocId = (int)($_REQUEST['doc_id'] ?? 0);
+    log_activity('auth.access_denied', 'document', $targetDocId ?: null, [
+        'attempted_action' => $action,
+        'reason'           => 'Read-only viewer attempted review workflow modification'
+    ], 'failure');
     echo json_encode(['success' => false, 'message' => 'Access denied: Viewers have read-only permissions and cannot initiate or cancel review workflows.']);
     exit;
 }

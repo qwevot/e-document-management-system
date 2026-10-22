@@ -46,7 +46,7 @@ function get_document_versions(int $docId): array
     $versions = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($versions as &$v) {
-        if (!empty($v['is_current']) && ($v['doc_status'] ?? '') === 'suspend') {
+        if ((!empty($v['is_current']) && ($v['doc_status'] ?? '') === 'suspend') || str_contains($v['change_summary'] ?? '', '(SUSPENDED)')) {
             $v['review_status'] = 'suspended';
         } elseif ((!empty($v['is_current']) && ($v['doc_status'] ?? '') === 'published') || (($v['review_status'] ?? '') === 'approved' && preg_match('/\.0$/', $v['version_number'] ?? ''))) {
             $v['review_status'] = 'published';
@@ -92,8 +92,8 @@ function create_document_version(
     $nextVer = calculate_next_version($currentVer, 'minor');
     $summary = trim($changeSummary ?? '') ?: ("Revision update to " . $nextVer);
 
-    // If document was suspended, revision sets status to hold; otherwise active
-    $newStatus = ($doc['status'] === 'suspend') ? 'hold' : 'active';
+    // Revisions always enter the editable active state awaiting review
+    $newStatus = 'active';
 
     $pdo->beginTransaction();
     try {

@@ -47,8 +47,13 @@ document.addEventListener("DOMContentLoaded", function () {
     const colorSwatches = document.querySelectorAll(".tool-color-palette .color-swatch");
     const strokeButtons = document.querySelectorAll(".tool-stroke-group .stroke-btn");
     const btnUndoStroke = document.getElementById("btnUndoStroke");
+    const btnRedoStroke = document.getElementById("btnRedoStroke");
     const btnClearMyLayer = document.getElementById("btnClearMyLayer");
     const btnAddLayerGroup = document.getElementById("btnAddLayerGroup");
+    const dockShapesMenu = document.getElementById("dockShapesMenu");
+    const toolShapesBtn = document.getElementById("toolShapes");
+    let redoStack = [];
+    let hasLoggedAnnotationSession = false;
     
     // Right Drawer Elements
     const workspaceRightDrawer = document.getElementById("workspaceRightDrawer");
@@ -156,6 +161,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
                 updateCollaboratorLayersUI();
                 renderAllPagesAnnotations();
+                updateStrokeStats();
             }
         })
         .catch(err => console.error("Error loading saved annotations:", err));
@@ -506,6 +512,10 @@ document.addEventListener("DOMContentLoaded", function () {
     // --- 4. Synchronized Per-Page Drawing & Object Manipulation Engine ---
     let selectedAnnotation = null;
     let isDraggingObject = false;
+    let activeResizeHandle = -1;
+    let isPanningStage = false;
+    let panStartClient = null;
+    let panStartScroll = null;
     let dragStartCoords = null;
     let dragInitialPoints = null;
     let dragInitialTextPos = null;
@@ -526,7 +536,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function attachDrawingListeners(canvas, pageNum) {
         canvas.style.touchAction = "none";
-        canvas.style.cursor = (activeTool === "pan") ? "default" : (activeTool === "eraser" ? "cell" : "crosshair");
+        canvas.style.cursor = (activeTool === "pan") ? "grab" : ((activeTool === "select") ? "default" : (activeTool === "eraser" ? "cell" : "crosshair"));
         canvas.addEventListener("mousedown", (e) => handleStartDrawing(e, canvas, pageNum));
         canvas.addEventListener("mousemove", (e) => handleDrawMove(e, canvas, pageNum));
         canvas.addEventListener("touchstart", (e) => handleStartDrawing(e, canvas, pageNum), { passive: false });
@@ -580,6 +590,12 @@ document.addEventListener("DOMContentLoaded", function () {
                 if (pixelX >= posX - 4 - extraTolerance && pixelX <= posX + boxW + 4 + extraTolerance && pixelY >= posY - 4 - extraTolerance && pixelY <= posY + boxH + 4 + extraTolerance) {
                     return item;
                 }
+            } else if (["rect", "circle"].includes(item.tool) && item.points && item.points.length >= 2) {
+                const minX = Math.min(item.points[0].xRel, item.points[1].xRel) * canvasWidth - 6 - extraTolerance;
+                const maxX = Math.max(item.points[0].xRel, item.points[1].xRel) * canvasWidth + 6 + extraTolerance;
+                const minY = Math.min(item.points[0].yRel, item.points[1].yRel) * canvasHeight - 6 - extraTolerance;
+                const maxY = Math.max(item.points[0].yRel, item.points[1].yRel) * canvasHeight + 6 + extraTolerance;
+                if (pixelX >= minX && pixelX <= maxX && pixelY >= minY && pixelY <= maxY) return item;
             } else if (item.points && item.points.length >= 2) {
                 const tol = Math.max(10, (item.width || 2) * 2.0) + extraTolerance;
                 for (let j = 0; j < item.points.length - 1; j++) {
@@ -611,10 +627,15 @@ document.addEventListener("DOMContentLoaded", function () {
             updateStrokeStats();
             renderPageAnnotations(pageNum || deleted.page);
             if (deleted.id) {
+                const delPayload = { id: deleted.id };
+                if (!hasLoggedAnnotationSession) {
+                    delPayload.is_first_session_stroke = true;
+                    hasLoggedAnnotationSession = true;
+                }
                 fetch(`view.php?action=delete_stroke&id=${docId}${versionQueryParam}`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
-                    body: JSON.stringify({ id: deleted.id })
+                    body: JSON.stringify(delPayload)
                 })
                 .then(res => res.json())
                 .then(data => {
@@ -630,6 +651,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function handleStartDrawing(e, canvas, pageNum) {
+        if (dockShapesMenu) dockShapesMenu.style.display = "none";
         if (activeTool !== "pan" && e.cancelable) {
             e.preventDefault();
         }
@@ -646,8 +668,34 @@ document.addEventListener("DOMContentLoaded", function () {
         const rect = canvas.getBoundingClientRect();
         const coords = getRelativePageCoords(e, canvas);
 
-        // --- SELECT & MOVE (HAND TOOL) ---
+        // --- VIEWPORT PANNING (HAND TOOL) ---
         if (activeTool === "pan") {
+            isPanningStage = true;
+            panStartClient = { x: e.clientX || (e.touches ? e.touches[0].clientX : 0), y: e.clientY || (e.touches ? e.touches[0].clientY : 0) };
+            panStartScroll = { left: workspaceCenterStage ? workspaceCenterStage.scrollLeft : 0, top: workspaceCenterStage ? workspaceCenterStage.scrollTop : 0 };
+            canvas.style.cursor = "grabbing";
+            return;
+        }
+
+        // --- SELECT & TRANSFORM (CURSOR TOOL) ---
+        if (activeTool === "select") {
+            if (selectedAnnotation && selectedAnnotation.points && selectedAnnotation.page === pageNum) {
+                const pts = selectedAnnotation.points;
+                const minX = Math.min(pts[0].xRel, pts[pts.length - 1].xRel) * rect.width, maxX = Math.max(pts[0].xRel, pts[pts.length - 1].xRel) * rect.width;
+                const minY = Math.min(pts[0].yRel, pts[pts.length - 1].yRel) * rect.height, maxY = Math.max(pts[0].yRel, pts[pts.length - 1].yRel) * rect.height;
+                const corners = [[minX, minY], [maxX, minY], [minX, maxY], [maxX, maxY]];
+                const px = coords.xRel * rect.width, py = coords.yRel * rect.height;
+                const hIdx = corners.findIndex(([cx, cy]) => Math.hypot(px - cx, py - cy) < 14);
+                if (hIdx !== -1) {
+                    activeResizeHandle = hIdx;
+                    isDraggingObject = true;
+                    hasDragged = false;
+                    activeDrawingPage = pageNum;
+                    return;
+                }
+            }
+            activeResizeHandle = -1;
+
             const hit = hitTestAnnotation(pageNum, coords.xRel, coords.yRel, rect.width, rect.height);
             if (hit) {
                 selectedAnnotation = hit;
@@ -662,7 +710,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     dragInitialPoints = hit.points.map(pt => ({ xRel: pt.xRel, yRel: pt.yRel }));
                 }
 
-                canvas.style.cursor = "grabbing";
+                canvas.style.cursor = "move";
                 renderPageAnnotations(pageNum);
             } else {
                 selectedAnnotation = null;
@@ -693,6 +741,7 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
+        const isShape = ["rect", "circle", "arrow", "line"].includes(activeTool);
         currentStroke = {
             id: null,
             layerId: selfLayer.layerId,
@@ -701,10 +750,11 @@ document.addEventListener("DOMContentLoaded", function () {
             color: activeColor,
             width: activeTool === "highlighter" ? activeStrokeWidth * 3.5 : activeStrokeWidth,
             alpha: activeTool === "highlighter" ? 0.35 : 1.0,
-            points: [coords]
+            points: isShape ? [coords, { ...coords }] : [coords]
         };
 
         selfLayer.strokes.push(currentStroke);
+        redoStack = [];
         updateStrokeStats();
     }
 
@@ -719,12 +769,34 @@ document.addEventListener("DOMContentLoaded", function () {
         const rect = canvas.getBoundingClientRect();
         const coords = getRelativePageCoords(e, canvas);
 
-        // --- DRAGGING SELECTED OBJECT (HAND TOOL) ---
+        // --- VIEWPORT PANNING (HAND TOOL) ---
         if (activeTool === "pan") {
+            if (isPanningStage && workspaceCenterStage && panStartClient) {
+                const cx = e.clientX || (e.touches ? e.touches[0].clientX : 0);
+                const cy = e.clientY || (e.touches ? e.touches[0].clientY : 0);
+                workspaceCenterStage.scrollLeft = panStartScroll.left - (cx - panStartClient.x);
+                workspaceCenterStage.scrollTop = panStartScroll.top - (cy - panStartClient.y);
+            }
+            return;
+        }
+
+        // --- SELECT, TRANSLATE & STRETCH (CURSOR TOOL) ---
+        if (activeTool === "select") {
             if (isDraggingObject && selectedAnnotation) {
+                hasDragged = true;
+                if (activeResizeHandle !== -1 && selectedAnnotation.points) {
+                    const pts = selectedAnnotation.points;
+                    const p0 = pts[0], p1 = pts[pts.length - 1];
+                    if (activeResizeHandle === 0) { p0.xRel = coords.xRel; p0.yRel = coords.yRel; }
+                    else if (activeResizeHandle === 1) { p1.xRel = coords.xRel; p0.yRel = coords.yRel; }
+                    else if (activeResizeHandle === 2) { p0.xRel = coords.xRel; p1.yRel = coords.yRel; }
+                    else if (activeResizeHandle === 3) { p1.xRel = coords.xRel; p1.yRel = coords.yRel; }
+                    schedulePageAnnotationRender(pageNum);
+                    return;
+                }
+
                 const dx = coords.xRel - dragStartCoords.xRel;
                 const dy = coords.yRel - dragStartCoords.yRel;
-                hasDragged = true;
 
                 if (selectedAnnotation.tool === "text" && dragInitialTextPos) {
                     selectedAnnotation.xRel = Math.max(0, Math.min(0.95, dragInitialTextPos.xRel + dx));
@@ -738,9 +810,20 @@ document.addEventListener("DOMContentLoaded", function () {
 
                 schedulePageAnnotationRender(pageNum);
             } else {
-                // Hover hit-test to change cursor
+                if (selectedAnnotation && selectedAnnotation.points && selectedAnnotation.page === pageNum) {
+                    const pts = selectedAnnotation.points;
+                    const minX = Math.min(pts[0].xRel, pts[pts.length - 1].xRel) * rect.width, maxX = Math.max(pts[0].xRel, pts[pts.length - 1].xRel) * rect.width;
+                    const minY = Math.min(pts[0].yRel, pts[pts.length - 1].yRel) * rect.height, maxY = Math.max(pts[0].yRel, pts[pts.length - 1].yRel) * rect.height;
+                    const corners = [[minX, minY], [maxX, minY], [minX, maxY], [maxX, maxY]];
+                    const px = coords.xRel * rect.width, py = coords.yRel * rect.height;
+                    const hIdx = corners.findIndex(([cx, cy]) => Math.hypot(px - cx, py - cy) < 14);
+                    if (hIdx !== -1) {
+                        canvas.style.cursor = (hIdx === 0 || hIdx === 3) ? "nwse-resize" : "nesw-resize";
+                        return;
+                    }
+                }
                 const hit = hitTestAnnotation(pageNum, coords.xRel, coords.yRel, rect.width, rect.height);
-                canvas.style.cursor = hit ? "grab" : "default";
+                canvas.style.cursor = hit ? "move" : "default";
             }
             return;
         }
@@ -757,9 +840,13 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
-        // --- DRAWING FREEHAND / HIGHLIGHTER ---
+        // --- DRAWING FREEHAND / HIGHLIGHTER / SHAPES ---
         if (!isDrawing || !currentStroke || activeDrawingPage !== pageNum) return;
-        currentStroke.points.push(coords);
+        if (["rect", "circle", "arrow", "line"].includes(currentStroke.tool)) {
+            currentStroke.points[1] = coords;
+        } else {
+            currentStroke.points.push(coords);
+        }
         schedulePageAnnotationRender(pageNum);
     }
 
@@ -775,10 +862,20 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         if (activeTool === "pan") {
-            if (isDraggingObject) {
-                isDraggingObject = false;
+            if (isPanningStage) {
+                isPanningStage = false;
                 const canvas = document.getElementById(`annoCanvas_${activeDrawingPage}`);
                 if (canvas) canvas.style.cursor = "grab";
+            }
+            return;
+        }
+
+        if (activeTool === "select") {
+            if (isDraggingObject) {
+                isDraggingObject = false;
+                activeResizeHandle = -1;
+                const canvas = document.getElementById(`annoCanvas_${activeDrawingPage}`);
+                if (canvas) canvas.style.cursor = "default";
 
                 if (hasDragged && selectedAnnotation) {
                     renderPageAnnotations(activeDrawingPage);
@@ -795,19 +892,42 @@ document.addEventListener("DOMContentLoaded", function () {
         currentStroke = null;
 
         if (finishedPage && strokeToSave) {
+            if (["rect", "circle", "arrow", "line"].includes(strokeToSave.tool)) {
+                const p0 = strokeToSave.points[0];
+                const p1 = strokeToSave.points[1];
+                if (!p1 || Math.hypot(p1.xRel - p0.xRel, p1.yRel - p0.yRel) < 0.005) {
+                    const selfLayer = getActiveSelfLayer();
+                    if (selfLayer && Array.isArray(selfLayer.strokes)) {
+                        const idx = selfLayer.strokes.indexOf(strokeToSave);
+                        if (idx !== -1) selfLayer.strokes.splice(idx, 1);
+                    }
+                    updateStrokeStats();
+                    renderPageAnnotations(finishedPage);
+                    return;
+                }
+            }
             renderPageAnnotations(finishedPage);
             persistStrokeToDatabase(strokeToSave);
         }
     }
 
-    // Keyboard Handler: Delete selected object on Backspace / Delete
+    // Keyboard Handler: Delete selected object on Backspace / Delete & Undo / Redo
     window.addEventListener("keydown", function (e) {
-        if ((e.key === "Delete" || e.key === "Backspace") && selectedAnnotation) {
-            // Ignore if user is currently typing in an input
-            if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+        if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
 
+        if ((e.key === "Delete" || e.key === "Backspace") && selectedAnnotation) {
             e.preventDefault();
             eraseAnnotation(selectedAnnotation, selectedAnnotation.page);
+        } else if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) {
+            e.preventDefault();
+            if (e.shiftKey) {
+                if (btnRedoStroke) btnRedoStroke.click();
+            } else {
+                if (btnUndoStroke) btnUndoStroke.click();
+            }
+        } else if ((e.ctrlKey || e.metaKey) && (e.key === "y" || e.key === "Y")) {
+            e.preventDefault();
+            if (btnRedoStroke) btnRedoStroke.click();
         }
     });
 
@@ -908,6 +1028,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
         if (selfLayer) {
             selfLayer.strokes.push(textAnnotation);
+            redoStack = [];
             updateStrokeStats();
             renderPageAnnotations(pageNum);
             persistStrokeToDatabase(textAnnotation);
@@ -924,13 +1045,19 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // --- 5. Backend Persistence Calls ---
     function persistStrokeToDatabase(strokeObj) {
+        const payload = { ...strokeObj };
+        if (!hasLoggedAnnotationSession) {
+            payload.is_first_session_stroke = true;
+            hasLoggedAnnotationSession = true;
+        }
+
         fetch(`view.php?action=save_stroke&id=${docId}${versionQueryParam}`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
                 "X-Requested-With": "XMLHttpRequest"
             },
-            body: JSON.stringify(strokeObj)
+            body: JSON.stringify(payload)
         })
         .then(res => res.json())
         .then(data => {
@@ -956,6 +1083,40 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         })
         .catch(err => console.error("Error auto-saving annotation:", err));
+    }
+
+    function drawStrokeGeometry(ctx, stroke, width, height, alphaMult = 1.0) {
+        const pts = stroke.points;
+        if (!pts || pts.length < 2) return;
+        ctx.save();
+        ctx.strokeStyle = stroke.color;
+        ctx.lineWidth = stroke.width;
+        ctx.lineCap = ctx.lineJoin = "round";
+        ctx.globalAlpha = (stroke.alpha || 1.0) * alphaMult;
+        const x0 = pts[0].xRel * width, y0 = pts[0].yRel * height;
+        const x1 = pts[pts.length - 1].xRel * width, y1 = pts[pts.length - 1].yRel * height;
+        if (stroke.tool === "rect") {
+            ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+        } else if (stroke.tool === "circle") {
+            ctx.beginPath();
+            ctx.ellipse((x0 + x1) / 2, (y0 + y1) / 2, Math.max(1, Math.abs(x1 - x0) / 2), Math.max(1, Math.abs(y1 - y0) / 2), 0, 0, Math.PI * 2);
+            ctx.stroke();
+        } else if (stroke.tool === "arrow" || stroke.tool === "line") {
+            ctx.beginPath();
+            ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
+            if (stroke.tool === "arrow") {
+                const angle = Math.atan2(y1 - y0, x1 - x0), head = Math.max(9, stroke.width * 3.5);
+                ctx.moveTo(x1, y1); ctx.lineTo(x1 - head * Math.cos(angle - 0.52), y1 - head * Math.sin(angle - 0.52));
+                ctx.moveTo(x1, y1); ctx.lineTo(x1 - head * Math.cos(angle + 0.52), y1 - head * Math.sin(angle + 0.52));
+            }
+            ctx.stroke();
+        } else {
+            ctx.beginPath();
+            ctx.moveTo(x0, y0);
+            for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].xRel * width, pts[i].yRel * height);
+            ctx.stroke();
+        }
+        ctx.restore();
     }
 
     // --- 6. Render Annotations for a Specific Page ---
@@ -1025,27 +1186,8 @@ document.addEventListener("DOMContentLoaded", function () {
                     return;
                 }
 
-                // Freehand Brush / Highlighter
-                const points = stroke.points;
-                if (!points || points.length < 2) return;
-
-                ctx.save();
-                ctx.strokeStyle = stroke.color;
-                ctx.lineWidth = stroke.width;
-                ctx.lineCap = "round";
-                ctx.lineJoin = "round";
-                ctx.globalAlpha = stroke.alpha || 1.0;
-
-                ctx.beginPath();
-                ctx.moveTo(points[0].xRel * width, points[0].yRel * height);
-
-                for (let i = 1; i < points.length; i++) {
-                    const pt = points[i];
-                    ctx.lineTo(pt.xRel * width, pt.yRel * height);
-                }
-
-                ctx.stroke();
-                ctx.restore();
+                // Brush / Highlighter / Shapes
+                drawStrokeGeometry(ctx, stroke, width, height);
             });
         });
 
@@ -1176,26 +1318,8 @@ document.addEventListener("DOMContentLoaded", function () {
                     return;
                 }
 
-                const points = stroke.points;
-                if (!points || points.length < 2) return;
-
-                ctx.save();
-                ctx.strokeStyle = stroke.color;
-                ctx.lineWidth = stroke.width;
-                ctx.lineCap = "round";
-                ctx.lineJoin = "round";
-                ctx.globalAlpha = (stroke.alpha || 1.0) * layerOpacity;
-
-                ctx.beginPath();
-                ctx.moveTo(points[0].xRel * targetWidth, points[0].yRel * targetHeight);
-
-                for (let i = 1; i < points.length; i++) {
-                    const pt = points[i];
-                    ctx.lineTo(pt.xRel * targetWidth, pt.yRel * targetHeight);
-                }
-
-                ctx.stroke();
-                ctx.restore();
+                // Brush / Highlighter / Shapes
+                drawStrokeGeometry(ctx, stroke, targetWidth, targetHeight, layerOpacity);
             });
         });
 
@@ -1331,6 +1455,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 });
                 updateCollaboratorLayersUI();
                 renderAllPagesAnnotations();
+                updateStrokeStats();
             });
 
             // Content container holding all layer items for this user
@@ -1696,6 +1821,11 @@ document.addEventListener("DOMContentLoaded", function () {
             btnUndoStroke.style.opacity = "0.35";
             btnUndoStroke.style.cursor = "not-allowed";
         }
+        if (btnRedoStroke) {
+            btnRedoStroke.disabled = true;
+            btnRedoStroke.style.opacity = "0.35";
+            btnRedoStroke.style.cursor = "not-allowed";
+        }
         if (btnClearMyLayer) {
             btnClearMyLayer.disabled = true;
             btnClearMyLayer.style.opacity = "0.35";
@@ -1706,6 +1836,7 @@ document.addEventListener("DOMContentLoaded", function () {
             btnAddLayerGroup.style.opacity = "0.35";
             btnAddLayerGroup.style.cursor = "not-allowed";
         }
+        document.querySelectorAll(".shape-opt").forEach(b => { b.disabled = true; b.style.opacity = "0.35"; });
     }
 
     dockButtons.forEach(btn => {
@@ -1720,21 +1851,34 @@ document.addEventListener("DOMContentLoaded", function () {
             dockButtons.forEach(b => b.classList.remove("is-active"));
             this.classList.add("is-active");
             activeTool = this.dataset.tool || "pen";
+            if (dockShapesMenu) dockShapesMenu.style.display = (this.id === "toolShapes" && dockShapesMenu.style.display !== "flex") ? "flex" : "none";
 
             const annoCanvases = document.querySelectorAll(".pdf-annotation-canvas");
+            const cur = (activeTool === "pan") ? "grab" : ((activeTool === "select") ? "default" : (activeTool === "eraser" ? "cell" : "crosshair"));
             annoCanvases.forEach(c => {
                 c.style.pointerEvents = "auto";
-                c.style.cursor = (activeTool === "pan") ? "default" : (activeTool === "eraser" ? "cell" : "crosshair");
+                c.style.cursor = cur;
             });
-
-            if (activeTool === "pan") {
-                if (workspaceCenterStage) workspaceCenterStage.style.cursor = "default";
-            } else if (activeTool === "eraser") {
-                if (workspaceCenterStage) workspaceCenterStage.style.cursor = "cell";
-            } else {
-                if (workspaceCenterStage) workspaceCenterStage.style.cursor = "crosshair";
-            }
+            if (workspaceCenterStage) workspaceCenterStage.style.cursor = cur;
         });
+    });
+
+    document.querySelectorAll(".shape-opt").forEach(btn => {
+        btn.onclick = function (e) {
+            e.stopPropagation();
+            if (toolShapesBtn) {
+                toolShapesBtn.dataset.tool = this.dataset.shape;
+                const icon = document.getElementById("toolShapesIcon");
+                if (icon) icon.innerHTML = this.innerHTML;
+                toolShapesBtn.click();
+            }
+            if (dockShapesMenu) dockShapesMenu.style.display = "none";
+        };
+    });
+
+    document.addEventListener("click", e => {
+        const grp = document.getElementById("dockShapesGroup");
+        if (grp && !grp.contains(e.target) && dockShapesMenu) dockShapesMenu.style.display = "none";
     });
 
     // Color Swatches
@@ -1763,12 +1907,13 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     });
 
-    // --- 11. Undo & Clear Actions ---
+    // --- 11. Undo, Redo & Clear Actions ---
     if (btnUndoStroke) {
         btnUndoStroke.addEventListener("click", function () {
             const selfLayer = getActiveSelfLayer();
             if (selfLayer && selfLayer.strokes.length > 0) {
                 const popped = selfLayer.strokes.pop();
+                redoStack.push(popped);
                 updateStrokeStats();
                 if (popped && popped.page) {
                     renderPageAnnotations(popped.page);
@@ -1792,6 +1937,23 @@ document.addEventListener("DOMContentLoaded", function () {
                     .catch(err => console.error("Error deleting stroke:", err));
                 }
             }
+        });
+    }
+
+    if (btnRedoStroke) {
+        btnRedoStroke.addEventListener("click", function () {
+            if (isAnnotationLocked || redoStack.length === 0) return;
+            const selfLayer = getActiveSelfLayer();
+            if (!selfLayer) return;
+
+            const restored = redoStack.pop();
+            if (!restored) return;
+
+            restored.id = null;
+            selfLayer.strokes.push(restored);
+            updateStrokeStats();
+            if (restored.page) renderPageAnnotations(restored.page);
+            persistStrokeToDatabase(restored);
         });
     }
 
@@ -1824,6 +1986,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
                 updateCollaboratorLayersUI();
                 renderAllPagesAnnotations();
+                updateStrokeStats();
 
                 if (data.history_event) {
                     prependHistoryEvent(data.history_event);
@@ -1854,6 +2017,22 @@ document.addEventListener("DOMContentLoaded", function () {
                 countSpan.textContent = `${layer.userName || 'User'} \u2022 ${count} ${count === 1 ? 'annotation' : 'annotations'}`;
             }
         });
+
+        if (!isAnnotationLocked) {
+            const hasRedo = redoStack && redoStack.length > 0;
+            if (btnRedoStroke) {
+                btnRedoStroke.disabled = !hasRedo;
+                btnRedoStroke.style.opacity = hasRedo ? "1" : "0.35";
+                btnRedoStroke.style.cursor = hasRedo ? "pointer" : "default";
+            }
+            const selfLayer = getActiveSelfLayer();
+            const hasUndo = selfLayer && selfLayer.strokes && selfLayer.strokes.length > 0;
+            if (btnUndoStroke) {
+                btnUndoStroke.disabled = !hasUndo;
+                btnUndoStroke.style.opacity = hasUndo ? "1" : "0.35";
+                btnUndoStroke.style.cursor = hasUndo ? "pointer" : "default";
+            }
+        }
     }
 
     // --- 11b. '+ Add Layer Group' Button Handler (Instant auto-iteration Layer X without native prompt) ---
@@ -2378,9 +2557,6 @@ document.addEventListener("DOMContentLoaded", function () {
                         <span title="${escapeHtml(v.created_at || '')} by ${escapeHtml(v.author_name || 'System')}" style="font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(v.author_name || 'System')} • ${escapeHtml(v.created_at || '')}</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 2px; flex-shrink: 0;">
-                        <a href="${targetUrl}" class="btn-action" style="width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; color: ${isCurrentlyViewed ? 'var(--green)' : 'var(--ink)'}; text-decoration: none;" title="${isCurrentlyViewed ? 'Currently viewing' : 'Preview snapshot'}">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                        </a>
                         <a href="download.php?id=${docId}&version_id=${v.id}" class="btn-action" style="width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; color: var(--ink); text-decoration: none;" title="Download file" download>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                         </a>
