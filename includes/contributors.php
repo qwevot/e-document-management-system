@@ -82,18 +82,15 @@ function can_user_annotate_document(array $doc, int $userId): bool
 
     $docId = (int)$doc['id'];
 
-    // While on Hold (Review), assigned reviewers + doc owner + contributors can annotate
+    // While on Hold (Review), strictly only assigned reviewers can annotate
     if ($status === 'hold') {
         $pdo = db();
-        // Check if assigned as reviewer
         $rStmt = $pdo->prepare("SELECT 1 FROM dms_document_reviews WHERE document_id = :doc_id AND reviewer_id = :user_id");
         $rStmt->execute(['doc_id' => $docId, 'user_id' => $userId]);
-        if ($rStmt->fetchColumn()) {
-            return true;
-        }
+        return (bool)$rStmt->fetchColumn();
     }
 
-    // When active (or hold), contributors can annotate
+    // When active or suspend, contributors can annotate
     return is_document_contributor($docId, $userId);
 }
 
@@ -102,8 +99,8 @@ function can_user_annotate_document(array $doc, int $userId): bool
  */
 function can_user_upload_revision(array $doc, int $userId): bool
 {
-    // Revisions can be uploaded in Active, Rejected, Suspend, or Hold status
-    if (!in_array($doc['status'] ?? '', ['active', 'rejected', 'suspend', 'hold'], true)) {
+    // Revisions can only be uploaded in Active, Rejected, or Suspend status (Hold freezes revisions)
+    if (!in_array($doc['status'] ?? '', ['active', 'rejected', 'suspend'], true)) {
         return false;
     }
 

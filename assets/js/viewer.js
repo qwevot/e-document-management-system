@@ -2354,13 +2354,20 @@ document.addEventListener("DOMContentLoaded", function () {
             const fileSizeFormatted = v.file_size ? `${(v.file_size / 1024).toFixed(1)} KB` : '';
 
             let statusPill = "";
-            const revStatus = (v.review_status || "").toLowerCase();
-            if (revStatus === "rejected") {
-                statusPill = `<span style="background: var(--red-soft); color: var(--red-ink); font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--red-line); letter-spacing: 0.02em;">REJECTED</span>`;
-            } else if (revStatus === "approved") {
-                statusPill = `<span style="background: var(--success-badge-bg); color: var(--success-ink); font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--success-line); letter-spacing: 0.02em;">APPROVED</span>`;
-            } else if (revStatus === "pending") {
-                statusPill = `<span style="background: var(--amber-soft); color: var(--amber-ink); font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--amber-line); letter-spacing: 0.02em;">PENDING</span>`;
+            let st = (v.review_status || "").toLowerCase();
+            if (v.is_current == 1 && v.doc_status === "suspend") st = "suspended";
+            else if ((v.is_current == 1 && v.doc_status === "published") || (st === "approved" && /\.0$/.test(v.version_number))) st = "published";
+
+            const colors = {
+                suspended: ["var(--red-soft)", "var(--red-ink)", "var(--red-line)"],
+                published: ["var(--success-badge-bg)", "var(--success-ink)", "var(--success-line)"],
+                approved:  ["var(--success-badge-bg)", "var(--success-ink)", "var(--success-line)"],
+                rejected:  ["var(--red-soft)", "var(--red-ink)", "var(--red-line)"],
+                pending:   ["var(--amber-soft)", "var(--amber-ink)", "var(--amber-line)"]
+            };
+            if (colors[st]) {
+                const [bg, col, brd] = colors[st];
+                statusPill = `<span style="background:${bg}; color:${col}; border:1px solid ${brd}; font-size:10px; font-weight:700; padding:1px 6px; border-radius:4px; letter-spacing:0.02em;">${st.toUpperCase()}</span>`;
             }
 
             card.innerHTML = `

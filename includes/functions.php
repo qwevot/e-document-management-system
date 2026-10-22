@@ -425,7 +425,7 @@ function get_document_audit_trail(int $docId): array {
           AND l.action IN (
               'document.upload', 'version.upload', 'version.revert',
               'document.review_requested', 'document.review_approved', 'document.review_rejected', 
-              'document.published', 'document.review_cancelled', 'document.access_updated'
+              'document.published', 'document.review_cancelled', 'document.access_updated', 'document.suspend'
           )
         ORDER BY l.id DESC
     ");
@@ -448,6 +448,7 @@ function get_document_audit_trail(int $docId): array {
             'document.review_approved',
             'document.published'        => ['Accepted', 'badge-publish'],
             'document.review_cancelled' => ['Updated', 'badge-hold'],
+            'document.suspend'          => ['Suspended', 'badge-suspended'],
             default                     => ['Updated', 'badge-active']
         };
 

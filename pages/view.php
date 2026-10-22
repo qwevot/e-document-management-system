@@ -786,6 +786,7 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
     <link rel="stylesheet" href="../assets/css/styles.css">
     <link rel="stylesheet" href="../assets/css/responsive.css">
     <link rel="stylesheet" href="../assets/css/viewer.css">
+    <link rel="stylesheet" href="../assets/css/explorer.css">
     <script>
     function handleWorkspaceBack(e, fallbackUrl) {
         if (window.history.length > 1 && document.referrer && !document.referrer.includes('view.php')) {
@@ -1183,10 +1184,9 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
 
 <!-- 2. Modal: Upload Document Revision (Matches explorer.php style) -->
 <div class="edms-modal-backdrop" id="modalUploadRevision">
-    <div class="edms-modal-dialog" style="max-width: 500px;">
+    <div class="edms-modal-dialog" style="max-width: 520px; width: 95%;">
         <div class="edms-modal-header">
             <div class="edms-modal-title">
-                <?php echo render_icon('cloud-upload'); ?>
                 <span>Upload Document Revision</span>
             </div>
             <button type="button" class="btn-modal-close" id="btnCloseUploadRevisionModal" title="Close modal">&times;</button>
@@ -1211,7 +1211,7 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
                 </div>
 
                 <!-- Selected File Pill (Shown when file is selected) -->
-                <div class="selected-file-preview" id="selectedFilePreviewRevision" style="display: none; margin-top: 14px;">
+                <div class="selected-file-preview" id="selectedFilePreviewRevision" style="display: none;">
                     <div class="preview-file-icon">
                         <?php echo render_icon('files'); ?>
                     </div>
@@ -1508,7 +1508,7 @@ window.EDMS_WORKSPACE_CONFIG = {
 <script src="../assets/vendor/jszip.min.js"></script>
 <script src="../assets/vendor/docx-preview.min.js"></script>
 <?php endif; ?>
-<script src="../assets/js/viewer.js" defer></script>
+<script src="../assets/js/viewer.js?v=<?php echo filemtime(__DIR__ . '/../assets/js/viewer.js'); ?>" defer></script>
 <?php endif; ?>
 </body>
 </html>

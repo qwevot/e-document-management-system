@@ -1542,6 +1542,7 @@ body.sidebar-collapsed .main {
 .audit-timeline-dot.badge-active   { background: var(--green); }
 .audit-timeline-dot.badge-hold     { background: var(--green); }
 .audit-timeline-dot.badge-rejected { background: var(--red); }
+.audit-timeline-dot.badge-suspended  { background: var(--red); }
 
 .audit-timeline-content {
     background: var(--surface-light);

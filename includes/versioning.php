@@ -33,15 +33,28 @@ function get_document_versions(int $docId): array
     $pdo = db();
     $stmt = $pdo->prepare("
         SELECT v.*, 
+               n.status AS doc_status,
                COALESCE(u.full_name, u.username, 'System') AS author_name,
                u.avatar AS author_avatar
         FROM dms_document_versions v
+        LEFT JOIN dms_nodes n ON v.document_id = n.id
         LEFT JOIN users u ON v.created_by = u.id
         WHERE v.document_id = :doc_id
         ORDER BY v.id DESC
     ");
     $stmt->execute(['doc_id' => $docId]);
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $versions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($versions as &$v) {
+        if (!empty($v['is_current']) && ($v['doc_status'] ?? '') === 'suspend') {
+            $v['review_status'] = 'suspended';
+        } elseif ((!empty($v['is_current']) && ($v['doc_status'] ?? '') === 'published') || (($v['review_status'] ?? '') === 'approved' && preg_match('/\.0$/', $v['version_number'] ?? ''))) {
+            $v['review_status'] = 'published';
+        }
+    }
+    unset($v);
+
+    return $versions;
 }
 
 /**
@@ -70,13 +83,17 @@ function create_document_version(
         return ['success' => false, 'message' => 'Cannot upload revisions to an obsolete document.'];
     }
 
+    if ($doc['status'] === 'hold') {
+        return ['success' => false, 'message' => 'Document is frozen on hold for review. Revisions cannot be uploaded at this stage.'];
+    }
+
     // Always increment minor version for regular specimen revisions
     $currentVer = $doc['version'] ?: 'v0.1';
     $nextVer = calculate_next_version($currentVer, 'minor');
     $summary = trim($changeSummary ?? '') ?: ("Revision update to " . $nextVer);
 
-    // If document was suspended or on hold, revision sets status to hold; otherwise active
-    $newStatus = in_array($doc['status'], ['suspend', 'hold'], true) ? 'hold' : 'active';
+    // If document was suspended, revision sets status to hold; otherwise active
+    $newStatus = ($doc['status'] === 'suspend') ? 'hold' : 'active';
 
     $pdo->beginTransaction();
     try {
