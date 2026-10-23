@@ -1524,6 +1524,7 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
 <script>
 
 window.EDMS_WORKSPACE_CONFIG = {
+    baseUrl: <?php echo json_encode(BASE_URL); ?>,
     docId: <?php echo (int)$doc['id']; ?>,
     docName: <?php echo json_encode($doc['name']); ?>,
     fileExt: <?php echo json_encode($ext); ?>,
@@ -1535,6 +1536,7 @@ window.EDMS_WORKSPACE_CONFIG = {
     isOwner: <?php echo $isOwner ? 'true' : 'false'; ?>,
     isContributor: <?php echo $isContributor ? 'true' : 'false'; ?>,
     canAnnotate: <?php echo $canAnnotate ? 'true' : 'false'; ?>,
+    canActOnReview: <?php echo $canActOnReview ? 'true' : 'false'; ?>,
     canUploadRevision: <?php echo $canUploadRevision ? 'true' : 'false'; ?>,
     canSubmitReview: <?php echo $canSubmitReview ? 'true' : 'false'; ?>,
     canManageAccess: <?php echo $canManageAccess ? 'true' : 'false'; ?>,
@@ -1548,7 +1550,11 @@ window.EDMS_WORKSPACE_CONFIG = {
     currentUserAvatar: <?php echo json_encode($currentUser['avatar'] ?? null); ?>,
     activeVersionId: <?php echo (int)$activeVersionId; ?>,
     activeVersionName: <?php echo json_encode($activeVersionName); ?>,
-    isHistoricalSnapshot: <?php echo $isHistoricalSnapshot ? 'true' : 'false'; ?>
+    isHistoricalSnapshot: <?php echo $isHistoricalSnapshot ? 'true' : 'false'; ?>,
+    icons: {
+        comment: <?php echo json_encode(render_icon('comment-add')); ?>,
+        plus: <?php echo json_encode(render_icon('plus')); ?>
+    }
 };
 </script>
 <?php if ($isSupportedViewer): ?>
@@ -1559,6 +1565,7 @@ window.EDMS_WORKSPACE_CONFIG = {
 <script src="../assets/vendor/docx-preview.min.js"></script>
 <?php endif; ?>
 <script src="../assets/js/core.js"></script>
+<script src="../assets/js/comments.js?v=<?php echo filemtime(__DIR__ . '/../assets/js/comments.js'); ?>"></script>
 <script src="../assets/js/viewer.js?v=<?php echo filemtime(__DIR__ . '/../assets/js/viewer.js'); ?>" defer></script>
 <?php endif; ?>
 </body>

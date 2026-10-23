@@ -201,6 +201,7 @@ document.addEventListener("DOMContentLoaded", function () {
             updatePageIndicator(1, totalPages);
             renderAllPdfPages().then(() => {
                 fetchDatabaseAnnotations();
+                if (window.initDocumentComments) window.initDocumentComments();
             });
         })
         .catch(err => {
@@ -232,6 +233,7 @@ document.addEventListener("DOMContentLoaded", function () {
             updatePageIndicator(1, 1);
             renderImagePage();
             fetchDatabaseAnnotations();
+            if (window.initDocumentComments) window.initDocumentComments();
         } catch (err) {
             console.error("Image loading error:", err);
             if (loadingStatusText) {
@@ -296,6 +298,7 @@ document.addEventListener("DOMContentLoaded", function () {
         pageWrapper.appendChild(baseCanvas);
         pageWrapper.appendChild(annoCanvas);
         pdfPagesFeed.appendChild(pageWrapper);
+        if (window.renderPageGutter) window.renderPageGutter(1, pageWrapper);
 
         renderPageAnnotations(pageNum);
 
@@ -371,11 +374,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
                 attachDrawingListeners(annoCanvas, pageNum);
                 sec.appendChild(annoCanvas);
+                if (window.renderPageGutter) window.renderPageGutter(pageNum, sec);
             });
 
             if (workspaceDocLoading) workspaceDocLoading.classList.add("is-hidden");
             setupScrollObserver();
             fetchDatabaseAnnotations();
+            if (window.initDocumentComments) window.initDocumentComments();
         } catch (err) {
             console.error("DOCX rendering error:", err);
             if (loadingStatusText) {
@@ -478,6 +483,7 @@ document.addEventListener("DOMContentLoaded", function () {
             pageWrapper.style.width = defaultWidth + "px";
             pageWrapper.style.height = defaultHeight + "px";
             pdfPagesFeed.appendChild(pageWrapper);
+            if (window.renderPageGutter) window.renderPageGutter(pageNum, pageWrapper);
         }
 
         // Preload visible/approaching pages via IntersectionObserver

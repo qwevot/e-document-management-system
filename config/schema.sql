@@ -145,6 +145,26 @@ CREATE TABLE IF NOT EXISTS `dms_annotation_history` (
     CONSTRAINT `fk_hist_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `dms_document_comments` (
+    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `document_id` BIGINT UNSIGNED NOT NULL,
+    `version_id` BIGINT UNSIGNED NULL DEFAULT NULL,
+    `page_number` INT UNSIGNED NOT NULL DEFAULT 1,
+    `parent_id` BIGINT UNSIGNED NULL DEFAULT NULL,
+    `user_id` BIGINT UNSIGNED NOT NULL,
+    `content` TEXT NOT NULL,
+    `is_resolved` TINYINT(1) NOT NULL DEFAULT 0,
+    `resolved_by` BIGINT UNSIGNED NULL DEFAULT NULL,
+    `resolved_at` DATETIME NULL DEFAULT NULL,
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX `idx_comment_doc_page` (`document_id`, `page_number`),
+    INDEX `idx_comment_parent` (`parent_id`),
+    CONSTRAINT `fk_comment_doc` FOREIGN KEY (`document_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_comment_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_comment_parent` FOREIGN KEY (`parent_id`) REFERENCES `dms_document_comments` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `system_logs` (
     `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     `user_id` BIGINT UNSIGNED NULL,

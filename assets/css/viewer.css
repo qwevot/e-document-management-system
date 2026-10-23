@@ -1,4 +1,4 @@
-﻿/* ==========================================================================
+/* ==========================================================================
    DEDICATED FULLSCREEN DOCUMENT WORKSPACE (pages/view.php)
    ========================================================================== */
 .edms-viewer-body {
@@ -1316,3 +1316,55 @@ svg.icon-lg, .icon-lg svg { width: 20px; height: 20px; flex-shrink: 0; }
     border-radius: 3px;
 }
 
+
+
+/* Page Marginalia Comments Gutter */
+.pdf-page-row { display: flex; flex-direction: row; align-items: flex-start; justify-content: center; gap: 20px; width: 100%; }
+.pdf-page-row > .pdf-page-wrapper { flex-shrink: 0; }
+.pdf-page-gutter { width: 270px; min-width: 270px; max-width: 270px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+
+/* Comment Launcher (+ chat bubble icon) */
+.comment-launcher-wrap { display: flex; flex-direction: column; gap: 8px; }
+.btn-comment-launcher {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    transition: all 0.15s ease;
+}
+.btn-comment-launcher svg {
+    width: 17px;
+    height: 17px;
+    flex-shrink: 0;
+}
+.btn-comment-launcher:hover {
+    color: var(--primary);
+    border-color: var(--primary);
+    background: var(--primary-light, #f0f4ff);
+    transform: scale(1.06);
+}
+
+/* Comment Input & Thread Cards */
+.comment-input-box { display: flex; flex-direction: column; gap: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.comment-input { width: 100%; resize: vertical; min-height: 50px; font-size: 12px; padding: 6px 8px; box-sizing: border-box; }
+.comment-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 6px; }
+.comment-card.is-resolved { opacity: 0.65; border-color: var(--green); }
+.comment-header { display: flex; align-items: center; gap: 8px; }
+.comment-meta { display: flex; flex-direction: column; line-height: 1.25; flex: 1; min-width: 0; }
+.comment-username { font-weight: 600; font-size: 12.5px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.comment-role { font-size: 11px; color: var(--muted); text-transform: capitalize; }
+.comment-body { color: var(--ink); line-height: 1.4; word-break: break-word; font-size: 12.5px; }
+.comment-actions { display: flex; gap: 12px; margin-top: 2px; }
+.btn-comment-action { background: none; border: none; padding: 0; font-size: 11px; font-weight: 500; color: var(--muted); cursor: pointer; }
+.btn-comment-action:hover { color: var(--ink); text-decoration: underline; }
+.comment-replies { border-left: 2px solid var(--border); padding-left: 8px; margin-top: 4px; display: flex; flex-direction: column; gap: 6px; }
+.comment-reply-item { font-size: 12px; }
+.comment-badge-resolved { font-size: 10px; font-weight: 600; color: var(--green); background: var(--success-badge-bg); padding: 2px 6px; border-radius: 4px; }
