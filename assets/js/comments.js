@@ -21,10 +21,14 @@
         const docId = getDocId();
         if (!docId) return null;
         try {
+            const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
             const res = await fetch("../actions/comments-handler.php", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ action, doc_id: docId, version_id: getVersionId(), ...payload })
+                headers: { 
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": token
+                },
+                body: JSON.stringify({ action, doc_id: docId, version_id: getVersionId(), csrf_token: token, ...payload })
             });
             return await res.json();
         } catch (e) {
@@ -163,6 +167,7 @@
                             </div>
                         </div>
                         <div class="comment-body">${escapeHtml(r.content)}</div>
+                        ${r.is_self ? `<div class="comment-actions" style="margin-top:2px;"><button type="button" class="btn-comment-action" style="color:var(--red);" onclick="window.deletePageComment(${r.id}, ${c.page_number})">Delete</button></div>` : ''}
                     </div>
                 `;
             });

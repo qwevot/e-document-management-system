@@ -455,7 +455,7 @@ if ($action) {
         }
 
         $page = isset($data['page']) ? (int)$data['page'] : 1;
-        $tool = in_array($data['tool'], ['pen', 'highlighter', 'text'], true) ? $data['tool'] : 'pen';
+        $tool = trim($data['tool'] ?? 'pen');
         $color = trim($data['color'] ?? '#16a34a');
         $targetLayerId = isset($data['layerId']) && is_numeric($data['layerId']) ? (int)$data['layerId'] : 0;
 
@@ -540,7 +540,13 @@ if ($action) {
         $textSnippet = mb_strlen($rawText) > 35 ? mb_substr($rawText, 0, 32) . '...' : $rawText;
         $createDetails = ($tool === 'text')
             ? ('Added comment: "' . $textSnippet . '"')
-            : (($tool === 'highlighter') ? 'Highlighted section' : (in_array($data['tool'] ?? '', ['rect', 'circle', 'arrow', 'line'], true) ? ('Added ' . $data['tool'] . ' shape') : 'Drawn freehand'));
+            : (($tool === 'highlighter')
+                ? 'Highlighted section'
+                : (($tool === 'stamp' || $tool === 'image')
+                    ? 'Placed stamp / signature'
+                    : (in_array($tool, ['rect', 'circle', 'arrow', 'line'], true)
+                        ? ('Added ' . $tool . ' shape')
+                        : 'Drawn freehand')));
 
         $logStmt = $pdo->prepare("
             INSERT INTO dms_annotation_history (document_id, version_id, user_id, action_type, tool_type, page_number, details)
@@ -1037,6 +1043,10 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
                     <button type="button" class="dock-btn" data-tool="text" id="toolText" title="Text Note / Callout">
                         <?php echo render_icon('type'); ?>
                     </button>
+                    <button type="button" class="dock-btn" data-tool="stamp" id="toolStamp" title="Insert Image / Signature">
+                        <?php echo render_icon('image'); ?>
+                    </button>
+                    <input type="file" id="stampFileInput" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="display: none;">
                 </div>
 
                 <div class="tool-dock-divider"></div>

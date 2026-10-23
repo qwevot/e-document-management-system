@@ -94,6 +94,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // Active Drawing State
     let isDrawing = false;
     let activeDrawingPage = 1;
+    let lastHoveredPage = 1;
     let currentStroke = null;
 
     // Multi-Layer Store: Keyed by layerId
@@ -101,6 +102,19 @@ document.addEventListener("DOMContentLoaded", function () {
     let annotationLayers = {};
     let activeLayerId = null;
     const versionQueryParam = config.activeVersionId ? `&version_id=${config.activeVersionId}` : '';
+
+    // Cache for Stamp / Signature Image Annotations
+    const stampImageCache = new Map();
+    function getStampImage(src) {
+        if (!src) return null;
+        if (stampImageCache.has(src)) return stampImageCache.get(src);
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.src = src;
+        img.onload = () => { renderAllPagesAnnotations(); };
+        stampImageCache.set(src, img);
+        return img;
+    }
 
     // Helper: Get currently active layer object for drawing
     function getActiveSelfLayer() {
@@ -540,9 +554,22 @@ document.addEventListener("DOMContentLoaded", function () {
     window.addEventListener("mouseup", handleStopDrawing);
     window.addEventListener("touchend", handleStopDrawing);
 
+    // Global drag move for continuous cross-page object transformation
+    const onGlobalDrag = (e) => {
+        if (activeTool !== "select" || !isDraggingObject || !selectedAnnotation) return;
+        const p = e.touches ? e.touches[0] : e;
+        const wrapper = document.elementFromPoint(p.clientX, p.clientY)?.closest(".pdf-page-wrapper, section.docx");
+        const page = wrapper ? parseInt(wrapper.dataset.page, 10) : activeDrawingPage;
+        const canvas = document.getElementById(`annoCanvas_${page}`);
+        if (canvas) handleDrawMove(e, canvas, page);
+    };
+    window.addEventListener("mousemove", onGlobalDrag);
+    window.addEventListener("touchmove", onGlobalDrag, { passive: false });
+
     function attachDrawingListeners(canvas, pageNum) {
         canvas.style.touchAction = "none";
         canvas.style.cursor = (activeTool === "pan") ? "grab" : ((activeTool === "select") ? "default" : (activeTool === "eraser" ? "cell" : "crosshair"));
+        canvas.addEventListener("mouseenter", () => { lastHoveredPage = pageNum; });
         canvas.addEventListener("mousedown", (e) => handleStartDrawing(e, canvas, pageNum));
         canvas.addEventListener("mousemove", (e) => handleDrawMove(e, canvas, pageNum));
         canvas.addEventListener("touchstart", (e) => handleStartDrawing(e, canvas, pageNum), { passive: false });
@@ -582,7 +609,16 @@ document.addEventListener("DOMContentLoaded", function () {
             const item = selfLayer.strokes[i];
             if (item.page !== pageNum) continue;
 
-            if (item.tool === "text") {
+            if (item.tool === "stamp" || item.tool === "image") {
+                const posX = item.xRel * canvasWidth;
+                const posY = item.yRel * canvasHeight;
+                const stampW = (item.wRel || 0.22) * canvasWidth;
+                const stampH = (item.hRel || 0.1) * canvasHeight;
+                if (pixelX >= posX - 4 - extraTolerance && pixelX <= posX + stampW + 4 + extraTolerance &&
+                    pixelY >= posY - 4 - extraTolerance && pixelY <= posY + stampH + 4 + extraTolerance) {
+                    return item;
+                }
+            } else if (item.tool === "text") {
                 const posX = item.xRel * canvasWidth;
                 const posY = item.yRel * canvasHeight;
                 const lines = (item.content || "").split("\n");
@@ -685,7 +721,22 @@ document.addEventListener("DOMContentLoaded", function () {
 
         // --- SELECT & TRANSFORM (CURSOR TOOL) ---
         if (activeTool === "select") {
-            if (selectedAnnotation && selectedAnnotation.points && selectedAnnotation.page === pageNum) {
+            if (selectedAnnotation && (selectedAnnotation.tool === "stamp" || selectedAnnotation.tool === "image") && selectedAnnotation.page === pageNum) {
+                const posX = selectedAnnotation.xRel * rect.width;
+                const posY = selectedAnnotation.yRel * rect.height;
+                const stampW = (selectedAnnotation.wRel || 0.22) * rect.width;
+                const stampH = (selectedAnnotation.hRel || 0.1) * rect.height;
+                const corners = [[posX, posY], [posX + stampW, posY], [posX, posY + stampH], [posX + stampW, posY + stampH]];
+                const px = coords.xRel * rect.width, py = coords.yRel * rect.height;
+                const hIdx = corners.findIndex(([cx, cy]) => Math.hypot(px - cx, py - cy) < 14);
+                if (hIdx !== -1) {
+                    activeResizeHandle = hIdx;
+                    isDraggingObject = true;
+                    hasDragged = false;
+                    activeDrawingPage = pageNum;
+                    return;
+                }
+            } else if (selectedAnnotation && selectedAnnotation.points && selectedAnnotation.page === pageNum) {
                 const pts = selectedAnnotation.points;
                 const minX = Math.min(pts[0].xRel, pts[pts.length - 1].xRel) * rect.width, maxX = Math.max(pts[0].xRel, pts[pts.length - 1].xRel) * rect.width;
                 const minY = Math.min(pts[0].yRel, pts[pts.length - 1].yRel) * rect.height, maxY = Math.max(pts[0].yRel, pts[pts.length - 1].yRel) * rect.height;
@@ -710,7 +761,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 activeDrawingPage = pageNum;
                 dragStartCoords = coords;
 
-                if (hit.tool === "text") {
+                if (hit.tool === "text" || hit.tool === "stamp" || hit.tool === "image") {
                     dragInitialTextPos = { xRel: hit.xRel, yRel: hit.yRel };
                 } else if (hit.points) {
                     dragInitialPoints = hit.points.map(pt => ({ xRel: pt.xRel, yRel: pt.yRel }));
@@ -790,6 +841,80 @@ document.addEventListener("DOMContentLoaded", function () {
         if (activeTool === "select") {
             if (isDraggingObject && selectedAnnotation) {
                 hasDragged = true;
+                if (activeResizeHandle !== -1 && (selectedAnnotation.tool === "stamp" || selectedAnnotation.tool === "image")) {
+                    const canvas = document.getElementById(`annoCanvas_${pageNum}`);
+                    const cWidth = (canvas && canvas.width) ? canvas.width : rect.width;
+                    const cHeight = (canvas && canvas.height) ? canvas.height : rect.height;
+                    const pageRatio = (cHeight > 0) ? (cWidth / cHeight) : 0.707;
+                    const img = getStampImage(selectedAnnotation.content || selectedAnnotation.dataUrl);
+                    const naturalAspect = (img && img.naturalWidth && img.naturalHeight)
+                        ? (img.naturalHeight / img.naturalWidth)
+                        : (selectedAnnotation.aspectRatio || (((selectedAnnotation.hRel || 0.1) / (selectedAnnotation.wRel || 0.22)) / pageRatio));
+                    const ratioFactor = naturalAspect * pageRatio;
+
+                    const curR = selectedAnnotation.xRel + (selectedAnnotation.wRel || 0.22);
+                    const curB = selectedAnnotation.yRel + (selectedAnnotation.hRel || 0.1);
+
+                    if (activeResizeHandle === 3) {
+                        // Bottom-Right handle
+                        const dx = coords.xRel - selectedAnnotation.xRel;
+                        const dy = (coords.yRel - selectedAnnotation.yRel) / ratioFactor;
+                        let candW = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+                        let newW = Math.max(0.03, Math.min(1.0 - selectedAnnotation.xRel, candW));
+                        let newH = newW * ratioFactor;
+                        if (selectedAnnotation.yRel + newH > 1.0) {
+                            newW = Math.max(0.03, (1.0 - selectedAnnotation.yRel) / ratioFactor);
+                            newH = newW * ratioFactor;
+                        }
+                        selectedAnnotation.wRel = newW;
+                        selectedAnnotation.hRel = newH;
+                    } else if (activeResizeHandle === 0) {
+                        // Top-Left handle
+                        const dx = curR - coords.xRel;
+                        const dy = (curB - coords.yRel) / ratioFactor;
+                        let candW = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+                        let newW = Math.max(0.03, Math.min(curR, candW));
+                        let newH = newW * ratioFactor;
+                        if (curB - newH < 0) {
+                            newW = Math.max(0.03, curB / ratioFactor);
+                            newH = newW * ratioFactor;
+                        }
+                        selectedAnnotation.xRel = curR - newW;
+                        selectedAnnotation.yRel = curB - newH;
+                        selectedAnnotation.wRel = newW;
+                        selectedAnnotation.hRel = newH;
+                    } else if (activeResizeHandle === 1) {
+                        // Top-Right handle
+                        const dx = coords.xRel - selectedAnnotation.xRel;
+                        const dy = (curB - coords.yRel) / ratioFactor;
+                        let candW = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+                        let newW = Math.max(0.03, Math.min(1.0 - selectedAnnotation.xRel, candW));
+                        let newH = newW * ratioFactor;
+                        if (curB - newH < 0) {
+                            newW = Math.max(0.03, curB / ratioFactor);
+                            newH = newW * ratioFactor;
+                        }
+                        selectedAnnotation.yRel = curB - newH;
+                        selectedAnnotation.wRel = newW;
+                        selectedAnnotation.hRel = newH;
+                    } else if (activeResizeHandle === 2) {
+                        // Bottom-Left handle
+                        const dx = curR - coords.xRel;
+                        const dy = (coords.yRel - selectedAnnotation.yRel) / ratioFactor;
+                        let candW = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+                        let newW = Math.max(0.03, Math.min(curR, candW));
+                        let newH = newW * ratioFactor;
+                        if (selectedAnnotation.yRel + newH > 1.0) {
+                            newW = Math.max(0.03, (1.0 - selectedAnnotation.yRel) / ratioFactor);
+                            newH = newW * ratioFactor;
+                        }
+                        selectedAnnotation.xRel = curR - newW;
+                        selectedAnnotation.wRel = newW;
+                        selectedAnnotation.hRel = newH;
+                    }
+                    schedulePageAnnotationRender(pageNum);
+                    return;
+                }
                 if (activeResizeHandle !== -1 && selectedAnnotation.points) {
                     const pts = selectedAnnotation.points;
                     const p0 = pts[0], p1 = pts[pts.length - 1];
@@ -801,10 +926,51 @@ document.addEventListener("DOMContentLoaded", function () {
                     return;
                 }
 
+                // Check if cursor moved across page boundary into another page during dragging
+                const clientX = e.clientX || (e.touches ? e.touches[0].clientX : 0);
+                const clientY = e.clientY || (e.touches ? e.touches[0].clientY : 0);
+                const hoveredWrapper = document.elementFromPoint(clientX, clientY)?.closest(".pdf-page-wrapper, section.docx");
+                if (hoveredWrapper) {
+                    const newPage = parseInt(hoveredWrapper.dataset.page, 10);
+                    if (newPage && newPage !== selectedAnnotation.page) {
+                        const oldPage = selectedAnnotation.page;
+                        const newCanvas = document.getElementById(`annoCanvas_${newPage}`);
+                        if (newCanvas) {
+                            const newRect = newCanvas.getBoundingClientRect();
+                            const newXRel = Math.max(0, Math.min(1, (clientX - newRect.left) / newRect.width));
+                            const newYRel = Math.max(0, Math.min(1, (clientY - newRect.top) / newRect.height));
+
+                            selectedAnnotation.page = newPage;
+                            activeDrawingPage = newPage;
+                            dragStartCoords = { xRel: newXRel, yRel: newYRel };
+
+                            if (selectedAnnotation.tool === "stamp" || selectedAnnotation.tool === "image") {
+                                dragInitialTextPos = {
+                                    xRel: Math.max(0, Math.min(0.95, newXRel - (selectedAnnotation.wRel || 0.22) / 2)),
+                                    yRel: Math.max(0, Math.min(0.95, newYRel - (selectedAnnotation.hRel || 0.1) / 2))
+                                };
+                                selectedAnnotation.xRel = dragInitialTextPos.xRel;
+                                selectedAnnotation.yRel = dragInitialTextPos.yRel;
+                            } else if (selectedAnnotation.tool === "text") {
+                                dragInitialTextPos = {
+                                    xRel: Math.max(0, Math.min(0.95, newXRel)),
+                                    yRel: Math.max(0, Math.min(0.95, newYRel))
+                                };
+                                selectedAnnotation.xRel = dragInitialTextPos.xRel;
+                                selectedAnnotation.yRel = dragInitialTextPos.yRel;
+                            }
+
+                            renderPageAnnotations(oldPage);
+                            renderPageAnnotations(newPage);
+                            return;
+                        }
+                    }
+                }
+
                 const dx = coords.xRel - dragStartCoords.xRel;
                 const dy = coords.yRel - dragStartCoords.yRel;
 
-                if (selectedAnnotation.tool === "text" && dragInitialTextPos) {
+                if ((selectedAnnotation.tool === "text" || selectedAnnotation.tool === "stamp" || selectedAnnotation.tool === "image") && dragInitialTextPos) {
                     selectedAnnotation.xRel = Math.max(0, Math.min(0.95, dragInitialTextPos.xRel + dx));
                     selectedAnnotation.yRel = Math.max(0, Math.min(0.95, dragInitialTextPos.yRel + dy));
                 } else if (selectedAnnotation.points && dragInitialPoints) {
@@ -816,7 +982,19 @@ document.addEventListener("DOMContentLoaded", function () {
 
                 schedulePageAnnotationRender(pageNum);
             } else {
-                if (selectedAnnotation && selectedAnnotation.points && selectedAnnotation.page === pageNum) {
+                if (selectedAnnotation && (selectedAnnotation.tool === "stamp" || selectedAnnotation.tool === "image") && selectedAnnotation.page === pageNum) {
+                    const posX = selectedAnnotation.xRel * rect.width;
+                    const posY = selectedAnnotation.yRel * rect.height;
+                    const stampW = (selectedAnnotation.wRel || 0.22) * rect.width;
+                    const stampH = (selectedAnnotation.hRel || 0.1) * rect.height;
+                    const corners = [[posX, posY], [posX + stampW, posY], [posX, posY + stampH], [posX + stampW, posY + stampH]];
+                    const px = coords.xRel * rect.width, py = coords.yRel * rect.height;
+                    const hIdx = corners.findIndex(([cx, cy]) => Math.hypot(px - cx, py - cy) < 14);
+                    if (hIdx !== -1) {
+                        canvas.style.cursor = (hIdx === 0 || hIdx === 3) ? "nwse-resize" : "nesw-resize";
+                        return;
+                    }
+                } else if (selectedAnnotation && selectedAnnotation.points && selectedAnnotation.page === pageNum) {
                     const pts = selectedAnnotation.points;
                     const minX = Math.min(pts[0].xRel, pts[pts.length - 1].xRel) * rect.width, maxX = Math.max(pts[0].xRel, pts[pts.length - 1].xRel) * rect.width;
                     const minY = Math.min(pts[0].yRel, pts[pts.length - 1].yRel) * rect.height, maxY = Math.max(pts[0].yRel, pts[pts.length - 1].yRel) * rect.height;
@@ -1147,6 +1325,21 @@ document.addEventListener("DOMContentLoaded", function () {
             layer.strokes.forEach(stroke => {
                 if (stroke.page !== pageNum) return;
 
+                if (stroke.tool === "stamp" || stroke.tool === "image") {
+                    const posX = stroke.xRel * width;
+                    const posY = stroke.yRel * height;
+                    const stampW = (stroke.wRel || 0.22) * width;
+                    const stampH = (stroke.hRel || 0.1) * height;
+
+                    const img = getStampImage(stroke.content || stroke.dataUrl);
+                    if (img && img.complete && img.naturalWidth > 0) {
+                        ctx.save();
+                        ctx.drawImage(img, posX, posY, stampW, stampH);
+                        ctx.restore();
+                    }
+                    return;
+                }
+
                 if (stroke.tool === "text") {
                     // Render In-Place Text Badge with Multi-line Support
                     const posX = stroke.xRel * width;
@@ -1206,7 +1399,17 @@ document.addEventListener("DOMContentLoaded", function () {
 
             let bMinX = 0, bMinY = 0, bMaxX = 0, bMaxY = 0;
 
-            if (selectedAnnotation.tool === "text") {
+            if (selectedAnnotation.tool === "stamp" || selectedAnnotation.tool === "image") {
+                const posX = selectedAnnotation.xRel * width;
+                const posY = selectedAnnotation.yRel * height;
+                const stampW = (selectedAnnotation.wRel || 0.22) * width;
+                const stampH = (selectedAnnotation.hRel || 0.1) * height;
+
+                bMinX = posX - 3;
+                bMinY = posY - 3;
+                bMaxX = posX + stampW + 3;
+                bMaxY = posY + stampH + 3;
+            } else if (selectedAnnotation.tool === "text") {
                 const posX = selectedAnnotation.xRel * width;
                 const posY = selectedAnnotation.yRel * height;
                 ctx.font = "bold 13px 'Plus Jakarta Sans', sans-serif";
@@ -1282,6 +1485,21 @@ document.addEventListener("DOMContentLoaded", function () {
 
             layer.strokes.forEach(stroke => {
                 if (stroke.page !== pageNum) return;
+
+                if (stroke.tool === "stamp" || stroke.tool === "image") {
+                    const posX = stroke.xRel * targetWidth;
+                    const posY = stroke.yRel * targetHeight;
+                    const stampW = (stroke.wRel || 0.22) * targetWidth;
+                    const stampH = (stroke.hRel || 0.1) * targetHeight;
+
+                    const img = getStampImage(stroke.content || stroke.dataUrl);
+                    if (img && img.complete && img.naturalWidth > 0) {
+                        ctx.save();
+                        ctx.drawImage(img, posX, posY, stampW, stampH);
+                        ctx.restore();
+                    }
+                    return;
+                }
 
                 if (stroke.tool === "text") {
                     const posX = stroke.xRel * targetWidth;
@@ -1885,6 +2103,94 @@ document.addEventListener("DOMContentLoaded", function () {
     document.addEventListener("click", e => {
         const grp = document.getElementById("dockShapesGroup");
         if (grp && !grp.contains(e.target) && dockShapesMenu) dockShapesMenu.style.display = "none";
+    });
+
+    // Image / Signature Tool & Clipboard Paste
+    const toolStamp = document.getElementById("toolStamp");
+    const stampFileInput = document.getElementById("stampFileInput");
+
+    function getCurrentViewportPage() {
+        if (lastHoveredPage && lastHoveredPage > 0) return lastHoveredPage;
+        if (!workspaceCenterStage) return currentVisiblePage || 1;
+        const mid = workspaceCenterStage.getBoundingClientRect().top + workspaceCenterStage.clientHeight / 2;
+        let best = currentVisiblePage || 1, min = Infinity;
+        document.querySelectorAll(".pdf-page-wrapper, section.docx").forEach(el => {
+            const p = parseInt(el.dataset.page, 10), r = el.getBoundingClientRect();
+            const d = Math.abs(r.top + r.height / 2 - mid);
+            if (d < min) { min = d; best = p; }
+        });
+        return best;
+    }
+
+    function placeImageStampFromFile(file) {
+        if (!file || !file.type.startsWith("image/")) return;
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            const dataUrl = evt.target.result;
+            const img = new Image();
+            img.onload = () => {
+                const selfLayer = getActiveSelfLayer();
+                if (!selfLayer) return;
+                const page = getCurrentViewportPage();
+                const canvas = document.getElementById(`annoCanvas_${page}`);
+                const cWidth = (canvas && canvas.width) ? canvas.width : 800;
+                const cHeight = (canvas && canvas.height) ? canvas.height : 1131;
+                const pageRatio = (cHeight > 0) ? (cWidth / cHeight) : 0.707;
+                const aspect = (img.naturalWidth > 0) ? (img.naturalHeight / img.naturalWidth) : 1;
+
+                let wRel = 0.24;
+                let hRel = wRel * aspect * pageRatio;
+                if (hRel > 0.35) {
+                    hRel = 0.35;
+                    wRel = Math.max(0.04, hRel / (aspect * pageRatio));
+                }
+
+                const stamp = {
+                    tool: "stamp", page,
+                    xRel: Math.max(0.05, 0.5 - wRel / 2),
+                    yRel: Math.max(0.05, 0.45 - hRel / 2),
+                    wRel, hRel, content: dataUrl,
+                    aspectRatio: aspect,
+                    color: activeColor, layerId: selfLayer.layerId
+                };
+                (selfLayer.strokes = selfLayer.strokes || []).push(stamp);
+                selectedAnnotation = stamp;
+                activeTool = "select";
+                dockButtons.forEach(b => b.classList.remove("is-active"));
+                document.getElementById("toolSelect")?.classList.add("is-active");
+                stampImageCache.set(dataUrl, img);
+                renderPageAnnotations(page);
+                persistStrokeToDatabase(stamp);
+                updateStrokeStats();
+            };
+            img.src = dataUrl;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    if (toolStamp && stampFileInput) {
+        toolStamp.addEventListener("click", () => {
+            if (!isAnnotationLocked) stampFileInput.click();
+        });
+        stampFileInput.addEventListener("change", (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (file) placeImageStampFromFile(file);
+            stampFileInput.value = "";
+        });
+    }
+
+    // Intercept Clipboard Image Paste (Ctrl + V)
+    window.addEventListener("paste", (e) => {
+        if (!canAnnotate || isAnnotationLocked) return;
+        if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
+        const items = e.clipboardData && e.clipboardData.items;
+        if (!items) return;
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf("image") !== -1) {
+                const file = items[i].getAsFile();
+                if (file) { e.preventDefault(); placeImageStampFromFile(file); break; }
+            }
+        }
     });
 
     // Color Swatches

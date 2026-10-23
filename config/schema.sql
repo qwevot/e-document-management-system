@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS `dms_annotations` (
     `document_id` BIGINT UNSIGNED NOT NULL,
     `version_id` BIGINT UNSIGNED DEFAULT NULL,
     `page_number` INT UNSIGNED NOT NULL DEFAULT 1,
-    `tool_type` ENUM('pen', 'highlighter', 'text') NOT NULL DEFAULT 'pen',
+    `tool_type` VARCHAR(50) NOT NULL DEFAULT 'pen',
     `payload_json` LONGTEXT NOT NULL,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

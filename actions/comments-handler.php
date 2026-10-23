@@ -12,17 +12,20 @@ require_once __DIR__ . '/../includes/contributors.php';
 
 require_login();
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && !csrf_valid()) {
-    echo json_encode(['success' => false, 'message' => 'Security validation failed (CSRF invalid or expired).']);
-    exit;
-}
-
 $currentUser = current_user();
 $userId = (int)($currentUser['id'] ?? 0);
 $pdo = db();
 
 $rawInput = file_get_contents('php://input');
 $jsonInput = json_decode($rawInput, true) ?: [];
+if (!empty($jsonInput['csrf_token']) && empty($_POST['csrf_token'])) {
+    $_POST['csrf_token'] = $jsonInput['csrf_token'];
+}
+
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && !csrf_valid()) {
+    echo json_encode(['success' => false, 'message' => 'Security validation failed (CSRF invalid or expired).']);
+    exit;
+}
 
 $action = $_REQUEST['action'] ?? $jsonInput['action'] ?? '';
 $docId  = (int)($_REQUEST['doc_id'] ?? $jsonInput['doc_id'] ?? 0);
@@ -260,8 +263,8 @@ if ($action === 'delete_comment' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'P
     }
 
     // Cascade delete comment and any nested replies
-    $del = $pdo->prepare("DELETE FROM dms_document_comments WHERE id = :id OR parent_id = :id");
-    $del->execute(['id' => $commentId]);
+    $del = $pdo->prepare("DELETE FROM dms_document_comments WHERE id = :id OR parent_id = :pid");
+    $del->execute(['id' => $commentId, 'pid' => $commentId]);
 
     // 1. Log in dms_annotation_history
     $histStmt = $pdo->prepare("
