@@ -18,12 +18,17 @@ if (!$currentUser) {
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrf_valid()) {
+    echo json_encode(['success' => false, 'message' => 'Security validation failed (CSRF token invalid or expired).']);
+    exit;
+}
+
 $userId = (int)$currentUser['id'];
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 // 1. Get Access & Contributor Data
 if ($action === 'get_access_data') {
-    $docId = isset($_GET['doc_id']) ? (int)$_GET['doc_id'] : (int)($_POST['doc_id'] ?? 0);
+    $docId = (int)($_GET['doc_id'] ?? 0);
     if ($docId <= 0) {
         echo json_encode(['success' => false, 'message' => 'Invalid document ID.']);
         exit;

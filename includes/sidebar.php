@@ -8,7 +8,6 @@ $role      = current_role();
 $mainNavItems = [
     ['my-workspace', 'pages/my-workspace.php', 'My Workspace', 'workspace'],
     ['explorer',     'pages/explorer.php',     'Document Explorer', 'explorer'],
-    ['sign-documents', 'pages/sign-documents.php', 'Sign Documents', 'sign-documents'],
 ];
 
 // Administration items (Retractable group)

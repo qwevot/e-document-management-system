@@ -9,7 +9,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_login();
 require_csrf('profile');
 
-$pdo = html_db('profile');
+$pdo = db();
 $user = current_user();
 $userId = (int)($user['id'] ?? 0);
 

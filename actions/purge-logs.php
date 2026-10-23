@@ -5,7 +5,7 @@ require_login();
 require_role('super admin');
 require_csrf('system-logs');
 
-$pdo = html_db('system-logs');
+$pdo = db();
 
 $range = trim($_POST['range'] ?? 'all');
 

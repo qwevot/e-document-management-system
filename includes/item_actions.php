@@ -51,6 +51,7 @@
             <button type="button" class="btn-modal-close" id="btnCloseRenameModal" title="Close modal">&times;</button>
         </div>
         <form id="formRenameNode" method="POST" action="explorer.php">
+            <?php echo csrf_field(); ?>
             <input type="hidden" name="action" value="rename_node">
             <input type="hidden" name="id" id="renameNodeId" value="">
             <div class="edms-modal-body">
@@ -79,6 +80,7 @@
             <button type="button" class="btn-modal-close" id="btnCloseMoveModal" title="Close modal">&times;</button>
         </div>
         <form id="formMoveNode" method="POST" action="explorer.php">
+            <?php echo csrf_field(); ?>
             <input type="hidden" name="action" id="moveNodeAction" value="move_node">
             <input type="hidden" name="id" id="moveNodeId" value="">
             <input type="hidden" name="ids" id="moveNodeIds" value="">
@@ -129,6 +131,7 @@
             <button type="button" class="btn-modal-close" id="btnCloseDeleteModal" title="Close modal">&times;</button>
         </div>
         <form id="formDeleteNode" method="POST" action="explorer.php">
+            <?php echo csrf_field(); ?>
             <input type="hidden" name="action" id="deleteNodeAction" value="delete_node">
             <input type="hidden" name="id" id="deleteNodeId" value="">
             <input type="hidden" name="ids" id="deleteNodeIds" value="">

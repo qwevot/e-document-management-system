@@ -98,9 +98,9 @@ $versionQueryParam = ($effectiveVersionId ? '&version_id=' . $effectiveVersionId
 $ext = strtolower(trim($doc['file_extension'] ?? '', '.'));
 $streamUrl = 'stream.php?id=' . $doc['id'] . $versionQueryParam;
 $downloadUrl = 'download.php?id=' . $doc['id'] . ($effectiveVersionId ? '&version_id=' . $effectiveVersionId : '');
-$currentUser = current_user() ?? ['id' => 1, 'full_name' => 'Dr. Ruan Mei'];
-$userId = (int)($currentUser['id'] ?? 1);
-$userName = $currentUser['full_name'] ?? 'Collaborator';
+$currentUser = current_user();
+$userId = (int)($currentUser['id'] ?? 0);
+$userName = $currentUser['full_name'] ?? ($currentUser['username'] ?? 'Collaborator');
 
 // Record document access telemetry (only on genuine full-page loads, never on background AJAX calls)
 $isAjaxRequest = !empty($_REQUEST['action']) 
@@ -195,6 +195,11 @@ $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTT
 
 if ($action) {
     header('Content-Type: application/json');
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrf_valid()) {
+        echo json_encode(['success' => false, 'message' => 'Security validation failed (CSRF token invalid or expired).']);
+        exit;
+    }
 
     // Viewers are barred from modifying annotations or layers unless explicitly permitted (e.g. assigned as reviewer)
     if (!$canAnnotate && !can_edit_dms($currentUser) && in_array($action, ['save_annotations', 'create_layer', 'save_layer', 'delete_layer'], true)) {
@@ -808,6 +813,7 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo e($doc['name']); ?> — Workspace Viewer</title>
+    <meta name="csrf-token" content="<?php echo e(csrf_token()); ?>">
     <link rel="stylesheet" href="../assets/css/styles.css">
     <link rel="stylesheet" href="../assets/css/responsive.css">
     <link rel="stylesheet" href="../assets/css/viewer.css">
@@ -1552,6 +1558,7 @@ window.EDMS_WORKSPACE_CONFIG = {
 <script src="../assets/vendor/jszip.min.js"></script>
 <script src="../assets/vendor/docx-preview.min.js"></script>
 <?php endif; ?>
+<script src="../assets/js/core.js"></script>
 <script src="../assets/js/viewer.js?v=<?php echo filemtime(__DIR__ . '/../assets/js/viewer.js'); ?>" defer></script>
 <?php endif; ?>
 </body>

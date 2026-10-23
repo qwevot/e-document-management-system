@@ -10,8 +10,8 @@ require_once __DIR__ . '/../includes/contributors.php';
 require_once __DIR__ . '/../includes/header.php';
 
 $pdo = db();
-$user = current_user() ?? ['id' => 1, 'full_name' => 'User', 'role' => 'viewer'];
-$userId = (int)($user['id'] ?? 1);
+$user = current_user();
+$userId = (int)($user['id'] ?? 0);
 
 // 1. My Workspace: Documents authored by user OR where user is a contributor
 $myDocsStmt = $pdo->prepare("

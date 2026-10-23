@@ -15,12 +15,21 @@ $currentUser = current_user();
 $isSuperAdmin = is_super_admin($currentUser);
 
 $isAjax = (isset($_GET['ajax']) && $_GET['ajax'] === '1') || 
-        (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest');
+        (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') ||
+        (isset($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'application/json'));
 
 // ============================================================
 // POST Actions: Restore / Permanently Purge Document
 // ============================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_valid()) {
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Security validation failed (CSRF token invalid or expired). Please refresh and try again.']);
+            exit;
+        }
+        redirect_to('archives', 'error', 'Security validation failed. Please try again.');
+    }
     $action = $_POST['action'] ?? '';
 
     // Disallow mutating operations if current user does not have edit permissions (e.g., viewers)
@@ -736,6 +745,7 @@ include __DIR__ . '/../includes/header.php';
             <button type="button" class="btn-modal-close" onclick="closeRestoreModal()">&times;</button>
         </div>
         <form method="POST" action="archives.php" id="formRestoreDoc">
+            <?php echo csrf_field(); ?>
             <input type="hidden" name="action" id="restoreDocAction" value="restore_node">
             <input type="hidden" name="id" id="restoreDocId" value="">
             <input type="hidden" name="ids" id="restoreDocIds" value="">
@@ -770,6 +780,7 @@ include __DIR__ . '/../includes/header.php';
             <button type="button" class="btn-modal-close" onclick="closePurgeModal()">&times;</button>
         </div>
         <form method="POST" action="archives.php" id="formPurgeDoc">
+            <?php echo csrf_field(); ?>
             <input type="hidden" name="action" id="purgeDocAction" value="purge_node">
             <input type="hidden" name="id" id="purgeDocId" value="">
             <input type="hidden" name="ids" id="purgeDocIds" value="">

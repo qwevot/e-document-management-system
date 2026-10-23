@@ -12,6 +12,11 @@ $action = $_REQUEST['action'] ?? '';
 $user = current_user();
 $userId = (int)($user['id'] ?? 1);
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrf_valid()) {
+    echo json_encode(['success' => false, 'message' => 'Security validation failed (CSRF token invalid or expired).']);
+    exit;
+}
+
 if (!can_edit_dms($user) && in_array($action, ['upload_revision', 'revert_version', 'publish_document', 'suspend_document'], true)) {
     $targetDocId = (int)($_REQUEST['doc_id'] ?? 0);
     log_activity('auth.access_denied', 'document', $targetDocId ?: null, [
@@ -52,7 +57,6 @@ if ($action === 'suspend_document' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 2. Upload a new revision (version bump)
 if ($action === 'upload_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $docId = isset($_POST['doc_id']) && is_numeric($_POST['doc_id']) ? (int)$_POST['doc_id'] : 0;
-    $bumpType = in_array($_POST['bump_type'] ?? '', ['major', 'minor'], true) ? $_POST['bump_type'] : 'minor';
     $changeSummary = trim($_POST['change_summary'] ?? '');
 
     if ($docId <= 0) {
@@ -100,11 +104,10 @@ if ($action === 'upload_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         'file_hash'          => $fileHash,
     ];
 
-    $result = create_document_version($docId, $fileData, $bumpType, $changeSummary, $userId);
+    $result = create_document_version($docId, $fileData, $changeSummary, $userId);
 
     if ($result['success'] ?? false) {
         log_activity('version.upload', 'document', $docId, [
-            'bump_type'       => $bumpType,
             'change_summary'  => $changeSummary,
             'original_name'   => $origName,
             'file_size'       => $fileSize

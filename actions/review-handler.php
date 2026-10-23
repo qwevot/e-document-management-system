@@ -12,6 +12,11 @@ if (!$user) {
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrf_valid()) {
+    echo json_encode(['success' => false, 'message' => 'Security validation failed (CSRF token invalid or expired).']);
+    exit;
+}
+
 $action = $_REQUEST['action'] ?? '';
 $userId = (int)($user['id'] ?? 1);
 

@@ -59,12 +59,12 @@ function get_document_versions(int $docId): array
 
 /**
  * Create and register a new version revision for a document.
- * Standard uploads always increment the minor version (e.g., v0.1 -> v0.2, v1.0 -> v1.1).
+ * Uploading revisions strictly increments the minor version (e.g., v0.1 -> v0.2, v1.0 -> v1.1).
+ * Major version bumps are reserved strictly for official publication.
  */
 function create_document_version(
     int $docId,
     array $fileData,
-    string $bumpType = 'minor',
     ?string $changeSummary = null,
     int $userId = 1
 ): array {

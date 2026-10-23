@@ -5,6 +5,32 @@
 (function () {
     "use strict";
 
+    // Automatic CSRF token propagation & AJAX header for fetch requests
+    if (window.fetch) {
+        const originalFetch = window.fetch;
+        window.fetch = function (resource, init = {}) {
+            const method = (init.method || (resource instanceof Request ? resource.method : "GET")).toUpperCase();
+            init.headers = init.headers || {};
+            const setHeader = (key, val) => {
+                if (init.headers instanceof Headers) {
+                    if (!init.headers.has(key)) init.headers.set(key, val);
+                } else if (Array.isArray(init.headers)) {
+                    if (!init.headers.some(([k]) => k.toLowerCase() === key.toLowerCase())) init.headers.push([key, val]);
+                } else {
+                    if (!init.headers[key] && !init.headers[key.toLowerCase()]) init.headers[key] = val;
+                }
+            };
+
+            setHeader("X-Requested-With", "XMLHttpRequest");
+
+            if (["POST", "PUT", "DELETE", "PATCH"].includes(method)) {
+                const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
+                if (token) setHeader("X-CSRF-Token", token);
+            }
+            return originalFetch(resource, init);
+        };
+    }
+
     // Global Floating Toast Notification at bottom of screen
     window.showBottomToast = function (message, type = "error") {
         let container = document.getElementById("edmsBottomToastContainer");

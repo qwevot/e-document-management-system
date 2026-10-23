@@ -5,7 +5,7 @@ require_login();
 require_role('super admin');
 require_csrf('users');
 
-$pdo = html_db('users');
+$pdo = db();
 
 $id         = (int)($_POST['id'] ?? 0);
 $username   = trim($_POST['username'] ?? '');

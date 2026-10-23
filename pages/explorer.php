@@ -6,6 +6,8 @@ $extraCss  = ['explorer.css'];
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
 
+require_login();
+
 $pdo = db();
 $isAjax = (isset($_GET['ajax']) && $_GET['ajax'] === '1') || 
           (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest');

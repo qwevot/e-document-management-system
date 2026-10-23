@@ -7,11 +7,13 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
 $pdo = db();
 $isAjax = (isset($_GET['ajax']) && $_GET['ajax'] === '1') ||
-        (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest');
+        (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') ||
+        (isset($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'application/json'));
 
 // --- AJAX Endpoints ---
 $reqAction = $_GET['action'] ?? ($_POST['action'] ?? '');
 if ($reqAction === 'get_audit_history') {
+    require_login();
     header('Content-Type: application/json');
     $docId = isset($_REQUEST['doc_id']) ? (int)$_REQUEST['doc_id'] : (isset($_REQUEST['id']) ? (int)$_REQUEST['id'] : 0);
     if ($docId <= 0) {
@@ -26,6 +28,15 @@ if ($reqAction === 'get_audit_history') {
 // POST Actions: Create Folder
 // ============================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_login();
+    if (!csrf_valid()) {
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Security validation failed (CSRF token invalid or expired). Please refresh and try again.']);
+            exit;
+        }
+        redirect_to('explorer', 'error', 'Security validation failed. Please try again.');
+    }
     if (empty($_POST) && empty($_FILES) && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
         header('Content-Type: application/json');
         $serverMax = ini_get('post_max_size') ?: 'server limit';
@@ -449,26 +460,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $nodeStmt->execute(['id' => $nodeId]);
             $nodeData = $nodeStmt->fetch(PDO::FETCH_ASSOC);
 
-            $stmt = $pdo->prepare("UPDATE dms_nodes SET is_deleted = 1, status = 'obsolete', updated_at = NOW() WHERE id = :id");
-            $stmt->execute(['id' => $nodeId]);
-
             // If it was a folder, recursively soft-delete all children and mark obsolete
-            $queue = [$nodeId];
-            $allDeletedIds = [$nodeId];
-            while (!empty($queue)) {
-                $currId = array_shift($queue);
-                $cStmt = $pdo->prepare("SELECT id FROM dms_nodes WHERE parent_id = :parent_id AND is_deleted = 0");
-                $cStmt->execute(['parent_id' => $currId]);
-                $childIds = $cStmt->fetchAll(PDO::FETCH_COLUMN);
-
-                if (!empty($childIds)) {
-                    $inClause = implode(',', array_map('intval', $childIds));
-                    $pdo->exec("UPDATE dms_nodes SET is_deleted = 1, status = 'obsolete', updated_at = NOW() WHERE id IN ($inClause)");
-                    foreach ($childIds as $cid) {
-                        $queue[] = (int)$cid;
-                        $allDeletedIds[] = (int)$cid;
-                    }
-                }
+            $allDeletedIds = get_descendant_node_ids($pdo, [$nodeId], false);
+            if (!empty($allDeletedIds)) {
+                $placeholders = implode(',', array_fill(0, count($allDeletedIds), '?'));
+                $pdo->prepare("UPDATE dms_nodes SET is_deleted = 1, status = 'obsolete', updated_at = NOW() WHERE id IN ($placeholders)")->execute($allDeletedIds);
+            } else {
+                $allDeletedIds = [$nodeId];
+                $stmt = $pdo->prepare("UPDATE dms_nodes SET is_deleted = 1, status = 'obsolete', updated_at = NOW() WHERE id = :id");
+                $stmt->execute(['id' => $nodeId]);
             }
 
             log_activity('node.archive', $nodeData['node_type'] ?? 'document', $nodeId, [

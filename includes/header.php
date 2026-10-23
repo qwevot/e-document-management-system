@@ -41,6 +41,7 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo e($pageTitle); ?> - EDMS</title>
+    <meta name="csrf-token" content="<?php echo e(csrf_token()); ?>">
     <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/styles.css">
     <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/responsive.css">
     <?php if (!empty($extraCss)): ?>

@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS `dms_document_versions` (
     `file_hash` CHAR(64) NULL,
     `change_summary` TEXT NULL,
     `is_current` TINYINT(1) NOT NULL DEFAULT 1,
+    `review_status` ENUM('draft', 'pending', 'approved', 'rejected', 'published', 'suspended') NOT NULL DEFAULT 'draft',
     `created_by` BIGINT UNSIGNED NULL,
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX `idx_doc_id` (`document_id`),

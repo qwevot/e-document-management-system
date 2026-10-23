@@ -161,18 +161,6 @@ function redirect_to(string $page, string $key, string $message): void
 }
 
 /**
- * Safe database connection wrapper with page redirect on failure.
- */
-function html_db(string $page): PDO
-{
-    try {
-        return db();
-    } catch (Throwable $e) {
-        redirect_to($page, 'error', 'Database connection failed.');
-    }
-}
-
-/**
  * Save an uploaded avatar image with square crop and resize.
  */
 function save_avatar_upload(array $file, int $userId): ?string
