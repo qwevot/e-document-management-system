@@ -596,61 +596,75 @@ document.addEventListener("DOMContentLoaded", function () {
         return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1)));
     }
 
+    // Helper: Compute bounding box and corner handles for any annotation
+    function getAnnotationBounds(item, canvasWidth, canvasHeight, extraTolerance = 0) {
+        if (!item) return null;
+        if (item.tool === "stamp" || item.tool === "image") {
+            const x = item.xRel * canvasWidth, y = item.yRel * canvasHeight;
+            const w = (item.wRel || 0.22) * canvasWidth, h = (item.hRel || 0.1) * canvasHeight;
+            const pad = 4 + extraTolerance;
+            return {
+                x, y, w, h,
+                minX: x - pad, minY: y - pad, maxX: x + w + pad, maxY: y + h + pad,
+                corners: [[x, y], [x + w, y], [x, y + h], [x + w, y + h]]
+            };
+        }
+        if (item.tool === "text") {
+            const x = item.xRel * canvasWidth, y = item.yRel * canvasHeight;
+            const lines = (item.content || "").split("\n");
+            let maxW = 40;
+            lines.forEach(l => { maxW = Math.max(maxW, l.length * 8.5 + 16); });
+            const w = maxW, h = lines.length * 18 + 12;
+            const pad = 4 + extraTolerance;
+            return {
+                x, y, w, h,
+                minX: x - pad, minY: y - pad, maxX: x + w + pad, maxY: y + h + pad,
+                corners: [[x, y], [x + w, y], [x, y + h], [x + w, y + h]]
+            };
+        }
+        if (item.points && item.points.length >= 2) {
+            let minPx = Infinity, minPy = Infinity, maxPx = -Infinity, maxPy = -Infinity;
+            item.points.forEach(pt => {
+                const px = pt.xRel * canvasWidth, py = pt.yRel * canvasHeight;
+                if (px < minPx) minPx = px;
+                if (px > maxPx) maxPx = px;
+                if (py < minPy) minPy = py;
+                if (py > maxPy) maxPy = py;
+            });
+            const pad = (["rect", "circle"].includes(item.tool) ? 6 : Math.max(6, item.width || 2)) + extraTolerance;
+            return {
+                x: minPx, y: minPy, w: maxPx - minPx, h: maxPy - minPy,
+                minX: minPx - pad, minY: minPy - pad, maxX: maxPx + pad, maxY: maxPy + pad,
+                corners: [[minPx, minPy], [maxPx, minPy], [minPx, maxPy], [maxPx, maxPy]]
+            };
+        }
+        return null;
+    }
+
     // Hit-Testing: Check if an annotation on pageNum is under cursor
     function hitTestAnnotation(pageNum, xRel, yRel, canvasWidth, canvasHeight, extraTolerance = 0) {
         const selfLayer = getActiveSelfLayer();
         if (!selfLayer || !selfLayer.visible || !Array.isArray(selfLayer.strokes)) return null;
 
-        const pixelX = xRel * canvasWidth;
-        const pixelY = yRel * canvasHeight;
+        const pixelX = xRel * canvasWidth, pixelY = yRel * canvasHeight;
 
-        // Iterate top-to-bottom
         for (let i = selfLayer.strokes.length - 1; i >= 0; i--) {
             const item = selfLayer.strokes[i];
             if (item.page !== pageNum) continue;
 
-            if (item.tool === "stamp" || item.tool === "image") {
-                const posX = item.xRel * canvasWidth;
-                const posY = item.yRel * canvasHeight;
-                const stampW = (item.wRel || 0.22) * canvasWidth;
-                const stampH = (item.hRel || 0.1) * canvasHeight;
-                if (pixelX >= posX - 4 - extraTolerance && pixelX <= posX + stampW + 4 + extraTolerance &&
-                    pixelY >= posY - 4 - extraTolerance && pixelY <= posY + stampH + 4 + extraTolerance) {
-                    return item;
-                }
-            } else if (item.tool === "text") {
-                const posX = item.xRel * canvasWidth;
-                const posY = item.yRel * canvasHeight;
-                const lines = (item.content || "").split("\n");
-                const lineHeight = 18;
-                const padding = 8 + extraTolerance;
-                let maxW = 40;
-                lines.forEach(l => { maxW = Math.max(maxW, l.length * 8.5 + padding * 2); });
-                const boxW = maxW;
-                const boxH = lines.length * lineHeight + padding * 2;
+            const b = getAnnotationBounds(item, canvasWidth, canvasHeight, extraTolerance);
+            if (!b) continue;
 
-                if (pixelX >= posX - 4 - extraTolerance && pixelX <= posX + boxW + 4 + extraTolerance && pixelY >= posY - 4 - extraTolerance && pixelY <= posY + boxH + 4 + extraTolerance) {
+            if (["stamp", "image", "text", "rect", "circle"].includes(item.tool)) {
+                if (pixelX >= b.minX && pixelX <= b.maxX && pixelY >= b.minY && pixelY <= b.maxY) {
                     return item;
                 }
-            } else if (["rect", "circle"].includes(item.tool) && item.points && item.points.length >= 2) {
-                const minX = Math.min(item.points[0].xRel, item.points[1].xRel) * canvasWidth - 6 - extraTolerance;
-                const maxX = Math.max(item.points[0].xRel, item.points[1].xRel) * canvasWidth + 6 + extraTolerance;
-                const minY = Math.min(item.points[0].yRel, item.points[1].yRel) * canvasHeight - 6 - extraTolerance;
-                const maxY = Math.max(item.points[0].yRel, item.points[1].yRel) * canvasHeight + 6 + extraTolerance;
-                if (pixelX >= minX && pixelX <= maxX && pixelY >= minY && pixelY <= maxY) return item;
             } else if (item.points && item.points.length >= 2) {
                 const tol = Math.max(10, (item.width || 2) * 2.0) + extraTolerance;
                 for (let j = 0; j < item.points.length - 1; j++) {
-                    const p1 = item.points[j];
-                    const p2 = item.points[j + 1];
-                    const d = distToSegment(
-                        pixelX, pixelY,
-                        p1.xRel * canvasWidth, p1.yRel * canvasHeight,
-                        p2.xRel * canvasWidth, p2.yRel * canvasHeight
-                    );
-                    if (d <= tol) {
-                        return item;
-                    }
+                    const p1 = item.points[j], p2 = item.points[j + 1];
+                    const d = distToSegment(pixelX, pixelY, p1.xRel * canvasWidth, p1.yRel * canvasHeight, p2.xRel * canvasWidth, p2.yRel * canvasHeight);
+                    if (d <= tol) return item;
                 }
             }
         }
@@ -721,34 +735,18 @@ document.addEventListener("DOMContentLoaded", function () {
 
         // --- SELECT & TRANSFORM (CURSOR TOOL) ---
         if (activeTool === "select") {
-            if (selectedAnnotation && (selectedAnnotation.tool === "stamp" || selectedAnnotation.tool === "image") && selectedAnnotation.page === pageNum) {
-                const posX = selectedAnnotation.xRel * rect.width;
-                const posY = selectedAnnotation.yRel * rect.height;
-                const stampW = (selectedAnnotation.wRel || 0.22) * rect.width;
-                const stampH = (selectedAnnotation.hRel || 0.1) * rect.height;
-                const corners = [[posX, posY], [posX + stampW, posY], [posX, posY + stampH], [posX + stampW, posY + stampH]];
-                const px = coords.xRel * rect.width, py = coords.yRel * rect.height;
-                const hIdx = corners.findIndex(([cx, cy]) => Math.hypot(px - cx, py - cy) < 14);
-                if (hIdx !== -1) {
-                    activeResizeHandle = hIdx;
-                    isDraggingObject = true;
-                    hasDragged = false;
-                    activeDrawingPage = pageNum;
-                    return;
-                }
-            } else if (selectedAnnotation && selectedAnnotation.points && selectedAnnotation.page === pageNum) {
-                const pts = selectedAnnotation.points;
-                const minX = Math.min(pts[0].xRel, pts[pts.length - 1].xRel) * rect.width, maxX = Math.max(pts[0].xRel, pts[pts.length - 1].xRel) * rect.width;
-                const minY = Math.min(pts[0].yRel, pts[pts.length - 1].yRel) * rect.height, maxY = Math.max(pts[0].yRel, pts[pts.length - 1].yRel) * rect.height;
-                const corners = [[minX, minY], [maxX, minY], [minX, maxY], [maxX, maxY]];
-                const px = coords.xRel * rect.width, py = coords.yRel * rect.height;
-                const hIdx = corners.findIndex(([cx, cy]) => Math.hypot(px - cx, py - cy) < 14);
-                if (hIdx !== -1) {
-                    activeResizeHandle = hIdx;
-                    isDraggingObject = true;
-                    hasDragged = false;
-                    activeDrawingPage = pageNum;
-                    return;
+            if (selectedAnnotation && selectedAnnotation.page === pageNum) {
+                const b = getAnnotationBounds(selectedAnnotation, rect.width, rect.height);
+                if (b && (selectedAnnotation.tool === "stamp" || selectedAnnotation.tool === "image" || selectedAnnotation.points)) {
+                    const px = coords.xRel * rect.width, py = coords.yRel * rect.height;
+                    const hIdx = b.corners.findIndex(([cx, cy]) => Math.hypot(px - cx, py - cy) < 14);
+                    if (hIdx !== -1) {
+                        activeResizeHandle = hIdx;
+                        isDraggingObject = true;
+                        hasDragged = false;
+                        activeDrawingPage = pageNum;
+                        return;
+                    }
                 }
             }
             activeResizeHandle = -1;
@@ -982,28 +980,15 @@ document.addEventListener("DOMContentLoaded", function () {
 
                 schedulePageAnnotationRender(pageNum);
             } else {
-                if (selectedAnnotation && (selectedAnnotation.tool === "stamp" || selectedAnnotation.tool === "image") && selectedAnnotation.page === pageNum) {
-                    const posX = selectedAnnotation.xRel * rect.width;
-                    const posY = selectedAnnotation.yRel * rect.height;
-                    const stampW = (selectedAnnotation.wRel || 0.22) * rect.width;
-                    const stampH = (selectedAnnotation.hRel || 0.1) * rect.height;
-                    const corners = [[posX, posY], [posX + stampW, posY], [posX, posY + stampH], [posX + stampW, posY + stampH]];
-                    const px = coords.xRel * rect.width, py = coords.yRel * rect.height;
-                    const hIdx = corners.findIndex(([cx, cy]) => Math.hypot(px - cx, py - cy) < 14);
-                    if (hIdx !== -1) {
-                        canvas.style.cursor = (hIdx === 0 || hIdx === 3) ? "nwse-resize" : "nesw-resize";
-                        return;
-                    }
-                } else if (selectedAnnotation && selectedAnnotation.points && selectedAnnotation.page === pageNum) {
-                    const pts = selectedAnnotation.points;
-                    const minX = Math.min(pts[0].xRel, pts[pts.length - 1].xRel) * rect.width, maxX = Math.max(pts[0].xRel, pts[pts.length - 1].xRel) * rect.width;
-                    const minY = Math.min(pts[0].yRel, pts[pts.length - 1].yRel) * rect.height, maxY = Math.max(pts[0].yRel, pts[pts.length - 1].yRel) * rect.height;
-                    const corners = [[minX, minY], [maxX, minY], [minX, maxY], [maxX, maxY]];
-                    const px = coords.xRel * rect.width, py = coords.yRel * rect.height;
-                    const hIdx = corners.findIndex(([cx, cy]) => Math.hypot(px - cx, py - cy) < 14);
-                    if (hIdx !== -1) {
-                        canvas.style.cursor = (hIdx === 0 || hIdx === 3) ? "nwse-resize" : "nesw-resize";
-                        return;
+                if (selectedAnnotation && selectedAnnotation.page === pageNum) {
+                    const b = getAnnotationBounds(selectedAnnotation, rect.width, rect.height);
+                    if (b && (selectedAnnotation.tool === "stamp" || selectedAnnotation.tool === "image" || selectedAnnotation.points)) {
+                        const px = coords.xRel * rect.width, py = coords.yRel * rect.height;
+                        const hIdx = b.corners.findIndex(([cx, cy]) => Math.hypot(px - cx, py - cy) < 14);
+                        if (hIdx !== -1) {
+                            canvas.style.cursor = (hIdx === 0 || hIdx === 3) ? "nwse-resize" : "nesw-resize";
+                            return;
+                        }
                     }
                 }
                 const hit = hitTestAnnotation(pageNum, coords.xRel, coords.yRel, rect.width, rect.height);
@@ -1303,6 +1288,69 @@ document.addEventListener("DOMContentLoaded", function () {
         ctx.restore();
     }
 
+    // Helper: Unified Annotation Renderer (Shared between on-screen view and clean PDF/Image export)
+    function drawAnnotationItem(ctx, stroke, canvasW, canvasH, layerOpacity = 1.0) {
+        if (!stroke) return;
+        if (stroke.tool === "stamp" || stroke.tool === "image") {
+            const posX = stroke.xRel * canvasW;
+            const posY = stroke.yRel * canvasH;
+            const stampW = (stroke.wRel || 0.22) * canvasW;
+            const stampH = (stroke.hRel || 0.1) * canvasH;
+
+            const img = getStampImage(stroke.content || stroke.dataUrl);
+            if (img && img.complete && img.naturalWidth > 0) {
+                ctx.save();
+                ctx.globalAlpha = layerOpacity;
+                ctx.drawImage(img, posX, posY, stampW, stampH);
+                ctx.restore();
+            }
+            return;
+        }
+
+        if (stroke.tool === "text") {
+            const posX = stroke.xRel * canvasW;
+            const posY = stroke.yRel * canvasH;
+            const lines = (stroke.content || "").split("\n");
+
+            ctx.save();
+            ctx.globalAlpha = layerOpacity;
+            ctx.font = "bold 13px 'Plus Jakarta Sans', sans-serif";
+            const lineHeight = 18, padding = 8;
+
+            let maxLineWidth = 0;
+            lines.forEach(l => {
+                const w = ctx.measureText(l).width;
+                if (w > maxLineWidth) maxLineWidth = w;
+            });
+
+            const boxWidth = Math.max(30, maxLineWidth + padding * 2);
+            const boxHeight = lines.length * lineHeight + padding * 2 - 4;
+
+            ctx.fillStyle = "#ffffff";
+            ctx.shadowColor = "rgba(0, 0, 0, 0.12)";
+            ctx.shadowBlur = 5;
+            ctx.shadowOffsetY = 2;
+            ctx.beginPath();
+            ctx.roundRect(posX, posY, boxWidth, boxHeight, 5);
+            ctx.fill();
+
+            ctx.shadowColor = "transparent";
+            ctx.strokeStyle = stroke.color;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            ctx.fillStyle = stroke.color;
+            lines.forEach((lineText, idx) => {
+                ctx.fillText(lineText, posX + padding, posY + padding + 13 + (idx * lineHeight));
+            });
+            ctx.restore();
+            return;
+        }
+
+        // Brush / Highlighter / Shapes
+        drawStrokeGeometry(ctx, stroke, canvasW, canvasH, layerOpacity);
+    }
+
     // --- 6. Render Annotations for a Specific Page ---
     function renderPageAnnotations(pageNum) {
         const annoCanvas = document.getElementById(`annoCanvas_${pageNum}`);
@@ -1321,153 +1369,36 @@ document.addEventListener("DOMContentLoaded", function () {
         Object.keys(annotationLayers).forEach(layerKey => {
             const layer = annotationLayers[layerKey];
             if (!layer.visible || !Array.isArray(layer.strokes)) return;
-
             layer.strokes.forEach(stroke => {
-                if (stroke.page !== pageNum) return;
-
-                if (stroke.tool === "stamp" || stroke.tool === "image") {
-                    const posX = stroke.xRel * width;
-                    const posY = stroke.yRel * height;
-                    const stampW = (stroke.wRel || 0.22) * width;
-                    const stampH = (stroke.hRel || 0.1) * height;
-
-                    const img = getStampImage(stroke.content || stroke.dataUrl);
-                    if (img && img.complete && img.naturalWidth > 0) {
-                        ctx.save();
-                        ctx.drawImage(img, posX, posY, stampW, stampH);
-                        ctx.restore();
-                    }
-                    return;
+                if (stroke.page === pageNum) {
+                    drawAnnotationItem(ctx, stroke, width, height);
                 }
-
-                if (stroke.tool === "text") {
-                    // Render In-Place Text Badge with Multi-line Support
-                    const posX = stroke.xRel * width;
-                    const posY = stroke.yRel * height;
-                    const lines = (stroke.content || "").split("\n");
-
-                    ctx.save();
-                    ctx.font = "bold 13px 'Plus Jakarta Sans', sans-serif";
-                    const lineHeight = 18;
-                    const padding = 8;
-
-                    let maxLineWidth = 0;
-                    lines.forEach(l => {
-                        const w = ctx.measureText(l).width;
-                        if (w > maxLineWidth) maxLineWidth = w;
-                    });
-
-                    const boxWidth = Math.max(30, maxLineWidth + padding * 2);
-                    const boxHeight = lines.length * lineHeight + padding * 2 - 4;
-
-                    // Draw white card container with colored border & soft shadow
-                    ctx.fillStyle = "#ffffff";
-                    ctx.shadowColor = "rgba(0, 0, 0, 0.12)";
-                    ctx.shadowBlur = 5;
-                    ctx.shadowOffsetY = 2;
-                    ctx.beginPath();
-                    ctx.roundRect(posX, posY, boxWidth, boxHeight, 5);
-                    ctx.fill();
-
-                    // Render colored border
-                    ctx.shadowColor = "transparent";
-                    ctx.strokeStyle = stroke.color;
-                    ctx.lineWidth = 1.5;
-                    ctx.stroke();
-
-                    // Render colored text
-                    ctx.fillStyle = stroke.color;
-                    lines.forEach((lineText, idx) => {
-                        ctx.fillText(lineText, posX + padding, posY + padding + 13 + (idx * lineHeight));
-                    });
-
-                    ctx.restore();
-                    return;
-                }
-
-                // Brush / Highlighter / Shapes
-                drawStrokeGeometry(ctx, stroke, width, height);
             });
         });
 
         // Render Selection Bounding Box & Handles if an annotation is selected on this page
         if (selectedAnnotation && selectedAnnotation.page === pageNum) {
-            ctx.save();
-            ctx.strokeStyle = "#2563eb";
-            ctx.lineWidth = 1.5;
-            ctx.setLineDash([4, 4]);
-
-            let bMinX = 0, bMinY = 0, bMaxX = 0, bMaxY = 0;
-
-            if (selectedAnnotation.tool === "stamp" || selectedAnnotation.tool === "image") {
-                const posX = selectedAnnotation.xRel * width;
-                const posY = selectedAnnotation.yRel * height;
-                const stampW = (selectedAnnotation.wRel || 0.22) * width;
-                const stampH = (selectedAnnotation.hRel || 0.1) * height;
-
-                bMinX = posX - 3;
-                bMinY = posY - 3;
-                bMaxX = posX + stampW + 3;
-                bMaxY = posY + stampH + 3;
-            } else if (selectedAnnotation.tool === "text") {
-                const posX = selectedAnnotation.xRel * width;
-                const posY = selectedAnnotation.yRel * height;
-                ctx.font = "bold 13px 'Plus Jakarta Sans', sans-serif";
-                const lines = (selectedAnnotation.content || "").split("\n");
-                let maxW = 0;
-                lines.forEach(l => {
-                    const w = ctx.measureText(l).width;
-                    if (w > maxW) maxW = w;
-                });
-                const boxW = Math.max(30, maxW + 16);
-                const boxH = lines.length * 18 + 12;
-
-                bMinX = posX - 3;
-                bMinY = posY - 3;
-                bMaxX = posX + boxW + 3;
-                bMaxY = posY + boxH + 3;
-            } else if (selectedAnnotation.points && selectedAnnotation.points.length >= 2) {
-                let minPx = Infinity, minPy = Infinity, maxPx = -Infinity, maxPy = -Infinity;
-                selectedAnnotation.points.forEach(pt => {
-                    const px = pt.xRel * width;
-                    const py = pt.yRel * height;
-                    if (px < minPx) minPx = px;
-                    if (px > maxPx) maxPx = px;
-                    if (py < minPy) minPy = py;
-                    if (py > maxPy) maxPy = py;
-                });
-                const pad = Math.max(6, (selectedAnnotation.width || 2));
-                bMinX = minPx - pad;
-                bMinY = minPy - pad;
-                bMaxX = maxPx + pad;
-                bMaxY = maxPy + pad;
-            }
-
-            if (bMaxX > bMinX && bMaxY > bMinY) {
-                // Dashed outline
-                ctx.strokeRect(bMinX, bMinY, bMaxX - bMinX, bMaxY - bMinY);
+            const b = getAnnotationBounds(selectedAnnotation, width, height);
+            if (b && b.maxX > b.minX && b.maxY > b.minY) {
+                ctx.save();
+                ctx.strokeStyle = "#2563eb";
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([4, 4]);
+                ctx.strokeRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY);
 
                 // Corner anchor points
                 ctx.setLineDash([]);
                 ctx.fillStyle = "#ffffff";
                 ctx.strokeStyle = "#2563eb";
                 ctx.lineWidth = 2;
-
-                const corners = [
-                    [bMinX, bMinY],
-                    [bMaxX, bMinY],
-                    [bMinX, bMaxY],
-                    [bMaxX, bMaxY]
-                ];
-
-                corners.forEach(([cx, cy]) => {
+                b.corners.forEach(([cx, cy]) => {
                     ctx.beginPath();
                     ctx.arc(cx, cy, 4, 0, Math.PI * 2);
                     ctx.fill();
                     ctx.stroke();
                 });
+                ctx.restore();
             }
-
         }
     }
 
@@ -1482,68 +1413,10 @@ document.addEventListener("DOMContentLoaded", function () {
         Object.keys(annotationLayers).forEach(uid => {
             const layer = annotationLayers[uid];
             if (!layer.visible || !layer.strokes) return;
-
             layer.strokes.forEach(stroke => {
-                if (stroke.page !== pageNum) return;
-
-                if (stroke.tool === "stamp" || stroke.tool === "image") {
-                    const posX = stroke.xRel * targetWidth;
-                    const posY = stroke.yRel * targetHeight;
-                    const stampW = (stroke.wRel || 0.22) * targetWidth;
-                    const stampH = (stroke.hRel || 0.1) * targetHeight;
-
-                    const img = getStampImage(stroke.content || stroke.dataUrl);
-                    if (img && img.complete && img.naturalWidth > 0) {
-                        ctx.save();
-                        ctx.drawImage(img, posX, posY, stampW, stampH);
-                        ctx.restore();
-                    }
-                    return;
+                if (stroke.page === pageNum) {
+                    drawAnnotationItem(ctx, stroke, targetWidth, targetHeight, layer.opacity ?? 1.0);
                 }
-
-                if (stroke.tool === "text") {
-                    const posX = stroke.xRel * targetWidth;
-                    const posY = stroke.yRel * targetHeight;
-                    const lines = (stroke.content || "").split("\n");
-
-                    ctx.save();
-                    ctx.font = "bold 13px 'Plus Jakarta Sans', sans-serif";
-                    const lineHeight = 18;
-                    const padding = 8;
-
-                    let maxLineWidth = 0;
-                    lines.forEach(l => {
-                        const w = ctx.measureText(l).width;
-                        if (w > maxLineWidth) maxLineWidth = w;
-                    });
-
-                    const boxWidth = Math.max(30, maxLineWidth + padding * 2);
-                    const boxHeight = lines.length * lineHeight + padding * 2 - 4;
-
-                    ctx.fillStyle = "#ffffff";
-                    ctx.shadowColor = "rgba(0, 0, 0, 0.12)";
-                    ctx.shadowBlur = 5;
-                    ctx.shadowOffsetY = 2;
-                    ctx.beginPath();
-                    ctx.roundRect(posX, posY, boxWidth, boxHeight, 5);
-                    ctx.fill();
-
-                    ctx.shadowColor = "transparent";
-                    ctx.strokeStyle = stroke.color;
-                    ctx.lineWidth = 1.5;
-                    ctx.stroke();
-
-                    ctx.fillStyle = stroke.color;
-                    lines.forEach((lineText, idx) => {
-                        ctx.fillText(lineText, posX + padding, posY + padding + 13 + (idx * lineHeight));
-                    });
-
-                    ctx.restore();
-                    return;
-                }
-
-                // Brush / Highlighter / Shapes
-                drawStrokeGeometry(ctx, stroke, targetWidth, targetHeight, layerOpacity);
             });
         });
 
@@ -2676,27 +2549,30 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    function openUploadRevisionModal() {
-        if (!modalUploadRevision) return;
-        modalUploadRevision.classList.add("is-open");
+    // Reusable Modal Lifecycle Manager
+    function bindModal(modal, openTriggers = [], closeTriggers = [], onOpen = null, onClose = null) {
+        if (!modal) return { open: () => {}, close: () => {} };
+        const open = () => {
+            if (onOpen) onOpen();
+            modal.classList.add("is-open");
+        };
+        const close = () => {
+            modal.classList.remove("is-open");
+            if (onClose) onClose();
+        };
+        openTriggers.forEach(btn => btn && btn.addEventListener("click", open));
+        closeTriggers.forEach(btn => btn && btn.addEventListener("click", close));
+        modal.addEventListener("click", e => { if (e.target === modal) close(); });
+        return { open, close };
     }
 
-    function closeUploadRevisionModal() {
-        if (!modalUploadRevision) return;
-        modalUploadRevision.classList.remove("is-open");
-        if (formUploadRevision) formUploadRevision.reset();
-        clearRevisionFileSelection();
-    }
-
-    if (btnOpenUploadRevisionModal) btnOpenUploadRevisionModal.addEventListener("click", openUploadRevisionModal);
-    if (btnCloseUploadRevisionModal) btnCloseUploadRevisionModal.addEventListener("click", closeUploadRevisionModal);
-    if (btnCancelRevisionUpload) btnCancelRevisionUpload.addEventListener("click", closeUploadRevisionModal);
-
-    if (modalUploadRevision) {
-        modalUploadRevision.addEventListener("click", function (e) {
-            if (e.target === modalUploadRevision) closeUploadRevisionModal();
-        });
-    }
+    const { open: openUploadRevisionModal, close: closeUploadRevisionModal } = bindModal(
+        modalUploadRevision,
+        [btnOpenUploadRevisionModal],
+        [btnCloseUploadRevisionModal, btnCancelRevisionUpload],
+        null,
+        () => { if (formUploadRevision) formUploadRevision.reset(); clearRevisionFileSelection(); }
+    );
 
     // Dropzone File Handling (Full clickable / drag-and-drop area via .upload-file-input)
     if (uploadFileInputRevision) {
@@ -2971,25 +2847,11 @@ document.addEventListener("DOMContentLoaded", function () {
     const formSubmitReview = document.getElementById("formSubmitReview");
     const btnSubmitReviewAction = document.getElementById("btnSubmitReviewAction");
 
-    function openSubmitReviewModal() {
-        if (!modalSubmitReview) return;
-        modalSubmitReview.classList.add("is-open");
-    }
-
-    function closeSubmitReviewModal() {
-        if (!modalSubmitReview) return;
-        modalSubmitReview.classList.remove("is-open");
-    }
-
-    if (btnOpenSubmitReviewModal) btnOpenSubmitReviewModal.addEventListener("click", openSubmitReviewModal);
-    if (btnCloseSubmitReviewModal) btnCloseSubmitReviewModal.addEventListener("click", closeSubmitReviewModal);
-    if (btnCancelSubmitReview) btnCancelSubmitReview.addEventListener("click", closeSubmitReviewModal);
-
-    if (modalSubmitReview) {
-        modalSubmitReview.addEventListener("click", function (e) {
-            if (e.target === modalSubmitReview) closeSubmitReviewModal();
-        });
-    }
+    const { open: openSubmitReviewModal, close: closeSubmitReviewModal } = bindModal(
+        modalSubmitReview,
+        [btnOpenSubmitReviewModal],
+        [btnCloseSubmitReviewModal, btnCancelSubmitReview]
+    );
 
     const searchReviewerInput = document.getElementById("searchReviewerInput");
     if (searchReviewerInput) {
@@ -3066,28 +2928,12 @@ document.addEventListener("DOMContentLoaded", function () {
     const btnApproveVerdict = document.getElementById("btnApproveVerdict");
     const verdictComments = document.getElementById("verdictComments");
 
-    function openVerdictModal() {
-        if (!modalReviewVerdict) return;
-        if (verdictComments) verdictComments.value = "";
-        modalReviewVerdict.classList.add("is-open");
-    }
-
-    function closeVerdictModal() {
-        if (!modalReviewVerdict) return;
-        modalReviewVerdict.classList.remove("is-open");
-    }
-
-    if (btnOpenFinishReviewModal) {
-        btnOpenFinishReviewModal.addEventListener("click", openVerdictModal);
-    }
-    if (btnCloseVerdictModal) btnCloseVerdictModal.addEventListener("click", closeVerdictModal);
-    if (btnCancelVerdict) btnCancelVerdict.addEventListener("click", closeVerdictModal);
-
-    if (modalReviewVerdict) {
-        modalReviewVerdict.addEventListener("click", function (e) {
-            if (e.target === modalReviewVerdict) closeVerdictModal();
-        });
-    }
+    const { open: openVerdictModal, close: closeVerdictModal } = bindModal(
+        modalReviewVerdict,
+        [btnOpenFinishReviewModal],
+        [btnCloseVerdictModal, btnCancelVerdict],
+        () => { if (verdictComments) verdictComments.value = ""; }
+    );
 
     function executeReviewVerdict(verdict) {
         const comments = verdictComments?.value.trim() || "";
@@ -3357,46 +3203,28 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    function openDocumentAccessModal() {
-        if (!modalDocumentAccess) return;
-        modalDocumentAccess.classList.add("is-open");
-
-        if (contributorsListContainer) {
-            contributorsListContainer.innerHTML = `<div style="text-align:center; padding:12px; color:var(--muted); font-size:12px;">Loading access settings...</div>`;
-        }
-
-        fetch(`../actions/contributors-handler.php?action=get_access_data&doc_id=${docId}`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    accessData = data;
-                    updateAccessModeUI(data.access_mode || 'restricted');
-                    renderContributorsList("");
-                } else {
-                    if (contributorsListContainer) {
+    const { open: openDocumentAccessModal, close: closeDocumentAccessModal } = bindModal(
+        modalDocumentAccess,
+        [btnOpenDocAccessModal],
+        [btnCloseAccessModal, btnCancelAccessModal],
+        () => {
+            if (contributorsListContainer) {
+                contributorsListContainer.innerHTML = `<div style="text-align:center; padding:12px; color:var(--muted); font-size:12px;">Loading access settings...</div>`;
+            }
+            fetch(`../actions/contributors-handler.php?action=get_access_data&doc_id=${docId}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        accessData = data;
+                        updateAccessModeUI(data.access_mode || 'restricted');
+                        renderContributorsList("");
+                    } else if (contributorsListContainer) {
                         contributorsListContainer.innerHTML = `<div style="color:var(--red); padding:10px; text-align:center;">Failed to load access settings.</div>`;
                     }
-                }
-            })
-            .catch(err => {
-                console.error("Error fetching access data:", err);
-            });
-    }
-
-    function closeDocumentAccessModal() {
-        if (!modalDocumentAccess) return;
-        modalDocumentAccess.classList.remove("is-open");
-    }
-
-    if (btnOpenDocAccessModal) btnOpenDocAccessModal.addEventListener("click", openDocumentAccessModal);
-    if (btnCloseAccessModal) btnCloseAccessModal.addEventListener("click", closeDocumentAccessModal);
-    if (btnCancelAccessModal) btnCancelAccessModal.addEventListener("click", closeDocumentAccessModal);
-
-    if (modalDocumentAccess) {
-        modalDocumentAccess.addEventListener("click", function (e) {
-            if (e.target === modalDocumentAccess) closeDocumentAccessModal();
-        });
-    }
+                })
+                .catch(err => console.error("Error fetching access data:", err));
+        }
+    );
 
     if (formDocumentAccess) {
         formDocumentAccess.addEventListener("submit", function (e) {
