@@ -846,6 +846,14 @@
 
                 const xhr = new XMLHttpRequest();
                 xhr.open("POST", "explorer.php?ajax=1");
+                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content")
+                    || window.EDMS_CSRF_TOKEN
+                    || document.querySelector('input[name="csrf_token"]')?.value
+                    || "";
+                if (csrfToken) {
+                    xhr.setRequestHeader("X-CSRF-Token", csrfToken);
+                    fd.append("csrf_token", csrfToken);
+                }
                 xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
 
                 xhr.upload.onprogress = function (e) {

@@ -31,6 +31,11 @@ if (!$doc || $doc['node_type'] !== 'document') {
     die('Document not found.');
 }
 
+if (!empty($doc['is_deleted']) && !is_admin()) {
+    http_response_code(403);
+    die('Access denied: Document is archived.');
+}
+
 // Support downloading specific historical revision
 $versionId = isset($_GET['version_id']) && is_numeric($_GET['version_id']) ? (int)$_GET['version_id'] : 0;
 if ($versionId > 0) {

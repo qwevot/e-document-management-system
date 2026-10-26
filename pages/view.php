@@ -30,6 +30,10 @@ if (!$doc) {
     die('Document data not found.');
 }
 
+if (!empty($doc['is_deleted']) && !is_admin()) {
+    redirect_to('explorer', 'error', 'Document is archived or inaccessible.');
+}
+
 $isArchived = ($doc['status'] === 'obsolete' || (int)$doc['is_deleted'] === 1);
 $defaultBackUrl = $isArchived ? 'archives.php' : ('explorer.php?mode=project' . (!empty($doc['parent_id']) ? '&folder=' . (int)$doc['parent_id'] : ''));
 
@@ -791,7 +795,7 @@ if ($action) {
         if ($oldName !== $newName) {
             $logStmt = $pdo->prepare("
                 INSERT INTO dms_annotation_history (document_id, version_id, user_id, action_type, tool_type, page_number, details)
-                VALUES (:doc_id, :ver_id, :user_id, 'edit', NULL, 1, :details)
+                VALUES (:doc_id, :ver_id, :user_id, 'update', NULL, 1, :details)
             ");
             $logStmt->execute([
                 'doc_id'  => $docId,

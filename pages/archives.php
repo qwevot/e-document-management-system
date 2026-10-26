@@ -294,7 +294,9 @@ if ($viewMode === 'project' && $folderId !== null) {
 
     if ($currentFolder) {
         $temp = $currentFolder;
-        while ($temp) {
+        $visitedBreadcrumbs = [];
+        while ($temp && !isset($visitedBreadcrumbs[$temp['id']])) {
+            $visitedBreadcrumbs[$temp['id']] = true;
             array_unshift($breadcrumbs, $temp);
             if ($temp['parent_id'] !== null) {
                 $pStmt = $pdo->prepare('SELECT * FROM dms_nodes WHERE id = :id');

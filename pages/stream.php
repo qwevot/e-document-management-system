@@ -31,6 +31,11 @@ if (!$doc || $doc['node_type'] !== 'document') {
     die('Document not found.');
 }
 
+if (!empty($doc['is_deleted']) && !is_admin()) {
+    http_response_code(403);
+    die('Access denied: Document is archived.');
+}
+
 // Support streaming specific revision, or resolve latest active revision
 $versionId = isset($_GET['version_id']) && is_numeric($_GET['version_id']) ? (int)$_GET['version_id'] : 0;
 if ($versionId > 0) {
@@ -191,9 +196,15 @@ if ($isRangeRequest) {
     http_response_code(200);
 }
 
-// Set HTTP inline headers
+// Set HTTP streaming headers
 header('Content-Type: ' . $mimeType);
-header('Content-Disposition: inline; filename="' . rawurlencode($inlineFilename) . '"; filename*=UTF-8\'\'' . rawurlencode($inlineFilename));
+if (stripos($mimeType, 'image/svg') !== false || $ext === 'svg') {
+    header("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox");
+}
+
+$isInlineViewable = in_array($ext, ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'txt', 'log', 'md'], true);
+$disposition = $isInlineViewable ? 'inline' : 'attachment';
+header('Content-Disposition: ' . $disposition . '; filename="' . rawurlencode($inlineFilename) . '"; filename*=UTF-8\'\'' . rawurlencode($inlineFilename));
 header('Content-Transfer-Encoding: binary');
 header('Content-Length: ' . $contentLength);
 header('Accept-Ranges: bytes');

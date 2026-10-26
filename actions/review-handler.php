@@ -3,6 +3,7 @@
 
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/contributors.php';
 
 header('Content-Type: application/json');
 
@@ -71,6 +72,11 @@ if ($action === 'submit_review' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    if (!is_document_contributor($docId, $userId)) {
+        echo json_encode(['success' => false, 'message' => 'Unauthorized: Only contributors can submit documents for review.']);
+        exit;
+    }
+
     if (!is_array($reviewerIds) || empty($reviewerIds)) {
         echo json_encode(['success' => false, 'message' => 'Please select at least one reviewer.']);
         exit;
@@ -113,6 +119,11 @@ if ($action === 'cancel_review' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $docId = isset($data['doc_id']) && is_numeric($data['doc_id']) ? (int)$data['doc_id'] : 0;
     if ($docId <= 0) {
         echo json_encode(['success' => false, 'message' => 'Invalid document ID.']);
+        exit;
+    }
+
+    if (!is_document_contributor($docId, $userId)) {
+        echo json_encode(['success' => false, 'message' => 'Unauthorized: Only contributors can cancel a review.']);
         exit;
     }
 

@@ -54,7 +54,9 @@ if ($viewMode === 'project' && $parentId !== null) {
 
     if ($currentNode) {
         $temp = $currentNode;
-        while ($temp) {
+        $visitedBreadcrumbs = [];
+        while ($temp && !isset($visitedBreadcrumbs[$temp['id']])) {
+            $visitedBreadcrumbs[$temp['id']] = true;
             array_unshift($breadcrumbs, $temp);
             if ($temp['parent_id'] !== null) {
                 $pStmt = $pdo->prepare('SELECT * FROM dms_nodes WHERE id = :id AND is_deleted = 0');
@@ -482,6 +484,7 @@ require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <div class="explorer-wrapper">
+    <?php require_once __DIR__ . '/../includes/flash.php'; ?>
 
     <!-- Drag-and-Drop Ingestion Overlay -->
     <div class="explorer-drag-overlay" id="explorerDragOverlay" aria-hidden="true">
@@ -600,6 +603,7 @@ require_once __DIR__ . '/../includes/header.php';
             <button type="button" class="btn-modal-close" id="btnCloseUploadModal" title="Close modal">&times;</button>
         </div>
         <form id="formUploadDoc" method="POST" action="explorer.php" enctype="multipart/form-data">
+            <?php echo csrf_field(); ?>
             <input type="hidden" name="action" value="upload_document">
             <input type="hidden" name="parent_id" id="uploadParentId" value="<?php echo ($parentId !== null && $viewMode === 'project') ? e((string)$parentId) : ''; ?>">
 
@@ -750,6 +754,7 @@ require_once __DIR__ . '/../includes/header.php';
             <button type="button" class="btn-modal-close" id="btnCloseNewFolderModal" title="Close modal">&times;</button>
         </div>
         <form id="formNewFolder" method="POST" action="explorer.php">
+            <?php echo csrf_field(); ?>
             <input type="hidden" name="action" value="create_folder">
             <input type="hidden" name="parent_id" id="newFolderParentId" value="<?php echo ($parentId !== null && $viewMode === 'project') ? e((string)$parentId) : ''; ?>">
             

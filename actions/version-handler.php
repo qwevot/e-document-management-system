@@ -3,6 +3,7 @@
 
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/contributors.php';
 
 require_login();
 
@@ -64,6 +65,11 @@ if ($action === 'upload_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    if (!is_document_contributor($docId, $userId)) {
+        echo json_encode(['success' => false, 'message' => 'Unauthorized: Only contributors can upload revisions.']);
+        exit;
+    }
+
     if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
         echo json_encode(['success' => false, 'message' => 'File upload error or no file provided.']);
         exit;
@@ -83,8 +89,8 @@ if ($action === 'upload_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $fileHash = hash_file('sha256', $tmpPath);
-    $safeName = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', pathinfo($origName, PATHINFO_FILENAME));
-    $storedFileName = md5($origName . microtime(true)) . '_' . $safeName . '.' . $ext;
+    $safeName = preg_replace('/[^a-zA-Z0-9_-]/', '_', pathinfo($origName, PATHINFO_FILENAME));
+    $storedFileName = md5($origName . microtime(true)) . '_' . $safeName . '.bin';
     $relPath = 'uploads/documents/' . $yearMonth . '/' . $storedFileName;
     $fullDestPath = __DIR__ . '/../' . $relPath;
 
@@ -105,6 +111,10 @@ if ($action === 'upload_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     ];
 
     $result = create_document_version($docId, $fileData, $changeSummary, $userId);
+
+    if (!($result['success'] ?? false) && file_exists($fullDestPath)) {
+        @unlink($fullDestPath);
+    }
 
     if ($result['success'] ?? false) {
         log_activity('version.upload', 'document', $docId, [
@@ -131,6 +141,11 @@ if ($action === 'revert_version' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    if (!is_document_contributor($docId, $userId)) {
+        echo json_encode(['success' => false, 'message' => 'Unauthorized: Only contributors can revert revisions.']);
+        exit;
+    }
+
     $result = revert_document_version($docId, $versionId, $userId);
 
     if ($result['success'] ?? false) {
@@ -153,6 +168,11 @@ if ($action === 'publish_document' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($docId <= 0) {
         echo json_encode(['success' => false, 'message' => 'Invalid document ID.']);
+        exit;
+    }
+
+    if (!is_admin($user) && !is_document_contributor($docId, $userId)) {
+        echo json_encode(['success' => false, 'message' => 'Unauthorized: Insufficient privileges to publish this document.']);
         exit;
     }
 

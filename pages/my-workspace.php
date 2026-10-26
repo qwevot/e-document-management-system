@@ -87,6 +87,8 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
     <h1>Welcome, <?php echo e($fullName); ?>!</h1>
 </div>
     
+<?php require_once __DIR__ . '/../includes/flash.php'; ?>
+
 <!-- Main 2-Column Dashboard Grid: Gmail-style Mailbox Left, Documents Right -->
 <div class="workspace-dashboard-grid">
 
@@ -440,6 +442,7 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
             <button type="button" class="btn-modal-close" onclick="closeWsUploadModal()" title="Close modal">&times;</button>
         </div>
         <form id="formUploadDoc" method="POST" action="explorer.php" enctype="multipart/form-data">
+            <?php echo csrf_field(); ?>
             <input type="hidden" name="action" value="upload_document">
             <input type="hidden" name="parent_id" value="">
 

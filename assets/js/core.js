@@ -6,6 +6,7 @@
     "use strict";
 
     // Automatic CSRF token propagation & AJAX header for fetch requests
+    window.EDMS_CSRF_TOKEN = window.EDMS_CSRF_TOKEN || document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
     if (window.fetch) {
         const originalFetch = window.fetch;
         window.fetch = function (resource, init = {}) {

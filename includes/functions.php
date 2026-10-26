@@ -119,6 +119,17 @@ function current_role(): string
 }
 
 /**
+ * Check if user has Administrator authority (Admin or Super Admin).
+ */
+function is_admin(?array $user = null): bool
+{
+    $u = $user ?? current_user();
+    if (!$u) return false;
+    $role = strtolower(trim($u['role'] ?? ''));
+    return in_array($role, ['super admin', 'admin', 'super_admin', 'superadmin'], true);
+}
+
+/**
  * Check if user has Super Admin authority.
  */
 function is_super_admin(?array $user = null): bool

@@ -5,7 +5,26 @@
  */
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
+require_once __DIR__ . '/contributors.php';
 $pdo = db();
+
+/**
+ * Check if candidate folder is equal to or a descendant of ancestor folder (prevents circular loops)
+ */
+function is_folder_descendant(int $candidateDescendantId, int $ancestorId, PDO $pdo): bool {
+    if ($candidateDescendantId <= 0 || $ancestorId <= 0) return false;
+    if ($candidateDescendantId === $ancestorId) return true;
+    $stmt = $pdo->prepare("SELECT parent_id FROM dms_nodes WHERE id = ? AND node_type = 'folder'");
+    $visited = [];
+    for ($curr = $candidateDescendantId; $curr && !isset($visited[$curr]); ) {
+        $visited[$curr] = true;
+        $stmt->execute([$curr]);
+        $parentId = (int)($stmt->fetchColumn() ?: 0);
+        if ($parentId === $ancestorId) return true;
+        $curr = $parentId;
+    }
+    return false;
+}
 $isAjax = (isset($_GET['ajax']) && $_GET['ajax'] === '1') ||
         (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') ||
         (isset($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'application/json'));
@@ -27,7 +46,7 @@ if ($reqAction === 'get_audit_history') {
 // ============================================================
 // POST Actions: Create Folder
 // ============================================================
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     require_login();
     if (!csrf_valid()) {
         if ($isAjax) {
@@ -148,6 +167,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $nodeStmt = $pdo->prepare("SELECT name, node_type, parent_id FROM dms_nodes WHERE id = :id");
             $nodeStmt->execute(['id' => $nodeId]);
             $nodeData = $nodeStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$nodeData) {
+                if ($isAjax) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => 'Item not found.']);
+                    exit;
+                }
+                header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? 'explorer.php'));
+                exit;
+            }
+
             $nodeParentId = $nodeData['parent_id'] ?? null;
             $oldName = $nodeData['name'] ?? '';
             $nodeType = $nodeData['node_type'] ?? 'document';
@@ -276,8 +306,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $placeholders = implode(',', array_fill(0, count($nodeIds), '?'));
 
-        // Retrieve names and current parent_ids of the items being moved
-        $itemsStmt = $pdo->prepare("SELECT id, name, parent_id FROM dms_nodes WHERE id IN ($placeholders) AND is_deleted = 0");
+        // Retrieve items being moved and prevent circular hierarchy
+        $itemsStmt = $pdo->prepare("SELECT id, name, node_type, parent_id FROM dms_nodes WHERE id IN ($placeholders) AND is_deleted = 0");
         $itemsStmt->execute($nodeIds);
         $movingItems = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -285,6 +315,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Content-Type: application/json');
             echo json_encode(['success' => false, 'message' => 'No active items found to move.']);
             exit;
+        }
+
+        if ($targetFolderId !== null) {
+            foreach ($movingItems as $mItem) {
+                if ($mItem['node_type'] === 'folder' && is_folder_descendant($targetFolderId, (int)$mItem['id'], $pdo)) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => 'Cannot move folder "' . $mItem['name'] . '" into one of its own subfolders.']);
+                    exit;
+                }
+            }
         }
 
         // Duplicate name verification in destination folder
@@ -396,10 +436,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($targetFolderId !== null) {
-                if ($targetFolderId === $nodeId) {
-                    header('Content-Type: application/json');
-                    echo json_encode(['success' => false, 'message' => 'Cannot move a folder into itself.']);
-                    exit;
+                if ($currentNode['node_type'] === 'folder' && is_folder_descendant($targetFolderId, $nodeId, $pdo)) {
+                    if ($isAjax) {
+                        header('Content-Type: application/json');
+                        echo json_encode(['success' => false, 'message' => 'Cannot move a folder into itself or one of its subfolders.']);
+                        exit;
+                    }
+                    redirect_to('explorer', 'error', 'Cannot move a folder into itself or one of its subfolders.');
                 }
                 $checkTarget = $pdo->prepare("SELECT id FROM dms_nodes WHERE id = :id AND is_deleted = 0 AND node_type = 'folder'");
                 $checkTarget->execute(['id' => $targetFolderId]);
@@ -564,8 +607,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 @mkdir($uploadDir, 0755, true);
             }
 
-            // Generate randomized unique storage filename to prevent directory collisions
-            $safeStorageName = bin2hex(random_bytes(16)) . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $originalName);
+            // Store on disk with inert .bin container to prevent any host execution
+            $safeBaseName = preg_replace('/[^a-zA-Z0-9_-]/', '_', pathinfo($originalName, PATHINFO_FILENAME));
+            $safeStorageName = bin2hex(random_bytes(16)) . '_' . $safeBaseName . '.bin';
             $destinationPath = $uploadDir . '/' . $safeStorageName;
             $relativeStoragePath = 'uploads/documents/' . $yearMonth . '/' . $safeStorageName;
 

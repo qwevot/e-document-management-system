@@ -1,7 +1,15 @@
 # Security Guard: Prevent any script execution inside the uploads repository
 # Biological Pathogen Neutralizer
 
-# 1. Disable PHP execution entirely
+# 1. Deny direct HTTP access to everything in uploads/
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Deny from all
+</IfModule>
+
+# 2. Disable PHP execution entirely
 <IfModule mod_php7.c>
     php_flag engine off
 </IfModule>

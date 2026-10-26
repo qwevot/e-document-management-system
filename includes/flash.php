@@ -7,8 +7,7 @@ if (isset($_GET['success'])): ?>
     <div class="flash success"><?php echo $flashSuccess ?? e($_GET['success']); ?></div>
 <?php endif;
 
-if (isset($_GET['erro
-r'])): ?>
+if (isset($_GET['error'])): ?>
     <div class="flash error"><?php echo e($_GET['error']); ?><?php echo $flashAfterError ?? ''; ?></div>
 <?php endif;
 

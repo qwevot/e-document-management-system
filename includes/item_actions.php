@@ -177,4 +177,4 @@
     </div>
 </div>
 
-<script src="<?php echo BASE_URL; ?>/assets/js/explorer.js" defer></script>
+<script src="<?php echo BASE_URL; ?>/assets/js/explorer.js?v=<?php echo filemtime(__DIR__ . '/../assets/js/explorer.js'); ?>" defer></script>
