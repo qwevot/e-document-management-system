@@ -55,8 +55,20 @@ fputs($out, "\xEF\xBB\xBF");
 
 fputcsv($out, ['Log ID', 'Timestamp', 'Username', 'Role', 'Action', 'Entity Type', 'Entity ID', 'IP Address', 'User Agent', 'Details']);
 
+// Neutralize spreadsheet formula injection (=, +, -, @, tab, cr)
+$sanitizeCell = static function ($val): string {
+    if ($val === null) {
+        return '';
+    }
+    $str = (string)$val;
+    if ($str !== '' && in_array($str[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
+        return "'" . $str;
+    }
+    return $str;
+};
+
 foreach ($logs as $row) {
-    fputcsv($out, [
+    fputcsv($out, array_map($sanitizeCell, [
         $row['id'],
         $row['created_at'],
         $row['username'] ?? 'N/A',
@@ -67,7 +79,7 @@ foreach ($logs as $row) {
         $row['ip_address'] ?? 'N/A',
         $row['user_agent'] ?? '',
         $row['details'] ?? ''
-    ]);
+    ]));
 }
 
 fclose($out);

@@ -185,16 +185,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!empty($nodesToPurge)) {
                 $placeholders = implode(',', array_fill(0, count($nodesToPurge), '?'));
                 
-                // Fetch physical files in a single batch
+                // Fetch physical files for both active nodes and all historical version snapshots
                 $fStmt = $pdo->prepare("SELECT file_path FROM dms_nodes WHERE id IN ($placeholders) AND file_path IS NOT NULL");
                 $fStmt->execute($nodesToPurge);
-                $files = $fStmt->fetchAll(PDO::FETCH_COLUMN);
-                foreach ($files as $filePath) {
-                    if (!empty($filePath)) {
-                        $physicalPath = __DIR__ . '/../' . ltrim($filePath, '/\\');
-                        if (file_exists($physicalPath)) {
-                            @unlink($physicalPath);
-                        }
+                $nodeFiles = $fStmt->fetchAll(PDO::FETCH_COLUMN);
+
+                $vStmt = $pdo->prepare("SELECT file_path FROM dms_document_versions WHERE document_id IN ($placeholders) AND file_path IS NOT NULL");
+                $vStmt->execute($nodesToPurge);
+                $versionFiles = $vStmt->fetchAll(PDO::FETCH_COLUMN);
+
+                $allFiles = array_unique(array_filter(array_merge($nodeFiles, $versionFiles)));
+                foreach ($allFiles as $filePath) {
+                    $physicalPath = __DIR__ . '/../' . ltrim($filePath, '/\\');
+                    if (file_exists($physicalPath) && is_file($physicalPath)) {
+                        @unlink($physicalPath);
                     }
                 }
 
@@ -207,7 +211,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 log_activity('node.purge', $nodeData['node_type'] ?? 'document', $nodeId, [
                     'name'             => $nodeData['name'] ?? '',
                     'purged_node_ids'  => $nodesToPurge,
-                    'files_unlinked'   => count($files)
+                    'files_unlinked'   => count($allFiles)
                 ], 'success');
             }
 
@@ -242,16 +246,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!empty($nodesToPurge)) {
             $placeholders = implode(',', array_fill(0, count($nodesToPurge), '?'));
 
-            // Fetch physical files in a single batch
+            // Fetch physical files for both active nodes and all historical version snapshots
             $fStmt = $pdo->prepare("SELECT file_path FROM dms_nodes WHERE id IN ($placeholders) AND file_path IS NOT NULL");
             $fStmt->execute($nodesToPurge);
-            $files = $fStmt->fetchAll(PDO::FETCH_COLUMN);
-            foreach ($files as $filePath) {
-                if (!empty($filePath)) {
-                    $physicalPath = __DIR__ . '/../' . ltrim($filePath, '/\\');
-                    if (file_exists($physicalPath)) {
-                        @unlink($physicalPath);
-                    }
+            $nodeFiles = $fStmt->fetchAll(PDO::FETCH_COLUMN);
+
+            $vStmt = $pdo->prepare("SELECT file_path FROM dms_document_versions WHERE document_id IN ($placeholders) AND file_path IS NOT NULL");
+            $vStmt->execute($nodesToPurge);
+            $versionFiles = $vStmt->fetchAll(PDO::FETCH_COLUMN);
+
+            $allFiles = array_unique(array_filter(array_merge($nodeFiles, $versionFiles)));
+            foreach ($allFiles as $filePath) {
+                $physicalPath = __DIR__ . '/../' . ltrim($filePath, '/\\');
+                if (file_exists($physicalPath) && is_file($physicalPath)) {
+                    @unlink($physicalPath);
                 }
             }
 
@@ -264,7 +272,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             log_activity('node.batch_purge', 'node', null, [
                 'selected_node_ids' => $nodeIds,
                 'purged_node_ids'   => $nodesToPurge,
-                'files_unlinked'    => count($files)
+                'files_unlinked'    => count($allFiles)
             ], 'success');
         }
 

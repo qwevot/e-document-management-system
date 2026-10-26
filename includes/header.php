@@ -188,7 +188,7 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
                     </div>
                 </a>
 
-                <a href="<?php echo BASE_URL; ?>/logout.php" class="logout-link">Log out</a>
+                <a href="<?php echo BASE_URL; ?>/logout.php?token=<?php echo e(csrf_token()); ?>" class="logout-link">Log out</a>
             </div>
         </header>
 

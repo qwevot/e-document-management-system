@@ -18,7 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrf_valid()) {
     exit;
 }
 
-if (!can_edit_dms($user) && in_array($action, ['upload_revision', 'revert_version', 'publish_document', 'suspend_document'], true)) {
+if (!can_edit_dms($user) && in_array($action, ['upload_revision', 'publish_document', 'suspend_document'], true)) {
     $targetDocId = (int)($_REQUEST['doc_id'] ?? 0);
     log_activity('auth.access_denied', 'document', $targetDocId ?: null, [
         'attempted_action' => $action,
@@ -128,37 +128,7 @@ if ($action === 'upload_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// 3. Revert to a specific revision
-if ($action === 'revert_version' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $rawInput = file_get_contents('php://input');
-    $data = json_decode($rawInput, true) ?: $_POST;
-
-    $docId = isset($data['doc_id']) && is_numeric($data['doc_id']) ? (int)$data['doc_id'] : 0;
-    $versionId = isset($data['version_id']) && is_numeric($data['version_id']) ? (int)$data['version_id'] : 0;
-
-    if ($docId <= 0 || $versionId <= 0) {
-        echo json_encode(['success' => false, 'message' => 'Invalid parameters.']);
-        exit;
-    }
-
-    if (!is_document_contributor($docId, $userId)) {
-        echo json_encode(['success' => false, 'message' => 'Unauthorized: Only contributors can revert revisions.']);
-        exit;
-    }
-
-    $result = revert_document_version($docId, $versionId, $userId);
-
-    if ($result['success'] ?? false) {
-        log_activity('version.revert', 'document', $docId, [
-            'version_id' => $versionId
-        ], 'success');
-    }
-
-    echo json_encode($result);
-    exit;
-}
-
-// 4. Publish document (Transition to PUBLISHED & bump major version)
+// 3. Publish document (Transition to PUBLISHED & bump major version)
 if ($action === 'publish_document' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawInput = file_get_contents('php://input');
     $data = json_decode($rawInput, true) ?: $_POST;

@@ -22,33 +22,45 @@ function e(?string $value): string
 }
 
 /**
- * Retrieve current logged in user data.
+ * Retrieve current logged in user data with real-time database synchronization.
  */
 function current_user(): ?array
 {
-    if (empty($_SESSION['user_id']) && empty($_SESSION['user'])) {
+    static $cachedUser = null;
+    if ($cachedUser !== null) {
+        return $cachedUser;
+    }
+
+    $userId = $_SESSION['user_id'] ?? ($_SESSION['user']['id'] ?? null);
+    if (!$userId) {
         return null;
     }
 
-    if (!empty($_SESSION['user']) && is_array($_SESSION['user'])) {
-        return $_SESSION['user'];
-    }
+    try {
+        $st = db()->prepare('SELECT id, username, full_name, role, avatar FROM users WHERE id = ?');
+        $st->execute([(int)$userId]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
 
-    if (!empty($_SESSION['user_id'])) {
-        try {
-            $st = db()->prepare('SELECT id, username, full_name, role, avatar FROM users WHERE id = ?');
-            $st->execute([$_SESSION['user_id']]);
-            $row = $st->fetch();
-            if ($row !== false) {
-                $_SESSION['user'] = $row;
-                return $row;
-            }
-        } catch (Throwable $e) {
-            return null;
+        if ($row !== false) {
+            $row['id'] = (int)$row['id'];
+            $_SESSION['user_id'] = $row['id'];
+            $_SESSION['username'] = $row['username'];
+            $_SESSION['role'] = $row['role'];
+            $_SESSION['user'] = $row;
+            $cachedUser = $row;
+            return $row;
         }
-    }
 
-    return null;
+        // User account was deleted from database; terminate session immediately
+        $_SESSION = [];
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_destroy();
+        }
+        return null;
+    } catch (Throwable $e) {
+        // Fallback to existing session cache if DB connection is unavailable
+        return $_SESSION['user'] ?? null;
+    }
 }
 
 /**
@@ -379,10 +391,8 @@ function log_activity(
             }
         }
 
-        $ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
-        if (str_contains($ip, ',')) {
-            $ip = trim(explode(',', $ip)[0]);
-        }
+        $rawIp = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+        $ip = filter_var($rawIp, FILTER_VALIDATE_IP) ? $rawIp : '127.0.0.1';
         $ip = substr($ip, 0, 45);
 
         $ua = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
