@@ -12,7 +12,6 @@
         const searchForm = document.getElementById("explorerSearchForm");
         const filterType = document.getElementById("filterTypeSelect");
         const filterStatus = document.getElementById("filterStatusSelect");
-        const resetBtn = document.getElementById("explorerResetBtn");
         const modeInput = document.getElementById("explorerFilterMode");
         const folderInput = document.getElementById("explorerFilterFolder");
         const pillTabs = document.querySelectorAll(".pill-tab[data-mode]");
@@ -77,9 +76,6 @@
             if (currentPerPage !== 25) params.set("per_page", currentPerPage.toString());
 
             // Update UI state
-            if (resetBtn) {
-                resetBtn.style.display = (currentType || currentStatus) ? "inline-flex" : "none";
-            }
             if (clearBtn && searchInput) {
                 clearBtn.style.display = currentQ.length > 0 ? "block" : "none";
             }
@@ -169,17 +165,7 @@
             filterStatus.addEventListener("change", () => performAjaxUpdate(1));
         }
 
-        // 5. Reset Filters Button Handler (Resets to page 1)
-        if (resetBtn) {
-            resetBtn.addEventListener("click", function (e) {
-                e.preventDefault();
-                if (filterType) filterType.value = "";
-                if (filterStatus) filterStatus.value = "";
-                performAjaxUpdate(1);
-            });
-        }
-
-        // 6. Mode Switcher Pill Tabs (Instant AJAX, Resets to page 1)
+        // 5. Mode Switcher Pill Tabs (Instant AJAX, Resets to page 1)
         pillTabs.forEach(tab => {
             tab.addEventListener("click", function (e) {
                 e.preventDefault();
@@ -350,11 +336,19 @@
         const previewFileSize = document.getElementById("previewFileSize");
         const btnClearSelectedFile = document.getElementById("btnClearSelectedFile");
         const uploadDocName = document.getElementById("uploadDocName");
+        const uploadDocStatus = document.getElementById("uploadDocStatus");
+        const uploadReviewerSection = document.getElementById("uploadReviewerSection");
         const uploadParentId = document.getElementById("uploadParentId");
         const uploadLocationHelp = document.getElementById("uploadLocationHelp");
         const btnCloseUpload = document.getElementById("btnCloseUploadModal");
         const btnCancelUpload = document.getElementById("btnCancelUpload");
         const btnSubmitUpload = document.getElementById("btnSubmitUpload");
+
+        if (uploadDocStatus && uploadReviewerSection) {
+            uploadDocStatus.addEventListener("change", function () {
+                uploadReviewerSection.style.display = (this.value === "hold") ? "block" : "none";
+            });
+        }
 
         function formatBytes(bytes) {
             if (bytes === 0) return "0 Bytes";
@@ -401,6 +395,11 @@
 
             clearSelectedFile();
             if (uploadDocName) uploadDocName.value = "";
+            if (uploadDocStatus) uploadDocStatus.value = "active";
+            if (uploadReviewerSection) {
+                uploadReviewerSection.style.display = "none";
+                uploadReviewerSection.querySelectorAll('input[name="reviewer_ids[]"]').forEach(cb => cb.checked = false);
+            }
             openModal(modalUploadDoc, uploadFileInput);
         }
 
@@ -456,6 +455,14 @@
                 if (!uploadFileInput || !uploadFileInput.files || !uploadFileInput.files[0]) {
                     showBottomToast("Please select a file to upload.", "warning");
                     return;
+                }
+
+                if (uploadDocStatus && uploadDocStatus.value === "hold") {
+                    const checkedReviewers = formUploadDoc.querySelectorAll('input[name="reviewer_ids[]"]:checked');
+                    if (checkedReviewers.length === 0) {
+                        showBottomToast("Please assign at least one reviewer when setting initial status to On Hold.", "warning");
+                        return;
+                    }
                 }
 
                 const maxBytes = window.MAX_UPLOAD_BYTES || 41943040;
@@ -517,9 +524,16 @@
         const batchUploadTotalSize = document.getElementById("batchUploadTotalSize");
         const batchUploadFileList = document.getElementById("batchUploadFileList");
         const batchUploadStatusSelect = document.getElementById("batchUploadStatusSelect");
+        const batchReviewerSection = document.getElementById("batchReviewerSection");
         const batchUploadLocationHelp = document.getElementById("batchUploadLocationHelp");
         const btnConfirmBatchUpload = document.getElementById("btnConfirmBatchUpload");
         const btnConfirmBatchUploadText = document.getElementById("btnConfirmBatchUploadText");
+
+        if (batchUploadStatusSelect && batchReviewerSection) {
+            batchUploadStatusSelect.addEventListener("change", function () {
+                batchReviewerSection.style.display = (this.value === "hold") ? "block" : "none";
+            });
+        }
 
         // Floating Upload Dock Elements
         const edmsUploadDock = document.getElementById("edmsUploadDock");
@@ -633,6 +647,10 @@
             if (batchUploadStatusSelect) {
                 batchUploadStatusSelect.value = "active";
             }
+            if (batchReviewerSection) {
+                batchReviewerSection.style.display = "none";
+                batchReviewerSection.querySelectorAll('input[name="batch_reviewer_ids[]"]').forEach(cb => cb.checked = false);
+            }
 
             renderBatchModalList();
             openModal(modalBatchUpload, btnConfirmBatchUpload);
@@ -665,7 +683,7 @@
         window.addEventListener("dragover", function (e) {
             e.preventDefault();
             // Highlight individual folder cards under mouse cursor
-            const cardRow = e.target.closest('.item-card-row[data-type="folder"]');
+            const cardRow = e.target.closest('.explorer-item-card[data-type="folder"]');
             if (cardRow && cardRow !== hoveredFolderRow) {
                 if (hoveredFolderRow) hoveredFolderRow.classList.remove("is-drop-target");
                 hoveredFolderRow = cardRow;
@@ -723,18 +741,28 @@
                 if (batchWorkingFiles.length === 0) return;
 
                 const selectedStatus = batchUploadStatusSelect ? batchUploadStatusSelect.value : "active";
+                let batchReviewerIds = [];
+                if (selectedStatus === "hold") {
+                    const checked = formBatchUpload.querySelectorAll('input[name="batch_reviewer_ids[]"]:checked');
+                    if (checked.length === 0) {
+                        showBottomToast("Please assign at least one reviewer when setting initial status to On Hold.", "warning");
+                        return;
+                    }
+                    batchReviewerIds = Array.from(checked).map(cb => cb.value);
+                }
+
                 const filesToUpload = batchWorkingFiles.slice();
                 const targetId = batchTarget.id;
 
                 closeModal(modalBatchUpload);
-                startBatchUploadQueue(filesToUpload, targetId, selectedStatus);
+                startBatchUploadQueue(filesToUpload, targetId, selectedStatus, batchReviewerIds);
             });
         }
 
         // ============================================================
         // Asynchronous Sequential Upload Queue & Floating Dock Engine
         // ============================================================
-        function startBatchUploadQueue(files, targetFolderId, initialStatus) {
+        function startBatchUploadQueue(files, targetFolderId, initialStatus, batchReviewerIds = []) {
             if (!edmsUploadDock || !files || files.length === 0) return;
 
             // Make dock visible and expanded
@@ -776,10 +804,10 @@
                 });
             }
 
-            processUploadQueueSequentially(queue, targetFolderId, initialStatus);
+            processUploadQueueSequentially(queue, targetFolderId, initialStatus, batchReviewerIds);
         }
 
-        async function processUploadQueueSequentially(queue, targetFolderId, initialStatus) {
+        async function processUploadQueueSequentially(queue, targetFolderId, initialStatus, batchReviewerIds = []) {
             let successCount = 0;
             let errorCount = 0;
             const total = queue.length;
@@ -791,7 +819,7 @@
                 }
 
                 // Upload single file
-                const success = await uploadSingleItem(item, targetFolderId, initialStatus);
+                const success = await uploadSingleItem(item, targetFolderId, initialStatus, batchReviewerIds);
                 if (success) {
                     successCount++;
                 } else {
@@ -821,7 +849,7 @@
             }
         }
 
-        function uploadSingleItem(item, targetFolderId, initialStatus) {
+        function uploadSingleItem(item, targetFolderId, initialStatus, batchReviewerIds = []) {
             return new Promise((resolve) => {
                 const stateEl = document.getElementById(`dockItemState_${item.id}`);
                 const statusTextEl = document.getElementById(`dockItemStatusText_${item.id}`);
@@ -840,6 +868,9 @@
                     fd.append("parent_id", targetFolderId);
                 }
                 fd.append("status", initialStatus);
+                if (initialStatus === "hold" && Array.isArray(batchReviewerIds)) {
+                    batchReviewerIds.forEach(id => fd.append("reviewer_ids[]", id));
+                }
                 const baseName = item.file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
                 fd.append("name", baseName);
                 fd.append("file", item.file);

@@ -161,7 +161,7 @@ function save_document_access(int $docId, string $accessMode, array $contributor
             'access_mode'   => $cleanMode,
             'contributors_count' => count($cleanUserIds),
             'updated_by'    => $operatorUserId
-        ], 'info', $operatorUserId);
+        ], $operatorUserId);
 
         return [
             'success' => true,

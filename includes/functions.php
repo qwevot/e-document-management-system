@@ -22,6 +22,23 @@ function e(?string $value): string
 }
 
 /**
+ * Format document display name with its file extension (e.g., "Report.docx") without duplicating extensions.
+ */
+function format_document_display_name(?string $name, ?string $extension): string
+{
+    $base = trim($name ?? '');
+    $cleanExt = ltrim(strtolower(trim($extension ?? '')), '.');
+    if ($cleanExt === '') {
+        return $base;
+    }
+    $suffix = '.' . $cleanExt;
+    if ($base !== '' && str_ends_with(strtolower($base), $suffix)) {
+        return $base;
+    }
+    return $base . $suffix;
+}
+
+/**
  * Retrieve current logged in user data with real-time database synchronization.
  */
 function current_user(): ?array
@@ -37,7 +54,7 @@ function current_user(): ?array
     }
 
     try {
-        $st = db()->prepare('SELECT id, username, full_name, role, avatar FROM users WHERE id = ?');
+        $st = db()->prepare('SELECT id, username, full_name, role, department, avatar, created_at FROM users WHERE id = ?');
         $st->execute([(int)$userId]);
         $row = $st->fetch(PDO::FETCH_ASSOC);
 
@@ -254,6 +271,153 @@ function delete_avatar(?string $avatar): void
 }
 
 /**
+ * Map document status to its semantic CSS badge class.
+ */
+function get_status_class(string $status): string
+{
+    return match ($status) {
+        'published' => 'badge-publish',
+        'active'    => 'badge-active',
+        'hold'      => 'badge-hold',
+        'suspend'   => 'badge-suspend',
+        'rejected'  => 'badge-rejected',
+        'obsolete'  => 'badge-obsolete',
+        default     => 'badge-active',
+    };
+}
+
+/**
+ * Validate, hash, and store an uploaded document file in an inert .bin container.
+ */
+function store_uploaded_document_file(array $file): array
+{
+    $originalName = $file['name'] ?? '';
+    $fileSize     = (int)($file['size'] ?? 0);
+    $tmpPath      = $file['tmp_name'] ?? '';
+
+    if ($tmpPath === '' || !is_file($tmpPath)) {
+        return ['success' => false, 'message' => 'Uploaded temporary file is missing or unreadable.'];
+    }
+
+    $fileHash = hash_file('sha256', $tmpPath);
+    $fileExt  = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+    if ($fileExt === '') {
+        $fileExt = 'dat';
+    }
+
+    $finfo    = finfo_open(FILEINFO_MIME_TYPE);
+    $mimeType = ($finfo ? finfo_file($finfo, $tmpPath) : false) ?: 'application/octet-stream';
+    if ($finfo) {
+        finfo_close($finfo);
+    }
+
+    $yearMonth = date('Y/m');
+    $uploadDir = __DIR__ . '/../uploads/documents/' . $yearMonth;
+    if (!is_dir($uploadDir)) {
+        @mkdir($uploadDir, 0755, true);
+    }
+
+    $safeBaseName        = preg_replace('/[^a-zA-Z0-9_-]/', '_', pathinfo($originalName, PATHINFO_FILENAME));
+    $safeStorageName     = bin2hex(random_bytes(16)) . '_' . $safeBaseName . '.bin';
+    $destinationPath     = $uploadDir . '/' . $safeStorageName;
+    $relativeStoragePath = 'uploads/documents/' . $yearMonth . '/' . $safeStorageName;
+
+    if (!move_uploaded_file($tmpPath, $destinationPath)) {
+        return ['success' => false, 'message' => 'Failed to store file in physical repository.'];
+    }
+
+    return [
+        'success'            => true,
+        'file_path'          => $relativeStoragePath,
+        'full_path'          => $destinationPath,
+        'file_original_name' => $originalName,
+        'file_size'          => $fileSize,
+        'file_extension'     => $fileExt,
+        'mime_type'          => $mimeType,
+        'file_hash'          => $fileHash,
+    ];
+}
+
+/**
+ * Render the shared Explorer / Archives pagination footer bar.
+ */
+function render_pagination_bar(
+    int $page,
+    int $perPage,
+    int $totalCount,
+    int $totalPages,
+    string $selectId = 'paginationPerPageSelect',
+    string $onPerPageChange = '',
+    string $onPageClickFn = ''
+): void {
+    $startItem = $totalCount > 0 ? ($page - 1) * $perPage + 1 : 0;
+    $endItem   = min($totalCount, $page * $perPage);
+    $prevPage  = max(1, $page - 1);
+    $nextPage  = min($totalPages, $page + 1);
+    $window    = 2;
+    $startPage = max(1, $page - $window);
+    $endPage   = min($totalPages, $page + $window);
+    $selectAttr = $onPerPageChange !== '' ? ' onchange="' . e($onPerPageChange) . '"' : '';
+    $btnAttr = static function (int $targetPage) use ($onPageClickFn): string {
+        $attr = 'data-page="' . $targetPage . '"';
+        if ($onPageClickFn !== '') {
+            $attr .= ' onclick="' . e($onPageClickFn) . '(' . $targetPage . ')"';
+        }
+        return $attr;
+    };
+    ?>
+    <div class="explorer-pagination-bar">
+        <div class="pagination-info">
+            <span>Showing <strong><?php echo $startItem; ?>–<?php echo $endItem; ?></strong> of <strong><?php echo number_format($totalCount); ?></strong> items</span>
+        </div>
+
+        <div class="pagination-actions">
+            <div class="pagination-per-page">
+                <label for="<?php echo e($selectId); ?>" class="pagination-label">Rows per page:</label>
+                <select id="<?php echo e($selectId); ?>" class="pagination-select" aria-label="Items per page"<?php echo $selectAttr; ?>>
+                    <?php foreach ([10, 25, 50, 100] as $opt): ?>
+                        <option value="<?php echo $opt; ?>" <?php echo $perPage === $opt ? 'selected' : ''; ?>><?php echo $opt; ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="pagination-nav-group">
+                <button type="button" class="pagination-btn <?php echo $page <= 1 ? 'is-disabled' : ''; ?>" <?php echo $btnAttr($prevPage); ?> title="Previous Page" <?php echo $page <= 1 ? 'disabled' : ''; ?>>
+                    <?php echo render_icon('arrow-left'); ?>
+                </button>
+
+                <div class="pagination-pages">
+                    <?php if ($startPage > 1): ?>
+                        <button type="button" class="pagination-page-btn" <?php echo $btnAttr(1); ?>>1</button>
+                        <?php if ($startPage > 2): ?>
+                            <span class="pagination-ellipsis">&hellip;</span>
+                        <?php endif; ?>
+                    <?php endif; ?>
+
+                    <?php for ($p = $startPage; $p <= $endPage; $p++): ?>
+                        <button type="button" class="pagination-page-btn <?php echo $p === $page ? 'is-active' : ''; ?>" <?php echo $btnAttr($p); ?>>
+                            <?php echo $p; ?>
+                        </button>
+                    <?php endfor; ?>
+
+                    <?php if ($endPage < $totalPages): ?>
+                        <?php if ($endPage < $totalPages - 1): ?>
+                            <span class="pagination-ellipsis">&hellip;</span>
+                        <?php endif; ?>
+                        <button type="button" class="pagination-page-btn" <?php echo $btnAttr($totalPages); ?>><?php echo $totalPages; ?></button>
+                    <?php endif; ?>
+                </div>
+
+                <button type="button" class="pagination-btn <?php echo $page >= $totalPages ? 'is-disabled' : ''; ?>" <?php echo $btnAttr($nextPage); ?> title="Next Page" <?php echo $page >= $totalPages ? 'disabled' : ''; ?>>
+                    <?php echo render_icon('chevron-right'); ?>
+                </button>
+            </div>
+        </div>
+    </div>
+    <?php
+}
+
+/**
  * Generate 1-2 character initials for user avatars.
  */
 function get_initials(?string $name): string
@@ -375,7 +539,6 @@ function log_activity(
     ?string $entityType = null,
     ?int $entityId = null,
     array $details = [],
-    string $status = 'success',
     ?int $userId = null,
     ?string $username = null,
     ?string $role = null
@@ -432,7 +595,7 @@ function get_document_audit_trail(int $docId): array {
         LEFT JOIN users u ON l.user_id = u.id
         WHERE l.entity_type = 'document' AND l.entity_id = :did
           AND l.action IN (
-              'document.upload', 'version.upload', 'version.revert',
+              'document.upload', 'version.upload',
               'document.review_requested', 'document.review_approved', 'document.review_rejected', 
               'document.published', 'document.review_cancelled', 'document.access_updated', 'document.suspend'
           )
@@ -449,15 +612,14 @@ function get_document_audit_trail(int $docId): array {
 
         [$actionWord, $dotClass] = match ($action) {
             'document.upload'           => ['Uploaded', 'badge-publish'],
-            'version.upload',
-            'version.revert'            => ['Updated', 'badge-active'],
+            'version.upload'            => ['Updated', 'badge-active'],
             'document.access_updated'   => ['Shared', 'badge-active'],
             'document.review_requested' => ['Submitted', 'badge-hold'],
             'document.review_rejected'  => ['Rejected', 'badge-rejected'],
             'document.review_approved',
             'document.published'        => ['Accepted', 'badge-publish'],
             'document.review_cancelled' => ['Updated', 'badge-hold'],
-            'document.suspend'          => ['Suspended', 'badge-suspended'],
+            'document.suspend'          => ['Suspended', 'badge-suspend'],
             default                     => ['Updated', 'badge-active']
         };
 

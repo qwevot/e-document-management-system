@@ -69,7 +69,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         log_activity('auth.access_denied', 'node', null, [
             'attempted_action' => $action,
             'reason'           => 'Read-only viewer attempted repository modification'
-        ], 'failure');
+        ]);
         if ($isAjax) {
             header('Content-Type: application/json');
             echo json_encode(['success' => false, 'message' => 'Access denied: Viewers have read-only permissions and cannot modify or upload documents.']);
@@ -107,7 +107,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                     'name'      => $folderName,
                     'parent_id' => $postParentId,
                     'reason'    => 'Duplicate folder name collision'
-                ], 'failure');
+                ]);
                 if ($isAjax) {
                     header('Content-Type: application/json');
                     echo json_encode(['success' => false, 'message' => "A folder named \"{$folderName}\" already exists here.", 'duplicate' => true]);
@@ -120,8 +120,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             $userId = current_user()['id'] ?? 1;
 
             $insertStmt = $pdo->prepare("
-                INSERT INTO dms_nodes (parent_id, node_type, name, status, version, is_locked, is_deleted, created_by, created_at, updated_at)
-                VALUES (:parent_id, 'folder', :name, 'active', 'v0.1', 0, 0, :created_by, NOW(), NOW())
+                INSERT INTO dms_nodes (parent_id, node_type, name, status, version, is_deleted, created_by, created_at, updated_at)
+                VALUES (:parent_id, 'folder', :name, 'active', 'v0.1', 0, :created_by, NOW(), NOW())
             ");
             $insertStmt->execute([
                 'parent_id'  => $postParentId,
@@ -133,7 +133,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             log_activity('folder.create', 'folder', $newFolderId, [
                 'name'      => $folderName,
                 'parent_id' => $postParentId
-            ], 'success');
+            ]);
 
             if ($isAjax) {
                 header('Content-Type: application/json');
@@ -187,7 +187,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                     'current_name'   => $oldName,
                     'attempted_name' => $newName,
                     'reason'         => 'Item with this name already exists in destination folder'
-                ], 'failure');
+                ]);
                 if ($isAjax) {
                     header('Content-Type: application/json');
                     echo json_encode(['success' => false, 'message' => "An item named \"{$newName}\" already exists in this folder.", 'duplicate' => true]);
@@ -203,7 +203,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             log_activity('node.rename', $nodeType, $nodeId, [
                 'old_name' => $oldName,
                 'new_name' => $newName
-            ], 'success');
+            ]);
 
             if ($isAjax) {
                 header('Content-Type: application/json');
@@ -354,7 +354,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             'moved_node_ids'   => $nodeIds,
             'target_folder_id' => $targetFolderId,
             'count'            => count($nodeIds)
-        ], 'success');
+        ]);
 
         header('Content-Type: application/json');
         echo json_encode([
@@ -386,7 +386,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 'selected_node_ids' => $nodeIds,
                 'affected_node_ids' => $allAffectedIds,
                 'count'             => count($nodeIds)
-            ], 'success');
+            ]);
         }
 
         header('Content-Type: application/json');
@@ -476,7 +476,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 'name'          => $itemName,
                 'old_parent_id' => $currentNode['parent_id'],
                 'new_parent_id' => $targetFolderId
-            ], 'success');
+            ]);
 
             if ($isAjax) {
                 header('Content-Type: application/json');
@@ -517,7 +517,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             log_activity('node.archive', $nodeData['node_type'] ?? 'document', $nodeId, [
                 'name'               => $nodeData['name'] ?? '',
                 'affected_node_ids'  => $allDeletedIds
-            ], 'success');
+            ]);
 
             if ($isAjax) {
                 header('Content-Type: application/json');
@@ -538,7 +538,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         $stmt = $pdo->prepare("UPDATE dms_nodes SET is_deleted = 0, status = 'active', updated_at = NOW() WHERE id = ? AND (created_by = ? OR ? = 1)");
         $stmt->execute([$nodeId, $currUid, $isAdmin]);
 
-        log_activity('node.restore', 'document', $nodeId, [], 'success');
+        log_activity('node.restore', 'document', $nodeId, []);
 
         if ($isAjax) {
             header('Content-Type: application/json');
@@ -557,6 +557,23 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             ? (int)$_POST['parent_id']
             : null;
 
+        $rawReviewerIds = $_POST['reviewer_ids'] ?? [];
+        if (!is_array($rawReviewerIds)) {
+            $rawReviewerIds = explode(',', (string)$rawReviewerIds);
+        }
+        $cleanReviewerIds = array_values(array_unique(array_filter(array_map('intval', $rawReviewerIds))));
+
+        if ($status === 'hold' && empty($cleanReviewerIds)) {
+            if ($isAjax) {
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'message' => 'Please assign at least one reviewer when setting initial status to On Hold.']);
+                exit;
+            }
+            $_SESSION['error'] = 'Please assign at least one reviewer when setting initial status to On Hold.';
+            header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? 'explorer.php'));
+            exit;
+        }
+
         if (empty($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
             $errorCode = $_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE;
             $errMessage = match ($errorCode) {
@@ -569,7 +586,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 log_activity('document.upload_failed', 'document', null, [
                     'error_code' => $errorCode,
                     'reason'     => $errMessage
-                ], 'failure');
+                ]);
             }
             if ($isAjax) {
                 header('Content-Type: application/json');
@@ -577,53 +594,30 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 exit;
             }
         } else {
-            $file = $_FILES['file'];
-            $originalName = $file['name'];
-            $fileSize     = (int)$file['size'];
-            $tmpPath      = $file['tmp_name'];
+            $stored = store_uploaded_document_file($_FILES['file']);
+            $originalName = $_FILES['file']['name'] ?? '';
 
-            // Calculate SHA-256 genetic hash of the specimen
-            $fileHash = hash_file('sha256', $tmpPath);
-
-            // Determine extension and clean mime type
-            $fileExt = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
-            if ($fileExt === '') {
-                $fileExt = 'dat';
-            }
-
-            $finfo = finfo_open(FILEINFO_MIME_TYPE);
-            $mimeType = finfo_file($finfo, $tmpPath) ?: 'application/octet-stream';
-            finfo_close($finfo);
-
-            // Default document name if omitted
-            if ($docName === '') {
-                $docName = pathinfo($originalName, PATHINFO_FILENAME);
-            }
-
-            // Prepare safe physical storage directory
-            $yearMonth = date('Y/m');
-            $uploadDir = __DIR__ . '/../uploads/documents/' . $yearMonth;
-            if (!is_dir($uploadDir)) {
-                @mkdir($uploadDir, 0755, true);
-            }
-
-            // Store on disk with inert .bin container to prevent any host execution
-            $safeBaseName = preg_replace('/[^a-zA-Z0-9_-]/', '_', pathinfo($originalName, PATHINFO_FILENAME));
-            $safeStorageName = bin2hex(random_bytes(16)) . '_' . $safeBaseName . '.bin';
-            $destinationPath = $uploadDir . '/' . $safeStorageName;
-            $relativeStoragePath = 'uploads/documents/' . $yearMonth . '/' . $safeStorageName;
-
-            if (!move_uploaded_file($tmpPath, $destinationPath)) {
+            if (!($stored['success'] ?? false)) {
                 log_activity('document.upload_failed', 'document', null, [
                     'filename' => $originalName,
-                    'reason'   => 'Failed to move file to physical storage directory'
-                ], 'failure');
+                    'reason'   => $stored['message'] ?? 'Failed to move file to physical storage directory'
+                ]);
                 if ($isAjax) {
                     header('Content-Type: application/json');
-                    echo json_encode(['success' => false, 'message' => 'Failed to store file in physical repository.']);
+                    echo json_encode(['success' => false, 'message' => $stored['message'] ?? 'Failed to store file in physical repository.']);
                     exit;
                 }
             } else {
+                $fileSize            = $stored['file_size'];
+                $fileHash            = $stored['file_hash'];
+                $fileExt             = $stored['file_extension'];
+                $mimeType            = $stored['mime_type'];
+                $destinationPath     = $stored['full_path'];
+                $relativeStoragePath = $stored['file_path'];
+
+                if ($docName === '') {
+                    $docName = pathinfo($originalName, PATHINFO_FILENAME);
+                }
                 // Verify parent folder exists if specified
                 if ($postParentId !== null) {
                     $chk = $pdo->prepare("SELECT id FROM dms_nodes WHERE id = :id AND is_deleted = 0 AND node_type = 'folder'");
@@ -642,7 +636,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                         'name'      => $docName,
                         'parent_id' => $postParentId,
                         'reason'    => 'Duplicate document name collision'
-                    ], 'failure');
+                    ]);
                     if ($isAjax) {
                         header('Content-Type: application/json');
                         echo json_encode([
@@ -662,12 +656,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                     INSERT INTO dms_nodes (
                         parent_id, node_type, name, status, version,
                         file_path, file_original_name, file_size, file_extension,
-                        mime_type, file_hash, is_locked, is_deleted, created_by,
+                        mime_type, file_hash, is_deleted, created_by,
                         created_at, updated_at
                     ) VALUES (
                         :parent_id, 'document', :name, :status, 'v0.1',
                         :file_path, :file_original_name, :file_size, :file_extension,
-                        :mime_type, :file_hash, 0, 0, :created_by,
+                        :mime_type, :file_hash, 0, :created_by,
                         NOW(), NOW()
                     )
                 ");
@@ -721,7 +715,20 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                     'extension'     => $fileExt,
                     'parent_id'     => $postParentId,
                     'status'        => $status
-                ], 'success');
+                ]);
+
+                if ($status === 'hold') {
+                    submit_document_for_review(
+                        $newDocId,
+                        $cleanReviewerIds,
+                        $userId,
+                        'v1.0',
+                        'Initial submission upon document upload'
+                    );
+                } elseif ($status === 'published') {
+                    $pdo->prepare("UPDATE dms_nodes SET version = 'v1.0', updated_at = NOW() WHERE id = ?")->execute([$newDocId]);
+                    $pdo->prepare("UPDATE dms_document_versions SET version_number = 'v1.0', review_status = 'approved', change_summary = 'Initial official release.' WHERE document_id = ? AND is_current = 1")->execute([$newDocId]);
+                }
 
                 if ($isAjax) {
                     header('Content-Type: application/json');

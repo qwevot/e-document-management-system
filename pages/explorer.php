@@ -19,7 +19,7 @@ require_once __DIR__ . '/../includes/explorer_actions.php';
 // 1. Capture request parameters
 $parentId   = isset($_GET['folder']) && is_numeric($_GET['folder']) ? (int)$_GET['folder'] : null;
 $viewMode   = isset($_GET['mode']) && in_array($_GET['mode'], ['project', 'document'], true) ? $_GET['mode'] : 'project';
-$statusFilt = isset($_GET['status']) && in_array($_GET['status'], ['active', 'hold', 'suspend', 'published', 'obsolete'], true) ? $_GET['status'] : null;
+$statusFilt = isset($_GET['status']) && in_array($_GET['status'], ['active', 'hold', 'suspend', 'published', 'obsolete', 'rejected'], true) ? $_GET['status'] : null;
 $typeFilt   = isset($_GET['type']) && trim($_GET['type']) !== '' ? trim($_GET['type']) : null;
 $searchQ    = isset($_GET['q']) ? trim($_GET['q']) : '';
 $sortBy     = isset($_GET['sort']) && in_array($_GET['sort'], ['name', 'updated_at'], true) ? $_GET['sort'] : 'name';
@@ -88,8 +88,8 @@ $params = [];
 $countParams = [];
 
 if ($searchQ !== '') {
-    // Global search mode
-    $whereClause = ' WHERE dms_nodes.is_deleted = 0 AND dms_nodes.status != "obsolete" AND dms_nodes.name LIKE :q';
+    // Global search mode (matches title or full title.ext)
+    $whereClause = ' WHERE dms_nodes.is_deleted = 0 AND dms_nodes.status != "obsolete" AND CONCAT(dms_nodes.name, CASE WHEN dms_nodes.node_type = "document" AND dms_nodes.file_extension IS NOT NULL AND dms_nodes.file_extension != "" THEN CONCAT(".", TRIM(LEADING "." FROM dms_nodes.file_extension)) ELSE "" END) LIKE :q';
     $params['q'] = '%' . $searchQ . '%';
     $countParams['q'] = '%' . $searchQ . '%';
 
@@ -185,19 +185,6 @@ $stmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
 $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $stmt->execute();
 $items = $stmt->fetchAll();
-
-// Helper badge color
-function get_status_class(string $status): string {
-    return match ($status) {
-        'published' => 'badge-publish',
-        'active'    => 'badge-active',
-        'hold'      => 'badge-hold',
-        'suspend'   => 'badge-suspend',
-        'rejected'  => 'badge-rejected',
-        'obsolete'  => 'badge-obsolete',
-        default     => 'badge-default',
-    };
-}
 
 // Helper function to render cards HTML (shared between normal load and AJAX)
 function render_card_list_html($items, $viewMode, $parentId, $currentNode, $breadcrumbs, $searchQ, $page = 1, $perPage = 25, $totalCount = 0, $totalPages = 1, $sortBy = 'name', $sortDir = 'ASC'): void {
@@ -308,9 +295,10 @@ function render_card_list_html($items, $viewMode, $parentId, $currentNode, $brea
 
         <?php foreach ($items as $item): ?>
             <?php
-            $isFolder = ($item['node_type'] === 'folder');
-            $itemLink = $isFolder ? '?mode=project&folder=' . $item['id'] : '#doc-' . $item['id'];
-            $extIcon  = $isFolder ? 'folder' : ($item['file_extension'] ?? 'files');
+            $isFolder    = ($item['node_type'] === 'folder');
+            $itemLink    = $isFolder ? '?mode=project&folder=' . $item['id'] : '#doc-' . $item['id'];
+            $extIcon     = $isFolder ? 'folder' : ($item['file_extension'] ?? 'files');
+            $displayName = $isFolder ? $item['name'] : format_document_display_name($item['name'], $item['file_extension'] ?? null);
             ?>
             <div class="explorer-item-card <?php echo $isFolder ? 'is-folder' : 'is-document'; ?>" id="node-<?php echo e((string)$item['id']); ?>" data-id="<?php echo e((string)$item['id']); ?>" data-name="<?php echo e($item['name']); ?>" data-type="<?php echo $isFolder ? 'folder' : 'document'; ?>" data-location="<?php echo e($item['parent_name'] ?: 'Root'); ?>">
                 
@@ -325,7 +313,7 @@ function render_card_list_html($items, $viewMode, $parentId, $currentNode, $brea
                         <?php echo render_icon('folder'); ?>
                     </a>
                 <?php else: ?>
-                    <a href="view.php?id=<?php echo e((string)$item['id']); ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open Workspace: <?php echo e($item['name']); ?>">
+                    <a href="view.php?id=<?php echo e((string)$item['id']); ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open Workspace: <?php echo e($displayName); ?>">
                         <?php echo render_icon($extIcon); ?>
                     </a>
                 <?php endif; ?>
@@ -338,8 +326,8 @@ function render_card_list_html($items, $viewMode, $parentId, $currentNode, $brea
                                 <?php echo e($item['name']); ?>
                             </a>
                         <?php else: ?>
-                            <a href="view.php?id=<?php echo e((string)$item['id']); ?>" class="item-title" title="<?php echo e($item['name']); ?>">
-                                <?php echo e($item['name']); ?>
+                            <a href="view.php?id=<?php echo e((string)$item['id']); ?>" class="item-title" title="<?php echo e($displayName); ?>">
+                                <?php echo e($displayName); ?>
                             </a>
                         <?php endif; ?>
                         <?php if (!$isFolder && !empty($item['version'])): ?>
@@ -408,66 +396,7 @@ function render_card_list_html($items, $viewMode, $parentId, $currentNode, $brea
         <?php endforeach; ?>
 
         <!-- Pagination Controls Footer -->
-        <?php
-        $startItem = ($page - 1) * $perPage + 1;
-        $endItem = min($totalCount, $page * $perPage);
-        ?>
-        <div class="explorer-pagination-bar">
-            <div class="pagination-info">
-                <span>Showing <strong><?php echo $startItem; ?>–<?php echo $endItem; ?></strong> of <strong><?php echo number_format($totalCount); ?></strong> items</span>
-            </div>
-
-            <div class="pagination-actions">
-                <!-- Page size selector -->
-                <div class="pagination-per-page">
-                    <label for="paginationPerPageSelect" class="pagination-label">Rows per page:</label>
-                    <select id="paginationPerPageSelect" class="pagination-select" aria-label="Items per page">
-                        <?php foreach ([10, 25, 50, 100] as $opt): ?>
-                            <option value="<?php echo $opt; ?>" <?php echo $perPage === $opt ? 'selected' : ''; ?>><?php echo $opt; ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-
-                <!-- Navigation buttons -->
-                <div class="pagination-nav-group">
-                    <button type="button" class="pagination-btn <?php echo $page <= 1 ? 'is-disabled' : ''; ?>" data-page="<?php echo max(1, $page - 1); ?>" title="Previous Page" <?php echo $page <= 1 ? 'disabled' : ''; ?>>
-                        <?php echo render_icon('arrow-left'); ?>
-                    </button>
-
-                    <!-- Page Numbers -->
-                    <div class="pagination-pages">
-                        <?php
-                        $window = 2; // Pages to display on each side of current
-                        $startPage = max(1, $page - $window);
-                        $endPage = min($totalPages, $page + $window);
-
-                        if ($startPage > 1): ?>
-                            <button type="button" class="pagination-page-btn" data-page="1">1</button>
-                            <?php if ($startPage > 2): ?>
-                                <span class="pagination-ellipsis">&hellip;</span>
-                            <?php endif; ?>
-                        <?php endif; ?>
-
-                        <?php for ($p = $startPage; $p <= $endPage; $p++): ?>
-                            <button type="button" class="pagination-page-btn <?php echo $p === $page ? 'is-active' : ''; ?>" data-page="<?php echo $p; ?>">
-                                <?php echo $p; ?>
-                            </button>
-                        <?php endfor; ?>
-
-                        <?php if ($endPage < $totalPages): ?>
-                            <?php if ($endPage < $totalPages - 1): ?>
-                                <span class="pagination-ellipsis">&hellip;</span>
-                            <?php endif; ?>
-                            <button type="button" class="pagination-page-btn" data-page="<?php echo $totalPages; ?>"><?php echo $totalPages; ?></button>
-                        <?php endif; ?>
-                    </div>
-
-                    <button type="button" class="pagination-btn <?php echo $page >= $totalPages ? 'is-disabled' : ''; ?>" data-page="<?php echo min($totalPages, $page + 1); ?>" title="Next Page" <?php echo $page >= $totalPages ? 'disabled' : ''; ?>>
-                        <?php echo render_icon('chevron-right'); ?>
-                    </button>
-                </div>
-            </div>
-        </div>
+        <?php render_pagination_bar($page, $perPage, $totalCount, $totalPages); ?>
 
     <?php endif; ?>
     <?php
@@ -578,6 +507,7 @@ require_once __DIR__ . '/../includes/header.php';
                             <option value="published" <?php echo $statusFilt === 'published' ? 'selected' : ''; ?>>Published</option>
                             <option value="hold" <?php echo $statusFilt === 'hold' ? 'selected' : ''; ?>>On Hold</option>
                             <option value="suspend" <?php echo $statusFilt === 'suspend' ? 'selected' : ''; ?>>Suspended</option>
+                            <option value="rejected" <?php echo $statusFilt === 'rejected' ? 'selected' : ''; ?>>Rejected</option>
                         </select>
                     </div>
                 </div>
@@ -593,82 +523,7 @@ require_once __DIR__ . '/../includes/header.php';
 
 </div>
 
-<!-- Modal: Upload Document Specimen -->
-<div class="edms-modal-backdrop" id="modalUploadDoc">
-    <div class="edms-modal-dialog" style="max-width: 520px; width: 95%;">
-        <div class="edms-modal-header">
-            <div class="edms-modal-title">
-                <span>Upload Document</span>
-            </div>
-            <button type="button" class="btn-modal-close" id="btnCloseUploadModal" title="Close modal">&times;</button>
-        </div>
-        <form id="formUploadDoc" method="POST" action="explorer.php" enctype="multipart/form-data">
-            <?php echo csrf_field(); ?>
-            <input type="hidden" name="action" value="upload_document">
-            <input type="hidden" name="parent_id" id="uploadParentId" value="<?php echo ($parentId !== null && $viewMode === 'project') ? e((string)$parentId) : ''; ?>">
-
-            <div class="edms-modal-body">
-                <!-- Dropzone Area -->
-                <div class="upload-dropzone" id="uploadDropzone">
-                    <input type="file" name="file" id="uploadFileInput" class="upload-file-input" required>
-                    <div class="dropzone-content">
-                        <div class="dropzone-icon">
-                            <?php echo render_icon('cloud-upload'); ?>
-                        </div>
-                        <p class="dropzone-text">
-                            <strong>Click to browse</strong> or drag &amp; drop your file here
-                        </p>
-                        <span class="dropzone-hint">PDF, DOCX, XLSX, DWG, PNG, ZIP, etc.</span>
-                    </div>
-                </div>
-
-                <!-- Selected File Pill (Shown when file is selected) -->
-                <div class="selected-file-preview" id="selectedFilePreview" style="display: none;">
-                    <div class="preview-file-icon" id="previewFileIcon">
-                        <?php echo render_icon('files'); ?>
-                    </div>
-                    <div class="preview-file-details">
-                        <span class="preview-file-name" id="previewFileName">filename.ext</span>
-                        <span class="preview-file-size" id="previewFileSize">0 KB</span>
-                    </div>
-                    <button type="button" class="btn-clear-selected-file" id="btnClearSelectedFile" title="Remove file">&times;</button>
-                </div>
-
-                <!-- Document Form Inputs -->
-                <div class="form-group" style="margin-top: 14px;">
-                    <label for="uploadDocName" class="form-label">Document Title</label>
-                    <input type="text" id="uploadDocName" name="name" class="form-input" placeholder="e.g. Standard Operating Procedure" required autocomplete="off">
-                </div>
-
-                <div class="form-group" style="margin-top: 14px;">
-                    <label for="uploadDocStatus" class="form-label">Initial Status</label>
-                    <div class="select-wrapper">
-                        <select id="uploadDocStatus" name="status" class="form-input">
-                            <option value="active" selected>Active (Draft)</option>
-                            <option value="published">Published</option>
-                            <option value="hold">On Hold</option>
-                        </select>
-                    </div>
-                </div>
-
-                <p class="form-help" id="uploadLocationHelp">
-                    <?php if ($currentNode && $viewMode === 'project'): ?>
-                        Target location: Inside <strong><?php echo e($currentNode['name']); ?></strong>
-                    <?php else: ?>
-                        Target location: <strong>Projects</strong>
-                    <?php endif; ?>
-                </p>
-            </div>
-            <div class="edms-modal-footer">
-                <button type="button" class="btn btn-secondary" id="btnCancelUpload">Cancel</button>
-                <button type="submit" class="btn btn-primary" id="btnSubmitUpload">
-                    <?php echo render_icon('cloud-upload'); ?>
-                    <span>Upload Document</span>
-                </button>
-            </div>
-        </form>
-    </div>
-</div>
+<?php include __DIR__ . '/../includes/modal_upload_doc.php'; ?>
 
 <!-- Modal: Batch Upload Confirmation -->
 <div class="edms-modal-backdrop" id="modalBatchUploadConfirm">
@@ -701,6 +556,45 @@ require_once __DIR__ . '/../includes/header.php';
                             <option value="published">Published</option>
                             <option value="hold">On Hold</option>
                         </select>
+                    </div>
+                </div>
+
+                <!-- Batch Reviewer Selector (Revealed when Initial Status is On Hold) -->
+                <div id="batchReviewerSection" style="display: none; margin-top: 14px;">
+                    <label class="form-label" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span>Assign Reviewer(s) for All Documents <span style="color: var(--red); font-weight: bold;">*</span></span>
+                        <span style="font-size: 11px; color: var(--muted); font-weight: normal;">Select at least one approver</span>
+                    </label>
+
+                    <div style="border: 1px solid var(--border); border-radius: 8px; padding: 6px; background: var(--surface); max-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;">
+                        <?php if (empty($modalEligibleReviewers)): ?>
+                            <div style="font-size: 12px; color: var(--muted); padding: 10px; text-align: center;">
+                                No eligible reviewers found.
+                            </div>
+                        <?php else: ?>
+                            <?php foreach ($modalEligibleReviewers as $r):
+                                $rName = !empty($r['full_name']) ? $r['full_name'] : $r['username'];
+                                $rInitials = get_initials($rName);
+                                $rAvatar = !empty($r['avatar']) && is_file(__DIR__ . '/../' . $r['avatar']) ? BASE_URL . '/' . e($r['avatar']) : null;
+                            ?>
+                                <label class="reviewer-item-row" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; cursor: pointer; transition: background 0.12s ease;" onmouseover="this.style.background='var(--surface-light)'" onmouseout="this.style.background='transparent'">
+                                    <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                                        <div style="width: 28px; height: 28px; border-radius: 50%; background: var(--slate-soft); color: var(--ink); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; overflow: hidden;">
+                                            <?php if ($rAvatar): ?>
+                                                <img src="<?php echo $rAvatar; ?>" alt="<?php echo e($rName); ?>" style="width: 100%; height: 100%; object-fit: cover;">
+                                            <?php else: ?>
+                                                <span><?php echo e($rInitials); ?></span>
+                                            <?php endif; ?>
+                                        </div>
+                                        <div style="min-width: 0;">
+                                            <div style="font-size: 12.5px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><?php echo e($rName); ?></div>
+                                            <div style="font-size: 10.5px; color: var(--muted);">@<?php echo e($r['username']); ?> &bull; <?php echo ucfirst(e($r['role'])); ?></div>
+                                        </div>
+                                    </div>
+                                    <input type="checkbox" name="batch_reviewer_ids[]" value="<?php echo (int)$r['id']; ?>" class="batch-reviewer-checkbox" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--green);">
+                                </label>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
                     </div>
                 </div>
 

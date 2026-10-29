@@ -194,7 +194,7 @@ document.addEventListener("DOMContentLoaded", function () {
         loadImageDocument();
     } else if (renderMode === "docx_fallback") {
         loadDocxDocument();
-    } else if (window.pdfjsLib) {
+    } else if (renderMode === "pdf" && window.pdfjsLib) {
         const loadingTask = pdfjsLib.getDocument({
             url: streamUrl,
             cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/",
@@ -1563,7 +1563,6 @@ document.addEventListener("DOMContentLoaded", function () {
                 const lid = layer.layerId;
                 const canEditSelf = isSelf && canAnnotate && !isAnnotationLocked;
                 const isSelected = canEditSelf && (parseInt(lid, 10) === parseInt(activeLayerId, 10));
-                const strokeCount = layer.strokes ? layer.strokes.length : 0;
 
                 const row = document.createElement("div");
                 row.className = "layer-item" + 
@@ -1767,6 +1766,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // Accordion Dropdown Toggle for Annotation History
+    const btnToggleHistoryAccordion = document.getElementById("btnToggleHistoryAccordion");
     if (btnToggleHistoryAccordion && annotationHistoryFeed) {
         btnToggleHistoryAccordion.addEventListener("click", function () {
             const isCurrentlyCollapsed = annotationHistoryFeed.classList.contains("is-collapsed");
@@ -2194,15 +2194,6 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function updateStrokeStats() {
-        Object.keys(annotationLayers).forEach(lid => {
-            const layer = annotationLayers[lid];
-            const count = layer && layer.strokes ? layer.strokes.length : 0;
-            const countSpan = document.getElementById(`statCount_${lid}`);
-            if (countSpan) {
-                countSpan.textContent = `${layer.userName || 'User'} \u2022 ${count} ${count === 1 ? 'annotation' : 'annotations'}`;
-            }
-        });
-
         if (!isAnnotationLocked) {
             const hasRedo = redoStack && redoStack.length > 0;
             if (btnRedoStroke) {

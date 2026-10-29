@@ -116,9 +116,26 @@
      /* --- Shadows & Modal Overlays --- */
      --modal-backdrop-bg: rgba(15, 23, 42, 0.45);
      --shadow-subtle: 0 1px 3px rgba(15, 23, 42, 0.04);
+     --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+     --shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+     --shadow-md: 0 6px 16px rgba(15, 23, 42, 0.10);
+     --shadow-lg: 0 12px 28px rgba(15, 23, 42, 0.14);
      --shadow-hover: 0 3px 8px rgba(15, 23, 42, 0.06);
      --shadow-tab: 0 1px 3px rgba(0, 0, 0, 0.08);
      --shadow-modal: 0 20px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08);
+
+     /* --- Border Radii & Semantic Aliases --- */
+     --radius-sm: 6px;
+     --radius: 8px;
+     --radius-md: 10px;
+     --radius-lg: 14px;
+     --radius-pill: 999px;
+     --bg: var(--surface-light);
+     --primary: var(--green);
+     --accent: var(--green);
+     --blue-dark: var(--green-dark);
+     --amber-dark: #92400e;
+     --border-dark: #cbd5e1;
  }
 
 /* Base Reset */
@@ -1542,6 +1559,7 @@ body.sidebar-collapsed .main {
 .audit-timeline-dot.badge-active   { background: var(--green); }
 .audit-timeline-dot.badge-hold     { background: var(--green); }
 .audit-timeline-dot.badge-rejected { background: var(--red); }
+.audit-timeline-dot.badge-suspend,
 .audit-timeline-dot.badge-suspended  { background: var(--red); }
 
 .audit-timeline-content {
@@ -1654,37 +1672,6 @@ body.sidebar-collapsed .main {
 
 .login-form .btn.primary:hover {
     background: var(--green-dark);
-}
-
-.page-loader {
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(241, 245, 249, 0.72);
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.15s ease, visibility 0.15s ease;
-}
-
-.page-loader.active {
-    opacity: 1;
-    visibility: visible;
-}
-
-.page-loader .spinner {
-    width: 34px;
-    height: 34px;
-    border: 4px solid var(--info-blue-line);
-    border-top-color: var(--green);
-    border-radius: 50%;
-    animation: loader-spin 0.8s linear infinite;
-}
-
-@keyframes loader-spin {
-    to { transform: rotate(360deg); }
 }
 
 

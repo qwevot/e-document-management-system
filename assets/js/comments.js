@@ -296,10 +296,6 @@
         }
     };
 
-    // Backward compatibility aliases
-    window.submitPageComment = pageNum => window.postComment(pageNum);
-    window.submitReplyComment = (parentId, pageNum) => window.postComment(pageNum, parentId);
-
     function escapeHtml(str) {
         if (!str) return '';
         return String(str).replace(/[&<>"']/g, s => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[s]));

@@ -42,7 +42,7 @@ log_activity('system.export_logs', 'system_logs', null, [
     'filter_user'         => $filterUser ?: 'all',
     'search_query'        => $search ?: null,
     'exported_rows_count' => count($logs)
-], 'success');
+]);
 
 $filename = 'edms_system_logs_' . date('Ymd_His') . '.csv';
 

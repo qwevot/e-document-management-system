@@ -14,17 +14,17 @@ try {
         $st = $pdo->prepare("DELETE FROM system_logs WHERE created_at < DATE_SUB(NOW(), INTERVAL 30 DAY)");
         $st->execute();
         $affected = $st->rowCount();
-        log_activity('system.purge_logs', 'system_logs', null, ['range' => 'older_than_30_days', 'count' => $affected], 'success');
+        log_activity('system.purge_logs', 'system_logs', null, ['range' => 'older_than_30_days', 'count' => $affected]);
         $msg = "Purged {$affected} logs older than 30 days.";
     } elseif ($range === '90') {
         $st = $pdo->prepare("DELETE FROM system_logs WHERE created_at < DATE_SUB(NOW(), INTERVAL 90 DAY)");
         $st->execute();
         $affected = $st->rowCount();
-        log_activity('system.purge_logs', 'system_logs', null, ['range' => 'older_than_90_days', 'count' => $affected], 'success');
+        log_activity('system.purge_logs', 'system_logs', null, ['range' => 'older_than_90_days', 'count' => $affected]);
         $msg = "Purged {$affected} logs older than 90 days.";
     } else {
         $pdo->exec("TRUNCATE TABLE system_logs");
-        log_activity('system.purge_logs', 'system_logs', null, ['range' => 'all'], 'success');
+        log_activity('system.purge_logs', 'system_logs', null, ['range' => 'all']);
         $msg = "All system logs have been purged.";
     }
 

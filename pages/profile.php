@@ -16,12 +16,10 @@ if (!$user) {
 $fullName  = trim((string)($user['full_name'] ?? ''));
 $dispName  = $fullName !== '' ? $fullName : (string)$user['username'];
 $roleLabel = ucfirst((string)($user['role'] ?? 'User'));
-$company   = !empty($user['department']) ? $user['department'] : (!empty($user['company']) ? $user['company'] : 'Engineering');
+$company   = !empty($user['department']) ? $user['department'] : 'Engineering';
 $createdAt = !empty($user['created_at']) ? date('M d, Y H:i', strtotime($user['created_at'])) : '—';
 $avatar    = !empty($user['avatar']) ? $user['avatar'] : null;
-
-$words = preg_split('/\s+/', $dispName);
-$initials = strtoupper(($words[0][0] ?? 'U') . ($words[1][0] ?? ''));
+$initials  = get_initials($dispName);
 
 include __DIR__ . '/../includes/header.php';
 ?>

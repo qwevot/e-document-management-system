@@ -161,7 +161,7 @@ function submit_document_for_review(
             'target_version' => $targetVer,
             'reviewers'      => $cleanReviewerIds,
             'notes'          => $notes
-        ], 'success', $userId);
+        ], $userId);
 
         return [
             'success'        => true,
@@ -276,7 +276,7 @@ function submit_review_verdict(
                 'document_name' => $doc['name'],
                 'reviewer_id'   => $reviewerId,
                 'feedback'      => $comments
-            ], 'warning', $reviewerId);
+            ], $reviewerId);
 
             return [
                 'success' => true,
@@ -312,7 +312,7 @@ function submit_review_verdict(
                     'target_version' => $publishRes['version'] ?? $targetVersion,
                     'approved_by'    => $reviewerId,
                     'sign_off_note'  => $comments
-                ], 'success', $reviewerId);
+                ], $reviewerId);
 
                 return [
                     'success'        => true,
@@ -328,7 +328,7 @@ function submit_review_verdict(
                     'approved_by'    => $reviewerId,
                     'pending_count'  => max(0, $total - $approved),
                     'sign_off_note'  => $comments
-                ], 'success', $reviewerId);
+                ], $reviewerId);
 
                 return [
                     'success'        => true,
@@ -399,7 +399,7 @@ function cancel_document_review(int $docId, int $userId): array
             'document_name' => $doc['name'],
             'cancelled_by'  => $userId,
             'user_name'     => $user['full_name'] ?? 'User'
-        ], 'info', $userId);
+        ], $userId);
 
         return [
             'success' => true,

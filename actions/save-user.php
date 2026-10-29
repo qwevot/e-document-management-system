@@ -36,7 +36,7 @@ if ($st->fetch()) {
     log_activity('user.save_failed', 'user', $id > 0 ? $id : null, [
         'attempted_username' => $username,
         'reason'             => 'Username collision'
-    ], 'failure');
+    ]);
     redirect_to('users', 'error', 'That username already exists.');
 }
 
@@ -58,7 +58,7 @@ if ($id > 0) {
         'role'            => $role,
         'department'      => $department,
         'password_change' => ($password !== '')
-    ], 'success');
+    ]);
 
     redirect_to('users', 'success', 'User "' . $username . '" updated successfully.');
 }
@@ -76,6 +76,6 @@ log_activity('user.create', 'user', $newUserId, [
     'full_name'  => $fullName,
     'role'       => $role,
     'department' => $department
-], 'success');
+]);
 
 redirect_to('users', 'success', 'User "' . $username . '" added successfully.');

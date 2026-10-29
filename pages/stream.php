@@ -70,7 +70,7 @@ if (!file_exists($physicalFilePath) || !is_readable($physicalFilePath)) {
         'file_path'     => $doc['file_path'] ?? '',
         'operation'     => 'stream',
         'document_name' => $doc['name'] ?? ''
-    ], 'failure');
+    ]);
     http_response_code(404);
     die('Physical file does not exist on disk.');
 }

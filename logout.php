@@ -15,7 +15,7 @@ if (!$valid) {
 
 $currentUser = current_user();
 if ($currentUser) {
-    log_activity('auth.logout', 'user', (int)($currentUser['id'] ?? 0) ?: null, ['username' => $currentUser['username'] ?? ''], 'success');
+    log_activity('auth.logout', 'user', (int)($currentUser['id'] ?? 0) ?: null, ['username' => $currentUser['username'] ?? '']);
 }
 
 $_SESSION = [];

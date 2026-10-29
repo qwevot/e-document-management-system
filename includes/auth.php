@@ -32,7 +32,7 @@ function require_role(string ...$roles): void
             'reason'         => 'Page role restriction',
             'required_roles' => $roles,
             'page'           => basename($_SERVER['PHP_SELF'] ?? '')
-        ], 'failure');
+        ]);
         redirect_to('explorer', 'error', 'Access denied. You do not possess the required credentials to access this section.');
     }
 }

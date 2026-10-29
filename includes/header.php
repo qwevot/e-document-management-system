@@ -8,9 +8,7 @@ $pageTitle = $pageTitle ?? 'Document Management System';
 $currentUser = current_user();
 $fullName    = $currentUser['full_name'] ?? $currentUser['username'] ?? 'User';
 $roleLabel   = ucfirst($currentUser['role'] ?? 'User');
-
-$words = preg_split('/\s+/', trim($fullName));
-$initials = strtoupper(($words[0][0] ?? 'U') . ($words[1][0] ?? ''));
+$initials    = get_initials($fullName);
 
 $hdrUserId = (int)($currentUser['id'] ?? 0);
 $hdrPendingReviews = $hdrUserId > 0 ? get_pending_reviews_for_user($hdrUserId) : [];
@@ -50,9 +48,25 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
             <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/<?php echo e($cssFile); ?>">
         <?php endforeach; ?>
     <?php endif; ?>
+    <?php
+    $parseIniBytes = static function (string $val): int {
+        $val = trim($val);
+        if ($val === '') return 0;
+        $num = (float)$val;
+        return match (strtolower(substr($val, -1))) {
+            'g' => (int)($num * 1073741824),
+            'm' => (int)($num * 1048576),
+            'k' => (int)($num * 1024),
+            default => (int)$num,
+        };
+    };
+    $iniUploadBytes = $parseIniBytes((string)ini_get('upload_max_filesize'));
+    $iniPostBytes   = $parseIniBytes((string)ini_get('post_max_size'));
+    $maxUploadBytes = ($iniUploadBytes > 0 && $iniPostBytes > 0) ? min($iniUploadBytes, $iniPostBytes) : max($iniUploadBytes, $iniPostBytes);
+    ?>
     <script>
         window.BASE_URL = <?php echo json_encode(BASE_URL); ?>;
-        window.MAX_UPLOAD_BYTES = <?php echo (int)min((int)ini_get('upload_max_filesize'), (int)ini_get('post_max_size')) * 1048576; ?>;
+        window.MAX_UPLOAD_BYTES = <?php echo $maxUploadBytes; ?>;
     </script>
 </head>
 <body>

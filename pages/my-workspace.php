@@ -62,19 +62,6 @@ $totalPending = count($pendingReviews);
 
 $statusCounts = array_count_values(array_column($myDocs, 'status'));
 $totalMyDocs = count($myDocs) - ($statusCounts['obsolete'] ?? 0);
-$totalRecent = count($recentDocs);
-
-function ws_status_badge(string $status): string {
-    return match ($status) {
-        'published' => 'badge-publish',
-        'active'    => 'badge-active',
-        'hold'      => 'badge-hold',
-        'suspend'   => 'badge-suspend',
-        'rejected'  => 'badge-rejected',
-        'obsolete'  => 'badge-obsolete',
-        default     => 'badge-active',
-    };
-}
 
 function ws_loc_badge(?int $pid, ?string $pname): string {
     $url = $pid ? "explorer.php?mode=project&folder=$pid" : 'explorer.php?mode=project';
@@ -170,7 +157,7 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                     <span>Browse All</span>
                 </a>
                 <?php if (can_edit_dms($user)): ?>
-                    <button type="button" id="btnUploadDoc" class="btn btn-primary" onclick="openWsUploadModal()">
+                    <button type="button" id="btnUploadDoc" class="btn btn-primary">
                         <?php echo render_icon('cloud-upload'); ?>
                         <span>Upload Document</span>
                     </button>
@@ -197,19 +184,22 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                 </div>
 
                 <?php foreach ($myDocs as $doc): ?>
-                    <?php $extIcon = $doc['file_extension'] ?: 'pdf'; ?>
+                    <?php
+                    $extIcon = $doc['file_extension'] ?: 'pdf';
+                    $displayName = format_document_display_name($doc['name'], $doc['file_extension'] ?? null);
+                    ?>
                     <div class="explorer-item-card is-document" data-id="<?php echo (int)$doc['id']; ?>" data-name="<?php echo htmlspecialchars($doc['name'], ENT_QUOTES, 'UTF-8'); ?>" data-type="document" data-location="<?php echo htmlspecialchars($doc['parent_name'] ?? 'Projects', ENT_QUOTES, 'UTF-8'); ?>" data-status="<?php echo e($doc['status']); ?>">
                         <div class="item-checkbox-col">
                             <input type="checkbox" class="item-checkbox" value="<?php echo (int)$doc['id']; ?>" aria-label="Select item">
                         </div>
-                        <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($doc['name']); ?>">
+                        <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($displayName); ?>">
                             <?php echo render_icon($extIcon); ?>
                         </a>
 
                         <div class="item-main-col">
                             <div class="item-title-row">
-                                <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-title" title="<?php echo e($doc['name']); ?>">
-                                    <?php echo e($doc['name']); ?>
+                                <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-title" title="<?php echo e($displayName); ?>">
+                                    <?php echo e($displayName); ?>
                                 </a>
                                 <?php if (!empty($doc['version'])): ?>
                                     <span class="version-badge"><?php echo e($doc['version']); ?></span>
@@ -226,7 +216,7 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                         <div class="item-location-col"><?php echo ws_loc_badge($doc['parent_id'] ? (int)$doc['parent_id'] : null, $doc['parent_name'] ?? null); ?></div>
 
                         <div class="item-status-col">
-                            <span class="status-badge <?php echo ws_status_badge($doc['status']); ?>">
+                            <span class="status-badge <?php echo get_status_class($doc['status']); ?>">
                                 <?php echo ucfirst(e($doc['status'])); ?>
                             </span>
                         </div>
@@ -271,19 +261,22 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                 </div>
 
                 <?php foreach ($recentDocs as $doc): ?>
-                    <?php $extIcon = $doc['file_extension'] ?: 'pdf'; ?>
+                    <?php
+                    $extIcon = $doc['file_extension'] ?: 'pdf';
+                    $displayName = format_document_display_name($doc['name'], $doc['file_extension'] ?? null);
+                    ?>
                     <div class="explorer-item-card is-document" data-id="<?php echo (int)$doc['id']; ?>" data-name="<?php echo htmlspecialchars($doc['name'], ENT_QUOTES, 'UTF-8'); ?>" data-type="document" data-location="<?php echo htmlspecialchars($doc['parent_name'] ?? 'Projects', ENT_QUOTES, 'UTF-8'); ?>" data-status="<?php echo e($doc['status']); ?>">
                         <div class="item-checkbox-col">
                             <input type="checkbox" class="item-checkbox" value="<?php echo (int)$doc['id']; ?>" aria-label="Select item">
                         </div>
-                        <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($doc['name']); ?>">
+                        <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($displayName); ?>">
                             <?php echo render_icon($extIcon); ?>
                         </a>
 
                         <div class="item-main-col">
                             <div class="item-title-row">
-                                <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-title" title="<?php echo e($doc['name']); ?>">
-                                    <?php echo e($doc['name']); ?>
+                                <a href="view.php?id=<?php echo (int)$doc['id']; ?>" class="item-title" title="<?php echo e($displayName); ?>">
+                                    <?php echo e($displayName); ?>
                                 </a>
                                 <?php if (!empty($doc['version'])): ?>
                                     <span class="version-badge"><?php echo e($doc['version']); ?></span>
@@ -306,7 +299,7 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                         <div class="item-location-col"><?php echo ws_loc_badge($doc['parent_id'] ? (int)$doc['parent_id'] : null, $doc['parent_name'] ?? null); ?></div>
 
                         <div class="item-status-col">
-                            <span class="status-badge <?php echo ws_status_badge($doc['status']); ?>">
+                            <span class="status-badge <?php echo get_status_class($doc['status']); ?>">
                                 <?php echo ucfirst(e($doc['status'])); ?>
                             </span>
                         </div>
@@ -346,16 +339,19 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                 </div>
 
                 <?php foreach ($pendingReviews as $rev): ?>
-                    <?php $extIcon = $rev['file_extension'] ?: 'pdf'; ?>
+                    <?php
+                    $extIcon = $rev['file_extension'] ?: 'pdf';
+                    $displayName = format_document_display_name($rev['document_name'], $rev['file_extension'] ?? null);
+                    ?>
                     <div class="explorer-item-card is-document" data-status="<?php echo e($rev['document_status']); ?>">
-                        <a href="view.php?id=<?php echo (int)$rev['document_id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($rev['document_name']); ?>">
+                        <a href="view.php?id=<?php echo (int)$rev['document_id']; ?>" class="item-icon-col icon-<?php echo e($extIcon); ?>" title="Open <?php echo e($displayName); ?>">
                             <?php echo render_icon($extIcon); ?>
                         </a>
 
                         <div class="item-main-col">
                             <div class="item-title-row">
-                                <a href="view.php?id=<?php echo (int)$rev['document_id']; ?>" class="item-title" title="<?php echo e($rev['document_name']); ?>">
-                                    <?php echo e($rev['document_name']); ?>
+                                <a href="view.php?id=<?php echo (int)$rev['document_id']; ?>" class="item-title" title="<?php echo e($displayName); ?>">
+                                    <?php echo e($displayName); ?>
                                 </a>
                                 <?php if (!empty($rev['target_version'])): ?>
                                     <span class="version-badge"><?php echo e($rev['target_version']); ?></span>
@@ -430,79 +426,7 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
 </div>
 
 <?php require_once __DIR__ . '/../includes/item_actions.php'; ?>
-
-<!-- Modal: Upload Document (Reusing existing EDMS Upload Specimen Modal) -->
-<div class="edms-modal-backdrop" id="modalUploadDoc">
-    <div class="edms-modal-dialog" style="max-width: 520px; width: 95%;">
-        <div class="edms-modal-header">
-            <div class="edms-modal-title">
-                <?php echo render_icon('cloud-upload'); ?>
-                <span>Upload Document</span>
-            </div>
-            <button type="button" class="btn-modal-close" onclick="closeWsUploadModal()" title="Close modal">&times;</button>
-        </div>
-        <form id="formUploadDoc" method="POST" action="explorer.php" enctype="multipart/form-data">
-            <?php echo csrf_field(); ?>
-            <input type="hidden" name="action" value="upload_document">
-            <input type="hidden" name="parent_id" value="">
-
-            <div class="edms-modal-body">
-                <!-- Dropzone Area -->
-                <div class="upload-dropzone" id="uploadDropzone">
-                    <input type="file" name="file" id="uploadFileInput" class="upload-file-input" required onchange="handleWsFileSelection(this.files[0])">
-                    <div class="dropzone-content">
-                        <div class="dropzone-icon">
-                            <?php echo render_icon('cloud-upload'); ?>
-                        </div>
-                        <p class="dropzone-text">
-                            <strong>Click to browse</strong> or drag &amp; drop your file here
-                        </p>
-                        <span class="dropzone-hint">PDF, DOCX, XLSX, DWG, PNG, ZIP, etc.</span>
-                    </div>
-                </div>
-
-                <!-- Selected File Pill -->
-                <div class="selected-file-preview" id="selectedFilePreview" style="display: none;">
-                    <div class="preview-file-icon">
-                        <?php echo render_icon('files'); ?>
-                    </div>
-                    <div class="preview-file-details">
-                        <span class="preview-file-name" id="previewFileName">filename.ext</span>
-                        <span class="preview-file-size" id="previewFileSize">0 KB</span>
-                    </div>
-                    <button type="button" class="btn-clear-selected-file" onclick="clearWsSelectedFile()" title="Remove file">&times;</button>
-                </div>
-
-                <!-- Document Form Inputs -->
-                <div class="form-group" style="margin-top: 14px;">
-                    <label for="uploadDocName" class="form-label">Document Title</label>
-                    <input type="text" id="uploadDocName" name="name" class="form-input" placeholder="e.g. Standard Operating Procedure" required autocomplete="off">
-                </div>
-
-                <div class="form-group" style="margin-top: 14px;">
-                    <label for="uploadDocStatus" class="form-label">Initial Status</label>
-                    <div class="select-wrapper">
-                        <select id="uploadDocStatus" name="status" class="form-input">
-                            <option value="active" selected>Active (Draft)</option>
-                            <option value="published">Published</option>
-                            <option value="hold">On Hold</option>
-                        </select>
-                    </div>
-                </div>
-
-                <p class="form-help">Target location: <strong>Root directory</strong></p>
-            </div>
-
-            <div class="edms-modal-footer">
-                <button type="button" class="btn btn-secondary" onclick="closeWsUploadModal()">Cancel</button>
-                <button type="submit" class="btn btn-primary" id="btnSubmitUpload">
-                    <?php echo render_icon('cloud-upload'); ?>
-                    <span>Upload Document</span>
-                </button>
-            </div>
-        </form>
-    </div>
-</div>
+<?php include __DIR__ . '/../includes/modal_upload_doc.php'; ?>
 
 <script>
 let currentWsFilter = 'all';
@@ -671,95 +595,6 @@ function clearWsSearch(e) {
     }
 }
 
-// Copy Document Link Handler
-function copyWsDocLink(e, docId) {
-    if (e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
-    const basePath = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, '/');
-    const targetUrl = basePath + 'view.php?id=' + encodeURIComponent(docId);
-    if (typeof window.copyTextToClipboard === 'function') {
-        window.copyTextToClipboard(targetUrl, 'Document link copied to clipboard!');
-    }
-}
-
-// Upload Modal Handlers
-function openWsUploadModal() {
-    clearWsSelectedFile();
-    const docName = document.getElementById('uploadDocName');
-    if (docName) docName.value = '';
-    const modal = document.getElementById('modalUploadDoc');
-    if (modal) modal.classList.add('is-open');
-}
-
-function closeWsUploadModal() {
-    const modal = document.getElementById('modalUploadDoc');
-    if (modal) modal.classList.remove('is-open');
-}
-
-function handleWsFileSelection(file) {
-    if (!file) return;
-    const nameEl = document.getElementById('previewFileName');
-    const sizeEl = document.getElementById('previewFileSize');
-    const preview = document.getElementById('selectedFilePreview');
-    const dropzone = document.getElementById('uploadDropzone');
-    const docName = document.getElementById('uploadDocName');
-
-    if (nameEl) nameEl.textContent = file.name;
-    if (sizeEl) sizeEl.textContent = (file.size / 1024).toFixed(1) + ' KB';
-    if (preview) preview.style.display = 'flex';
-    if (dropzone) dropzone.style.display = 'none';
-
-    if (docName && !docName.value) {
-        docName.value = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
-    }
-}
-
-function clearWsSelectedFile() {
-    const fileInput = document.getElementById('uploadFileInput');
-    const preview = document.getElementById('selectedFilePreview');
-    const dropzone = document.getElementById('uploadDropzone');
-    if (fileInput) fileInput.value = '';
-    if (preview) preview.style.display = 'none';
-    if (dropzone) dropzone.style.display = 'block';
-}
-
-// Dropzone Drag-and-Drop
-const wsDropzone = document.getElementById('uploadDropzone');
-const wsFileInput = document.getElementById('uploadFileInput');
-if (wsDropzone && wsFileInput) {
-    ['dragenter', 'dragover'].forEach(name => {
-        wsDropzone.addEventListener(name, (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            wsDropzone.classList.add('is-dragover');
-        });
-    });
-    ['dragleave', 'drop'].forEach(name => {
-        wsDropzone.addEventListener(name, (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            wsDropzone.classList.remove('is-dragover');
-        });
-    });
-    wsDropzone.addEventListener('drop', (e) => {
-        const dt = e.dataTransfer;
-        if (dt && dt.files && dt.files[0]) {
-            wsFileInput.files = dt.files;
-            handleWsFileSelection(dt.files[0]);
-        }
-    });
-}
-
-document.addEventListener('click', e => {
-    if (e.target.id === 'modalUploadDoc') closeWsUploadModal();
-});
-document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') {
-        closeWsUploadModal();
-    }
-});
 applyWorkspaceFilters();
 </script>
 

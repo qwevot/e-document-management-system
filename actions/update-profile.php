@@ -62,7 +62,7 @@ if ($action === 'update_profile') {
     log_activity('user.profile_update', 'user', $userId, [
         'full_name'      => $fullNameVal,
         'avatar_updated' => $avatarUpdated
-    ], 'success');
+    ]);
 
     redirect_to('profile', 'success', 'Profile information updated successfully.');
 }
@@ -89,7 +89,7 @@ if ($action === 'update_password') {
     $currentHash = $st->fetchColumn();
 
     if (!$currentHash || !password_verify($currentPassword, $currentHash)) {
-        log_activity('user.password_change_failed', 'user', $userId, ['reason' => 'Incorrect current password'], 'failure');
+        log_activity('user.password_change_failed', 'user', $userId, ['reason' => 'Incorrect current password']);
         redirect_to('profile', 'error', 'Incorrect current password. Please try again.');
     }
 
@@ -97,7 +97,7 @@ if ($action === 'update_password') {
     $stUp = $pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?');
     $stUp->execute([$newHash, $userId]);
 
-    log_activity('user.password_change', 'user', $userId, ['status' => 'success']);
+    log_activity('user.password_change', 'user', $userId);
 
     redirect_to('profile', 'success', 'Password successfully changed.');
 }

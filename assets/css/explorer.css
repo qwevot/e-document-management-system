@@ -584,7 +584,7 @@
 }
 
 /* Specific Folder Drop-Target Highlight */
-.item-card-row.is-drop-target {
+.explorer-item-card.is-drop-target {
     background: var(--green-soft) !important;
     border-color: var(--green) !important;
     box-shadow: 0 0 0 2px var(--green-ring) !important;

@@ -9,7 +9,7 @@ define('DB_PASS', '');
 define('UPLOAD_DIR', __DIR__ . '/../uploads/');
 define('UPLOAD_URL', 'uploads/');
 
-define('BASE_URL', '/EDMS');
+define('BASE_URL', '/edms');
 define('APP_VERSION', '1.0.0');
 
 date_default_timezone_set('Asia/Manila');

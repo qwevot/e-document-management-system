@@ -158,7 +158,6 @@ include __DIR__ . '/../includes/header.php';
                     <?php foreach ($logs as $i => $lg): ?>
                         <?php
                             $rowNum = $offset + $i + 1;
-                            $actionPrefix = explode('.', $lg['action'])[0] ?? 'system';
                             $detailsArr = json_decode($lg['details'] ?? '{}', true);
                             $hasDetails = !empty($detailsArr);
                             $detailJson = $hasDetails ? json_encode($detailsArr, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '';
@@ -237,7 +236,6 @@ include __DIR__ . '/../includes/header.php';
     <?php
     $startItem = $totalCount > 0 ? ($page - 1) * $perPage + 1 : 0;
     $endItem = min($totalCount, $page * $perPage);
-    $urlParams = $_GET;
     ?>
     <div class="explorer-pagination-bar">
         <div class="pagination-info">
@@ -308,7 +306,7 @@ include __DIR__ . '/../includes/header.php';
             <button type="button" class="btn-modal-close" onclick="closePurgeModal()">&times;</button>
         </div>
         <form method="POST" action="<?php echo BASE_URL; ?>/actions/purge-logs.php">
-            <?php echo csrf_field('system-logs'); ?>
+            <?php echo csrf_field(); ?>
             <div class="edms-modal-body">
                 <p style="font-size: 13.5px; color: var(--ink); margin-bottom: 12px;">
                     Select the retention threshold for log purging. This action permanently deletes audit entries and cannot be undone.

@@ -585,6 +585,7 @@
     }
 
     /* 5. Pagination Bar */
+    .explorer-pagination-bar,
     .pagination-bar {
         flex-direction: column;
         align-items: center;
@@ -597,6 +598,7 @@
         text-align: center;
     }
 
+    .pagination-actions,
     .pagination-controls {
         flex-wrap: wrap;
         justify-content: center;

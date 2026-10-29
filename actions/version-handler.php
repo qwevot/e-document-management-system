@@ -1,5 +1,5 @@
 <?php
-// Document Version Actions Endpoint (Upload Revision, Revert, List)
+// Document Version Actions Endpoint (Upload Revision, Suspend, List)
 
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -18,12 +18,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrf_valid()) {
     exit;
 }
 
-if (!can_edit_dms($user) && in_array($action, ['upload_revision', 'publish_document', 'suspend_document'], true)) {
+if (!can_edit_dms($user) && in_array($action, ['upload_revision', 'suspend_document'], true)) {
     $targetDocId = (int)($_REQUEST['doc_id'] ?? 0);
     log_activity('auth.access_denied', 'document', $targetDocId ?: null, [
         'attempted_action' => $action,
         'reason'           => 'Read-only viewer attempted version modification'
-    ], 'failure');
+    ]);
     echo json_encode(['success' => false, 'message' => 'Access denied: Viewers have read-only permissions and cannot upload or alter document revisions.']);
     exit;
 }
@@ -75,42 +75,17 @@ if ($action === 'upload_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $file = $_FILES['file'];
-    $origName = $file['name'];
-    $fileSize = (int)$file['size'];
-    $tmpPath = $file['tmp_name'];
-    $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
-
-    // Determine storage path
-    $yearMonth = date('Y/m');
-    $destFolder = __DIR__ . '/../uploads/documents/' . $yearMonth;
-    if (!is_dir($destFolder)) {
-        @mkdir($destFolder, 0777, true);
-    }
-
-    $fileHash = hash_file('sha256', $tmpPath);
-    $safeName = preg_replace('/[^a-zA-Z0-9_-]/', '_', pathinfo($origName, PATHINFO_FILENAME));
-    $storedFileName = md5($origName . microtime(true)) . '_' . $safeName . '.bin';
-    $relPath = 'uploads/documents/' . $yearMonth . '/' . $storedFileName;
-    $fullDestPath = __DIR__ . '/../' . $relPath;
-
-    if (!move_uploaded_file($tmpPath, $fullDestPath)) {
-        echo json_encode(['success' => false, 'message' => 'Failed to save uploaded file to storage.']);
+    $stored = store_uploaded_document_file($_FILES['file']);
+    if (!($stored['success'] ?? false)) {
+        echo json_encode(['success' => false, 'message' => $stored['message'] ?? 'Failed to save uploaded file to storage.']);
         exit;
     }
 
-    $mimeType = mime_content_type($fullDestPath) ?: 'application/octet-stream';
+    $origName     = $stored['file_original_name'];
+    $fileSize     = $stored['file_size'];
+    $fullDestPath = $stored['full_path'];
 
-    $fileData = [
-        'file_path'          => $relPath,
-        'file_original_name' => $origName,
-        'file_size'          => $fileSize,
-        'file_extension'     => $ext,
-        'mime_type'          => $mimeType,
-        'file_hash'          => $fileHash,
-    ];
-
-    $result = create_document_version($docId, $fileData, $changeSummary, $userId);
+    $result = create_document_version($docId, $stored, $changeSummary, $userId);
 
     if (!($result['success'] ?? false) && file_exists($fullDestPath)) {
         @unlink($fullDestPath);
@@ -121,37 +96,7 @@ if ($action === 'upload_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             'change_summary'  => $changeSummary,
             'original_name'   => $origName,
             'file_size'       => $fileSize
-        ], 'success');
-    }
-
-    echo json_encode($result);
-    exit;
-}
-
-// 3. Publish document (Transition to PUBLISHED & bump major version)
-if ($action === 'publish_document' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $rawInput = file_get_contents('php://input');
-    $data = json_decode($rawInput, true) ?: $_POST;
-
-    $docId = isset($data['doc_id']) && is_numeric($data['doc_id']) ? (int)$data['doc_id'] : 0;
-    $notes = trim($data['notes'] ?? '');
-
-    if ($docId <= 0) {
-        echo json_encode(['success' => false, 'message' => 'Invalid document ID.']);
-        exit;
-    }
-
-    if (!is_admin($user) && !is_document_contributor($docId, $userId)) {
-        echo json_encode(['success' => false, 'message' => 'Unauthorized: Insufficient privileges to publish this document.']);
-        exit;
-    }
-
-    $result = publish_document($docId, $notes, $userId);
-
-    if ($result['success'] ?? false) {
-        log_activity('version.publish', 'document', $docId, [
-            'notes' => $notes
-        ], 'success');
+        ]);
     }
 
     echo json_encode($result);

@@ -168,7 +168,7 @@ if ($action === 'add_comment' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST
         'comment_id'  => $newId,
         'page_number' => $pageNum,
         'is_reply'    => ($parentId !== null)
-    ], 'success');
+    ]);
 
     echo json_encode([
         'success' => true,
@@ -234,7 +234,7 @@ if ($action === 'resolve_comment' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === '
     log_activity('document.comment_resolve', 'document', $docId, [
         'comment_id'  => $commentId,
         'is_resolved' => (bool)$newResolved
-    ], 'success');
+    ]);
 
     echo json_encode(['success' => true, 'comment_id' => $commentId, 'is_resolved' => (bool)$newResolved]);
     exit;
@@ -283,7 +283,7 @@ if ($action === 'delete_comment' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'P
     log_activity('document.comment_delete', 'document', $docId, [
         'comment_id'  => $commentId,
         'page_number' => $comment['page_number']
-    ], 'success');
+    ]);
 
     echo json_encode(['success' => true, 'comment_id' => $commentId]);
     exit;

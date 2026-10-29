@@ -60,7 +60,7 @@ if (!file_exists($physicalFilePath) || !is_readable($physicalFilePath)) {
         'file_path'     => $doc['file_path'] ?? '',
         'operation'     => 'download',
         'document_name' => $doc['name'] ?? ''
-    ], 'failure');
+    ]);
     http_response_code(404);
     die('Physical file does not exist on disk.');
 }
@@ -103,7 +103,7 @@ log_activity('document.download', 'document', $nodeId, [
     'filename'      => $downloadName,
     'version_id'    => $versionId ?: null,
     'as_pdf'        => $asPdf
-], 'success');
+]);
 
 // Clean output buffers to prevent corruption in binary stream
 if (ob_get_level()) {
