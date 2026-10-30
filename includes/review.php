@@ -55,7 +55,7 @@ function get_document_reviews(int $docId, ?string $version = null): array
         $params['version'] = $version;
     }
 
-    $sql .= " ORDER BY r.id DESC";
+    $sql .= " ORDER BY r.step_order ASC, r.id ASC";
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
@@ -93,10 +93,12 @@ function get_pending_reviews_for_user(int $userId): array
 
 /**
  * Submit a document for review (Transitions status: Active -> Hold).
+ * Accepts either a flat array of reviewer IDs or an array of tiered stages:
+ * [ ['step_order' => 1, 'reviewer_ids' => [2, 3]], ['step_order' => 2, 'reviewer_ids' => [4]] ]
  */
 function submit_document_for_review(
     int $docId,
-    array $reviewerIds,
+    array $reviewersOrStages,
     int $userId,
     ?string $targetVersion = null,
     ?string $notes = null
@@ -116,8 +118,32 @@ function submit_document_for_review(
         return ['success' => false, 'message' => 'Cannot submit an obsolete document for review.'];
     }
 
-    $cleanReviewerIds = array_values(array_unique(array_filter(array_map('intval', $reviewerIds))));
-    if (empty($cleanReviewerIds)) {
+    // Normalize input to tiered stages
+    $normalizedStages = [];
+    if (!empty($reviewersOrStages) && isset($reviewersOrStages[0]) && (is_array($reviewersOrStages[0]) || is_object($reviewersOrStages[0]))) {
+        $order = 1;
+        foreach ($reviewersOrStages as $st) {
+            $stArr = (array)$st;
+            $uids = $stArr['reviewerIds'] ?? ($stArr['reviewer_ids'] ?? []);
+            $cleanUids = array_values(array_unique(array_filter(array_map('intval', (array)$uids))));
+            if (!empty($cleanUids)) {
+                $normalizedStages[] = [
+                    'step_order'   => $order++,
+                    'reviewer_ids' => $cleanUids
+                ];
+            }
+        }
+    } else {
+        $cleanUids = array_values(array_unique(array_filter(array_map('intval', $reviewersOrStages))));
+        if (!empty($cleanUids)) {
+            $normalizedStages[] = [
+                'step_order'   => 1,
+                'reviewer_ids' => $cleanUids
+            ];
+        }
+    }
+
+    if (empty($normalizedStages)) {
         return ['success' => false, 'message' => 'Please select at least one reviewer.'];
     }
 
@@ -134,24 +160,66 @@ function submit_document_for_review(
         $updVer = $pdo->prepare("UPDATE dms_document_versions SET review_status = 'pending' WHERE document_id = :doc_id AND is_current = 1");
         $updVer->execute(['doc_id' => $docId]);
 
-        // 2. Clear any prior review assignments for this document so the new submission has a fresh cycle
-        $delOld = $pdo->prepare("DELETE FROM dms_document_reviews WHERE document_id = :doc_id");
-        $delOld->execute(['doc_id' => $docId]);
+        // 2. Fetch any already-approved reviews to preserve historical integrity across edits
+        $stExisting = $pdo->prepare("SELECT * FROM dms_document_reviews WHERE document_id = :doc_id");
+        $stExisting->execute(['doc_id' => $docId]);
+        $existingReviews = $stExisting->fetchAll(PDO::FETCH_ASSOC);
 
-        // 3. Create review assignments
+        $approvedByStep = [];
+        foreach ($existingReviews as $er) {
+            if ($er['status'] === 'approved') {
+                $approvedByStep[(int)$er['step_order']][(int)$er['reviewer_id']] = $er;
+            }
+        }
+
+        // 3. Clear non-approved reviews for this document (pending/waiting are replaced by new configuration)
+        $delNonApproved = $pdo->prepare("DELETE FROM dms_document_reviews WHERE document_id = :doc_id AND status != 'approved'");
+        $delNonApproved->execute(['doc_id' => $docId]);
+
+        // 4. Create review assignments per stage
         $ins = $pdo->prepare("
-            INSERT INTO dms_document_reviews (document_id, version, requested_by, reviewer_id, status, comments, created_at)
-            VALUES (:document_id, :version, :requested_by, :reviewer_id, 'pending', :comments, NOW())
+            INSERT INTO dms_document_reviews (document_id, version, step_order, requested_by, reviewer_id, status, comments, created_at)
+            VALUES (:document_id, :version, :step_order, :requested_by, :reviewer_id, :status, :comments, NOW())
         ");
 
-        foreach ($cleanReviewerIds as $revId) {
-            $ins->execute([
-                'document_id'  => $docId,
-                'version'      => $targetVer,
-                'requested_by' => $userId,
-                'reviewer_id'  => $revId,
-                'comments'     => $notes ? ('Initial submission notes: ' . $notes) : null
-            ]);
+        $activePendingAssigned = false;
+        $allCleanUids = [];
+
+        foreach ($normalizedStages as $st) {
+            $stepOrder = (int)$st['step_order'];
+            $reqUids = $st['reviewer_ids'];
+
+            $existingApprovedForStep = $approvedByStep[$stepOrder] ?? [];
+            $alreadyApprovedUids = array_keys($existingApprovedForStep);
+            $isStepAlreadyComplete = !empty($reqUids) && empty(array_diff($reqUids, $alreadyApprovedUids));
+
+            if (!$isStepAlreadyComplete && !$activePendingAssigned) {
+                $stepStatus = 'pending';
+                $activePendingAssigned = true;
+            } elseif ($isStepAlreadyComplete) {
+                $stepStatus = 'approved';
+            } else {
+                $stepStatus = 'waiting';
+            }
+
+            foreach ($reqUids as $revId) {
+                // If reviewer already has an approved record for this step, keep it intact
+                if (isset($existingApprovedForStep[$revId])) {
+                    $allCleanUids[] = $revId;
+                    continue;
+                }
+
+                $ins->execute([
+                    'document_id'  => $docId,
+                    'version'      => $targetVer,
+                    'step_order'   => $stepOrder,
+                    'requested_by' => $userId,
+                    'reviewer_id'  => $revId,
+                    'status'       => $stepStatus,
+                    'comments'     => $notes ? ('Initial submission notes: ' . $notes) : null
+                ]);
+                $allCleanUids[] = $revId;
+            }
         }
 
         $pdo->commit();
@@ -159,13 +227,19 @@ function submit_document_for_review(
         log_activity('document.review_requested', 'document', $docId, [
             'document_name'  => $doc['name'],
             'target_version' => $targetVer,
-            'reviewers'      => $cleanReviewerIds,
+            'stages_count'   => count($normalizedStages),
+            'reviewers'      => $allCleanUids,
             'notes'          => $notes
         ], $userId);
 
+        $stageCount = count($normalizedStages);
+        $stageMsg = $stageCount > 1 
+            ? "Document placed on Hold with a {$stageCount}-stage review pipeline." 
+            : "Document placed on Hold and submitted to " . count($allCleanUids) . " reviewer(s).";
+
         return [
             'success'        => true,
-            'message'        => "Document placed on Hold and submitted to " . count($cleanReviewerIds) . " reviewer(s).",
+            'message'        => $stageMsg,
             'status'         => 'hold',
             'target_version' => $targetVer
         ];
@@ -204,61 +278,42 @@ function submit_review_verdict(
         return ['success' => false, 'message' => 'Document is not currently awaiting review.'];
     }
 
-    // Check user role
+    // Check user
     $userStmt = $pdo->prepare("SELECT role, full_name, username FROM users WHERE id = :id");
     $userStmt->execute(['id' => $reviewerId]);
     $user = $userStmt->fetch(PDO::FETCH_ASSOC);
-    $userRole = strtolower($user['role'] ?? 'viewer');
-    $isAdmin = in_array($userRole, ['super admin', 'admin'], true);
 
-    // Find review record for this reviewer or check if admin
+    // Find review record specifically assigned to this reviewer in the active pending stage
     $revStmt = $pdo->prepare("
         SELECT * FROM dms_document_reviews 
-        WHERE document_id = :doc_id AND (reviewer_id = :reviewer_id OR :is_admin = 1)
-        ORDER BY (reviewer_id = :reviewer_id2) DESC, id DESC LIMIT 1
+        WHERE document_id = :doc_id AND reviewer_id = :reviewer_id AND status = 'pending'
+        LIMIT 1
     ");
     $revStmt->execute([
-        'doc_id'       => $docId,
-        'reviewer_id'  => $reviewerId,
-        'is_admin'     => $isAdmin ? 1 : 0,
-        'reviewer_id2' => $reviewerId
+        'doc_id'      => $docId,
+        'reviewer_id' => $reviewerId
     ]);
     $reviewRecord = $revStmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$reviewRecord && !$isAdmin) {
-        return ['success' => false, 'message' => 'Unauthorized. Only assigned reviewers or administrators can submit verdicts.'];
+    if (!$reviewRecord) {
+        return ['success' => false, 'message' => 'Unauthorized. You are not assigned to review this document at the current stage.'];
     }
+
+    $currentStep = (int)($reviewRecord['step_order'] ?? 1);
+    $targetVersion = $reviewRecord['version'];
 
     $pdo->beginTransaction();
     try {
-        if ($reviewRecord) {
-            $updRev = $pdo->prepare("
-                UPDATE dms_document_reviews 
-                SET status = :status, comments = :comments, reviewed_at = NOW() 
-                WHERE id = :id
-            ");
-            $updRev->execute([
-                'status'   => $verdict,
-                'comments' => trim($comments ?? ''),
-                'id'       => $reviewRecord['id']
-            ]);
-            $targetVersion = $reviewRecord['version'];
-        } else {
-            // Admin direct sign-off if not originally in reviewer list
-            $targetVersion = calculate_next_version($doc['version'] ?: 'v0.1', 'major');
-            $insRev = $pdo->prepare("
-                INSERT INTO dms_document_reviews (document_id, version, requested_by, reviewer_id, status, comments, reviewed_at, created_at)
-                VALUES (:doc_id, :ver, :req_by, :rev_id, :status, :comments, NOW(), NOW())
-            ");
-            $insRev->execute([
-                'doc_id'   => $docId,
-                'ver'      => $targetVersion,
-                'req_by'   => $doc['created_by'] ?: $reviewerId,
-                'rev_id'   => $reviewerId,
-                'status'   => $verdict,
-                'comments' => trim($comments ?? '')
-            ]);
-        }
+        $updRev = $pdo->prepare("
+            UPDATE dms_document_reviews 
+            SET status = :status, comments = :comments, reviewed_at = NOW() 
+            WHERE id = :id
+        ");
+        $updRev->execute([
+            'status'   => $verdict,
+            'comments' => trim($comments ?? ''),
+            'id'       => $reviewRecord['id']
+        ]);
 
         // Action on Verdict
         if ($verdict === 'rejected') {
@@ -275,6 +330,7 @@ function submit_review_verdict(
             log_activity('document.review_rejected', 'document', $docId, [
                 'document_name' => $doc['name'],
                 'reviewer_id'   => $reviewerId,
+                'stage'         => $currentStep,
                 'feedback'      => $comments
             ], $reviewerId);
 
@@ -282,10 +338,60 @@ function submit_review_verdict(
                 'success' => true,
                 'verdict' => 'rejected',
                 'status'  => 'rejected',
-                'message' => 'Changes requested. Document marked as Rejected.'
+                'message' => "Changes requested at Stage {$currentStep}. Document marked as Rejected."
             ];
         } else {
-            // Approved verdict: Check if all reviewers have approved
+            // Approved verdict: Check if all reviewers in the current stage have approved
+            $checkStage = $pdo->prepare("
+                SELECT COUNT(*) AS total,
+                       SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved
+                FROM dms_document_reviews
+                WHERE document_id = :doc_id AND version = :ver AND step_order = :step
+            ");
+            $checkStage->execute(['doc_id' => $docId, 'ver' => $targetVersion, 'step' => $currentStep]);
+            $stageStats = $checkStage->fetch(PDO::FETCH_ASSOC);
+            $stageTotal = (int)($stageStats['total'] ?? 0);
+            $stageApproved = (int)($stageStats['approved'] ?? 0);
+
+            $isStageComplete = ($stageTotal > 0 && $stageApproved >= $stageTotal);
+
+            // If current stage is complete and there is a subsequent waiting stage, promote it
+            if ($isStageComplete) {
+                $nextStepStmt = $pdo->prepare("
+                    SELECT MIN(step_order) FROM dms_document_reviews 
+                    WHERE document_id = :doc_id AND version = :ver AND step_order > :step AND status = 'waiting'
+                ");
+                $nextStepStmt->execute(['doc_id' => $docId, 'ver' => $targetVersion, 'step' => $currentStep]);
+                $nextStep = (int)$nextStepStmt->fetchColumn();
+
+                if ($nextStep > 0) {
+                    $actStmt = $pdo->prepare("
+                        UPDATE dms_document_reviews 
+                        SET status = 'pending' 
+                        WHERE document_id = :doc_id AND version = :ver AND step_order = :next_step AND status = 'waiting'
+                    ");
+                    $actStmt->execute(['doc_id' => $docId, 'ver' => $targetVersion, 'next_step' => $nextStep]);
+
+                    $pdo->commit();
+
+                    log_activity('document.review_stage_promoted', 'document', $docId, [
+                        'document_name'   => $doc['name'],
+                        'completed_stage' => $currentStep,
+                        'next_stage'      => $nextStep,
+                        'approved_by'     => $reviewerId
+                    ], $reviewerId);
+
+                    return [
+                        'success'      => true,
+                        'verdict'      => 'approved',
+                        'status'       => 'hold',
+                        'is_published' => false,
+                        'message'      => "Stage {$currentStep} completed. Stage {$nextStep} is now open for review."
+                    ];
+                }
+            }
+
+            // Check if ALL assigned reviewers across all stages have approved
             $checkAll = $pdo->prepare("
                 SELECT COUNT(*) AS total,
                        SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved
@@ -298,8 +404,8 @@ function submit_review_verdict(
             $total = (int)($stats['total'] ?? 0);
             $approved = (int)($stats['approved'] ?? 0);
 
-            // Document is published if all assigned reviewers approved, or if Super Admin approves directly
-            $isFullyApproved = ($total > 0 && $approved >= $total) || ($userRole === 'super admin');
+            // Document is published ONLY if all assigned reviewers in all stages approved
+            $isFullyApproved = ($total > 0 && $approved >= $total);
 
             $pdo->commit();
 
@@ -315,29 +421,22 @@ function submit_review_verdict(
                 ], $reviewerId);
 
                 return [
-                    'success'        => true,
-                    'verdict'        => 'approved',
-                    'status'         => 'published',
-                    'is_published'   => true,
-                    'version'        => $publishRes['version'] ?? $targetVersion,
-                    'message'        => "All approvals complete. Document officially published as " . ($publishRes['version'] ?? $targetVersion)
-                ];
-            } else {
-                log_activity('document.review_approved', 'document', $docId, [
-                    'document_name'  => $doc['name'],
-                    'approved_by'    => $reviewerId,
-                    'pending_count'  => max(0, $total - $approved),
-                    'sign_off_note'  => $comments
-                ], $reviewerId);
-
-                return [
-                    'success'        => true,
-                    'verdict'        => 'approved',
-                    'status'         => 'hold',
-                    'is_published'   => false,
-                    'message'        => "Approval recorded ({$approved}/{$total} approvers completed)."
+                    'success'      => true,
+                    'verdict'      => 'approved',
+                    'status'       => 'published',
+                    'is_published' => true,
+                    'version'      => $publishRes['version'] ?? $targetVersion,
+                    'message'      => "All review stages completed successfully. Document published as {$publishRes['version']}."
                 ];
             }
+
+            return [
+                'success'      => true,
+                'verdict'      => 'approved',
+                'status'       => 'hold',
+                'is_published' => false,
+                'message'      => "Stage {$currentStep} sign-off recorded. Awaiting remaining reviewers."
+            ];
         }
     } catch (\Throwable $e) {
         $pdo->rollBack();
@@ -382,8 +481,8 @@ function cancel_document_review(int $docId, int $userId): array
 
     $pdo->beginTransaction();
     try {
-        // 1. Delete pending review records
-        $del = $pdo->prepare("DELETE FROM dms_document_reviews WHERE document_id = :doc_id AND status = 'pending'");
+        // 1. Delete all review cycle records for this document
+        $del = $pdo->prepare("DELETE FROM dms_document_reviews WHERE document_id = :doc_id");
         $del->execute(['doc_id' => $docId]);
 
         // 2. Set document status back to 'active' and reset version status to 'draft'

@@ -17,7 +17,7 @@ $fullName  = trim((string)($user['full_name'] ?? ''));
 $dispName  = $fullName !== '' ? $fullName : (string)$user['username'];
 $roleLabel = ucfirst((string)($user['role'] ?? 'User'));
 $company   = !empty($user['department']) ? $user['department'] : 'Engineering';
-$createdAt = !empty($user['created_at']) ? date('M d, Y H:i', strtotime($user['created_at'])) : '—';
+$createdAt = !empty($user['created_at']) ? date('M d, Y H:i', strtotime($user['created_at'])) : '-';
 $avatar    = !empty($user['avatar']) ? $user['avatar'] : null;
 $initials  = get_initials($dispName);
 

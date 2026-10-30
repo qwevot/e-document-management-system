@@ -163,8 +163,8 @@ $canManageAccess = $isOwner;
 
 $isSubmitter = ($userId === $submittedByUserId || (int)$doc['created_by'] === $userId);
 
-// Reviewers / Approvers can act on the review (Approve / Request Changes)
-$canActOnReview = $isDocHold && ($userPendingReview !== null || ($isAdmin && !$isSubmitter));
+// Reviewers can act on the review only if they have an active pending review in the current stage
+$canActOnReview = $isDocHold && ($userPendingReview !== null);
 
 // Only the submitter who requested the review can retract/cancel it
 $canRetractReview = $isDocHold && $isSubmitter;
@@ -196,13 +196,53 @@ require_once __DIR__ . '/../includes/viewer_actions.php';
 
 $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($reviews, 'reviewer_id'))));
 
+// Structure existing multi-stage review pipeline for modal inspection
+$existingReviewStages = [];
+if (!empty($reviews)) {
+    $tempStages = [];
+    foreach ($reviews as $rev) {
+        $step = (int)($rev['step_order'] ?? 1);
+        if (!isset($tempStages[$step])) {
+            $tempStages[$step] = [
+                'id'          => $step,
+                'reviewerIds' => [],
+                'status'      => 'waiting',
+                'reviewers'   => []
+            ];
+        }
+        $tempStages[$step]['reviewerIds'][] = (int)$rev['reviewer_id'];
+        $tempStages[$step]['reviewers'][] = [
+            'id'       => (int)$rev['reviewer_id'],
+            'name'     => !empty($rev['reviewer_name']) ? $rev['reviewer_name'] : $rev['reviewer_username'],
+            'username' => $rev['reviewer_username'] ?? '',
+            'avatar'   => $rev['reviewer_avatar'] ?? null,
+            'status'   => $rev['status'] ?? 'waiting'
+        ];
+    }
+    foreach ($tempStages as $sNum => &$sData) {
+        $stList = array_column($sData['reviewers'], 'status');
+        if (in_array('rejected', $stList, true)) {
+            $sData['status'] = 'rejected';
+        } elseif (!empty($stList) && count(array_filter($stList, fn($s) => $s === 'approved')) === count($stList)) {
+            $sData['status'] = 'approved';
+        } elseif (in_array('pending', $stList, true)) {
+            $sData['status'] = 'pending';
+        } else {
+            $sData['status'] = 'waiting';
+        }
+    }
+    unset($sData);
+    ksort($tempStages);
+    $existingReviewStages = array_values($tempStages);
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo e($doc['name']); ?> â€” Workspace Viewer</title>
+    <title><?php echo e($doc['name']); ?> - Workspace Viewer</title>
     <meta name="csrf-token" content="<?php echo e(csrf_token()); ?>">
     <link rel="stylesheet" href="../assets/css/styles.css">
     <link rel="stylesheet" href="../assets/css/responsive.css">
@@ -367,22 +407,20 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
             <?php if ($canSubmitReview): ?>
                 <!-- Submit for Review Trigger -->
                 <button type="button" class="btn-workspace-action" id="btnOpenSubmitReviewModal" title="Submit document for review &amp; formal approval" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.4); color: var(--ink);">
-                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><polyline points="9 15 11 17 15 13"></polyline></svg>
-                    <span>Ask for Approval</span>
+                    <?php echo render_icon('files'); ?>
+                    <span>Approval</span>
                 </button>
             <?php elseif ($isDocHold): ?>
+                <!-- Review Progress / Pipeline Trigger -->
+                <button type="button" class="btn-workspace-action" id="btnOpenSubmitReviewModal" title="View Review Approval Pipeline &amp; Progress" style="background: var(--amber-soft); border-color: var(--amber-line); color: var(--amber-ink);">
+                    <?php echo render_icon('files'); ?>
+                    <span>Approval</span>
+                </button>
                 <?php if ($canActOnReview): ?>
                     <!-- Finish Review Trigger (Replaces Submit Review for Approvers) -->
                     <button type="button" class="btn-workspace-action is-active" id="btnOpenFinishReviewModal" title="Finish Review &amp; Record Verdict" style="background: var(--green); border-color: var(--green); color: #fff; font-weight: 600;">
                         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                         <span>Finish Review</span>
-                    </button>
-                <?php endif; ?>
-                <?php if ($canRetractReview): ?>
-                    <!-- Cancel Submission Trigger for Author / Submitter -->
-                    <button type="button" class="btn-workspace-action" id="btnRetractReviewSubmission" title="Retract review submission and return to draft" style="color: var(--red); border-color: var(--red-line); background: var(--surface);">
-                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                        <span>Cancel Submission</span>
                     </button>
                 <?php endif; ?>
             <?php endif; ?>
@@ -684,94 +722,8 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
     </div>
 </div>
 
-<!-- 3. Modal: Submit for Review & Approval (Google Share Style) -->
-<div class="edms-modal-backdrop" id="modalSubmitReview">
-    <div class="edms-modal-dialog" style="max-width: 520px;">
-        <div class="edms-modal-header" style="padding: 16px 20px; border-bottom: 1px solid var(--border);">
-            <div class="edms-modal-title" style="display: flex; align-items: center; gap: 8px;">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="9 15 11 17 15 13"></polyline></svg>
-                <span>Submit for Review</span>
-            </div>
-            <button type="button" class="btn-modal-close" id="btnCloseSubmitReviewModal" title="Close modal">&times;</button>
-        </div>
-        <form id="formSubmitReview">
-            <input type="hidden" name="action" value="submit_review">
-            <input type="hidden" name="doc_id" value="<?php echo $docId; ?>">
-
-            <div class="edms-modal-body" style="padding: 18px 20px;">
-                
-                <!-- Google Style Search Input -->
-                <div style="position: relative; margin-bottom: 16px;">
-                    <div style="display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
-                        <span style="color: var(--muted); display: flex; align-items: center;"><?php echo render_icon('search'); ?></span>
-                        <input type="text" id="searchReviewerInput" placeholder="Add people or search reviewers..." style="border: none; background: transparent; outline: none; width: 100%; font-size: 13px; color: var(--ink);" autocomplete="off">
-                    </div>
-                </div>
-
-                <!-- Reviewers List (Google Drive style 'People with access') -->
-                <div style="margin-bottom: 16px;">
-                    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--muted); letter-spacing: 0.05em; margin-bottom: 8px;">
-                        People with review access
-                    </div>
-                    
-                    <div id="reviewersListContainer" style="max-height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border); border-radius: 8px; padding: 6px; background: var(--surface);">
-                        <?php if (empty($eligibleReviewers)): ?>
-                            <div style="font-size: 12px; color: var(--muted); padding: 14px; text-align: center;">
-                                No eligible reviewers found.
-                            </div>
-                        <?php else: ?>
-                            <?php foreach ($eligibleReviewers as $r): 
-                                $rName = !empty($r['full_name']) ? $r['full_name'] : $r['username'];
-                                $rInitials = get_initials($rName);
-                                $rAvatar = !empty($r['avatar']) && is_file(__DIR__ . '/../' . $r['avatar']) ? BASE_URL . '/' . e($r['avatar']) : null;
-                            ?>
-                                <label class="reviewer-item-row" data-name="<?php echo e(mb_strtolower($rName)); ?>" data-username="<?php echo e(mb_strtolower($r['username'])); ?>" style="display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; border-radius: 6px; cursor: pointer; transition: background 0.12s ease;" onmouseover="this.style.background='var(--surface-light)'" onmouseout="this.style.background='transparent'">
-                                    <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
-                                        <!-- Avatar Circle -->
-                                        <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--slate-soft); color: var(--ink); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; overflow: hidden;">
-                                            <?php if ($rAvatar): ?>
-                                                <img src="<?php echo $rAvatar; ?>" alt="<?php echo e($rName); ?>" style="width: 100%; height: 100%; object-fit: cover;">
-                                            <?php else: ?>
-                                                <span><?php echo e($rInitials); ?></span>
-                                            <?php endif; ?>
-                                        </div>
-                                        <div style="min-width: 0;">
-                                            <div style="font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                                <?php echo e($rName); ?>
-                                            </div>
-                                            <div style="font-size: 11px; color: var(--muted); line-height: 1.2;">
-                                                @<?php echo e($r['username']); ?> &bull; <?php echo e($r['department'] ?? 'Engineering'); ?>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    
-                                    <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
-                                        <span class="workspace-badge" style="font-size: 10.5px; background: var(--slate-soft); color: var(--slate-ink);">
-                                            <?php echo ucfirst(e($r['role'])); ?>
-                                        </span>
-                                        <input type="checkbox" name="reviewer_ids[]" value="<?php echo $r['id']; ?>" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--green);">
-                                    </div>
-                                </label>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
-                    </div>
-                </div>
-
-                <!-- Message / Notes Input -->
-                <div class="form-group" style="margin-bottom: 0;">
-                    <textarea id="reviewSubmissionNotes" name="notes" rows="2" class="form-input" placeholder="Notify reviewers (optional message)..." style="font-size: 12.5px; resize: vertical; border-radius: 6px;"></textarea>
-                </div>
-            </div>
-
-            <div class="edms-modal-footer" style="padding: 12px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px;">
-                <button type="button" class="btn btn-secondary" id="btnCancelSubmitReview" style="padding: 6px 14px; font-size: 12.5px;">Cancel</button>
-                <button type="submit" class="btn btn-primary" id="btnSubmitReviewAction" style="padding: 6px 16px; font-size: 12.5px;">
-                    <span>Submit</span>
-                </button>
-            </div>
-        </form>
-    </div>
-</div>
+<!-- 3. Modal: Multi-Stage Review Pipeline -->
+<?php include __DIR__ . '/../includes/workflow-modal.php'; ?>
 
 <!-- 4. Modal: Finish Review & Submit Verdict -->
 <div class="edms-modal-backdrop" id="modalReviewVerdict">
@@ -810,12 +762,8 @@ $reviewerUserIds = array_values(array_unique(array_map('intval', array_column($r
 
             <div class="edms-modal-footer" style="padding: 12px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px;">
                 <button type="button" class="btn btn-secondary" id="btnCancelVerdict" style="padding: 6px 14px; font-size: 12.5px;">Cancel</button>
-                <button type="button" class="btn btn-secondary" id="btnRejectVerdict" style="padding: 6px 14px; font-size: 12.5px; color: var(--red); border-color: var(--red-line); background: var(--surface); font-weight: 600;">
-                    âœ– Reject
-                </button>
-                <button type="button" class="btn btn-primary" id="btnApproveVerdict" style="padding: 6px 16px; font-size: 12.5px; background: var(--green); border-color: var(--green); font-weight: 600;">
-                    âœ” Approve
-                </button>
+                <button type="button" class="btn btn-secondary" id="btnRejectVerdict" style="padding: 6px 14px; font-size: 12.5px; color: var(--red); border-color: var(--red-line); background: var(--surface); font-weight: 600;">Reject</button>
+                <button type="button" class="btn btn-primary" id="btnApproveVerdict" style="padding: 6px 16px; font-size: 12.5px; background: var(--green); border-color: var(--green); font-weight: 600;">Approve</button>
             </div>
         </form>
     </div>
@@ -945,6 +893,8 @@ window.EDMS_WORKSPACE_CONFIG = {
     activeVersionId: <?php echo (int)$activeVersionId; ?>,
     activeVersionName: <?php echo json_encode($activeVersionName); ?>,
     isHistoricalSnapshot: <?php echo $isHistoricalSnapshot ? 'true' : 'false'; ?>,
+    canRetractReview: <?php echo $canRetractReview ? 'true' : 'false'; ?>,
+    existingReviewStages: <?php echo json_encode($existingReviewStages); ?>,
     icons: {
         comment: <?php echo json_encode(render_icon('comment-add')); ?>,
         plus: <?php echo json_encode(render_icon('plus')); ?>

@@ -63,6 +63,7 @@ if ($action === 'submit_review' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $data = json_decode($rawInput, true) ?: $_POST;
 
     $docId = isset($data['doc_id']) && is_numeric($data['doc_id']) ? (int)$data['doc_id'] : 0;
+    $stages = $data['stages'] ?? null;
     $reviewerIds = $data['reviewer_ids'] ?? [];
     $targetVersion = trim($data['target_version'] ?? '');
     $notes = trim($data['notes'] ?? '');
@@ -77,12 +78,13 @@ if ($action === 'submit_review' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    if (!is_array($reviewerIds) || empty($reviewerIds)) {
+    $payload = !empty($stages) ? $stages : $reviewerIds;
+    if (empty($payload)) {
         echo json_encode(['success' => false, 'message' => 'Please select at least one reviewer.']);
         exit;
     }
 
-    $result = submit_document_for_review($docId, $reviewerIds, $userId, $targetVersion !== '' ? $targetVersion : null, $notes ?: null);
+    $result = submit_document_for_review($docId, $payload, $userId, $targetVersion !== '' ? $targetVersion : null, $notes ?: null);
     echo json_encode($result);
     exit;
 }

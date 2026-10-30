@@ -122,7 +122,7 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
                                         <span style="display: block; font-size: 10.5px; color: var(--muted);">Requested by <?php echo e($pr['requested_by_name']); ?></span>
                                     </span>
                                     <span class="status-badge badge-hold" style="font-size: 9px; flex-shrink: 0;">Review</span>
-                                    <button type="button" title="Mark as read" onclick="dismissNotif(event, 'rev_<?php echo $pr['review_id']; ?>')" style="background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 5px; font-size: 13px; line-height: 1; border-radius: 4px;" onmouseover="this.style.color='var(--green)'; this.style.background='var(--surface-light)';" onmouseout="this.style.color='var(--muted)'; this.style.background='none';">✓</button>
+                                    <button type="button" title="Mark as read" onclick="dismissNotif(event, 'rev_<?php echo $pr['review_id']; ?>')" style="background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 5px; font-size: 13px; line-height: 1; border-radius: 4px;" onmouseover="this.style.color='var(--green)'; this.style.background='var(--surface-light)';" onmouseout="this.style.color='var(--muted)'; this.style.background='none';">&#10003;</button>
                                 </a>
                             <?php endforeach; ?>
 
@@ -140,7 +140,7 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
                                         <span style="display: block; font-size: 10.5px; color: var(--muted);"><?php echo $badgeText; ?> by <?php echo e($vd['reviewer_name'] ?? 'Reviewer'); ?></span>
                                     </span>
                                     <span class="status-badge <?php echo $badgeCls; ?>" style="font-size: 9px; flex-shrink: 0;"><?php echo $badgeText; ?></span>
-                                    <button type="button" title="Mark as read" onclick="dismissNotif(event, 'ver_<?php echo $vd['review_id']; ?>')" style="background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 5px; font-size: 13px; line-height: 1; border-radius: 4px;" onmouseover="this.style.color='var(--green)'; this.style.background='var(--surface-light)';" onmouseout="this.style.color='var(--muted)'; this.style.background='none';">✓</button>
+                                    <button type="button" title="Mark as read" onclick="dismissNotif(event, 'ver_<?php echo $vd['review_id']; ?>')" style="background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 5px; font-size: 13px; line-height: 1; border-radius: 4px;" onmouseover="this.style.color='var(--green)'; this.style.background='var(--surface-light)';" onmouseout="this.style.color='var(--muted)'; this.style.background='none';">&#10003;</button>
                                 </a>
                             <?php endforeach; ?>
                         <?php endif; ?>
@@ -152,7 +152,7 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
                                 </button>
                             <?php endif; ?>
                             <a href="<?php echo BASE_URL; ?>/pages/my-workspace.php" class="popover-item" style="text-decoration: none; font-size: 11.5px; color: var(--green); font-weight: 600; width: auto; padding: 2px 0; margin-left: auto;">
-                                Go to Workspace →
+                                Go to Workspace &rarr;
                             </a>
                         </div>
                     </div>

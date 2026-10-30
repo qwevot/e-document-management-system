@@ -176,7 +176,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    // 2. Permanently Delete Item (Hard delete from database & disk) â€” Super Admin only
+    // 2. Permanently Delete Item (Hard delete from database & disk) - Super Admin only
     if ($action === 'purge_node') {
         if (!$isSuperAdmin) {
             if ($isAjax) {
@@ -217,7 +217,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // 2B. Batch Permanently Delete Items â€” Super Admin only
+    // 2B. Batch Permanently Delete Items - Super Admin only
     if ($action === 'batch_purge') {
         if (!$isSuperAdmin) {
             header('Content-Type: application/json');

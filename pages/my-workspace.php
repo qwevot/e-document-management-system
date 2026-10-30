@@ -292,7 +292,7 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
 
                         <div class="item-modified-col">
                             <span style="font-size: 11px; color: var(--muted);">
-                                <?php echo date('M j, Y • H:i', strtotime($doc['last_touched_at'])); ?>
+                                <?php echo date('M j, Y', strtotime($doc['last_touched_at'])); ?> &bull; <?php echo date('H:i', strtotime($doc['last_touched_at'])); ?>
                             </span>
                         </div>
 
@@ -367,7 +367,7 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
 
                         <div class="item-modified-col">
                             <span style="font-size: 11px; color: var(--muted);">
-                                <?php echo date('M j, Y • H:i', strtotime($rev['review_requested_at'])); ?>
+                                <?php echo date('M j, Y', strtotime($rev['review_requested_at'])); ?> &bull; <?php echo date('H:i', strtotime($rev['review_requested_at'])); ?>
                             </span>
                         </div>
 
@@ -395,7 +395,7 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
         <!-- Pagination Controls Footer (Identical to explorer.php) -->
         <div class="explorer-pagination-bar" id="wsPaginationBar" style="display: none; margin-top: 12px;">
             <div class="pagination-info">
-                <span>Showing <strong id="wsPagStart">1</strong>–<strong id="wsPagEnd">10</strong> of <strong id="wsPagTotal">0</strong> items</span>
+                <span>Showing <strong id="wsPagStart">1</strong>-<strong id="wsPagEnd">10</strong> of <strong id="wsPagTotal">0</strong> items</span>
             </div>
 
             <div class="pagination-actions">

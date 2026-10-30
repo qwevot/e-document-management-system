@@ -2733,7 +2733,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0;">
                         <span style="font-family: monospace; font-size: 12.5px; font-weight: 700; color: var(--ink);">${escapeHtml(v.version_number)}</span>
                         ${statusPill}
-                        <span title="${escapeHtml(v.created_at || '')} by ${escapeHtml(v.author_name || 'System')}" style="font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(v.author_name || 'System')} • ${escapeHtml(v.created_at || '')}</span>
+                        <span title="${escapeHtml(v.created_at || '')} by ${escapeHtml(v.author_name || 'System')}" style="font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(v.author_name || 'System')} &bull; ${escapeHtml(v.created_at || '')}</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 2px; flex-shrink: 0;">
                         <a href="download.php?id=${docId}&version_id=${v.id}" class="btn-action" style="width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; color: var(--ink); text-decoration: none;" title="Download file" download>
@@ -2830,85 +2830,129 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    // --- 15. Document Review & Approval Workflow Controller ---
-    const modalSubmitReview = document.getElementById("modalSubmitReview");
+    // --- 15. Multi-Stage Document Review Pipeline Controller ---
     const btnOpenSubmitReviewModal = document.getElementById("btnOpenSubmitReviewModal");
-    const btnCloseSubmitReviewModal = document.getElementById("btnCloseSubmitReviewModal");
-    const btnCancelSubmitReview = document.getElementById("btnCancelSubmitReview");
-    const formSubmitReview = document.getElementById("formSubmitReview");
-    const btnSubmitReviewAction = document.getElementById("btnSubmitReviewAction");
 
-    const { open: openSubmitReviewModal, close: closeSubmitReviewModal } = bindModal(
-        modalSubmitReview,
-        [btnOpenSubmitReviewModal],
-        [btnCloseSubmitReviewModal, btnCancelSubmitReview]
-    );
+    if (btnOpenSubmitReviewModal) {
+        btnOpenSubmitReviewModal.addEventListener("click", function () {
+            if (typeof window.openTieredWorkflowModal === "function") {
+                const cfg = window.EDMS_WORKSPACE_CONFIG || config || {};
+                const isDocHold = (cfg.isDocHold === true || cfg.docStatus === 'hold');
+                const existingStages = (cfg.existingReviewStages && cfg.existingReviewStages.length > 0)
+                    ? cfg.existingReviewStages
+                    : null;
 
-    const searchReviewerInput = document.getElementById("searchReviewerInput");
-    if (searchReviewerInput) {
-        searchReviewerInput.addEventListener("input", function () {
-            const q = this.value.trim().toLowerCase();
-            document.querySelectorAll("#reviewersListContainer .reviewer-item-row").forEach(row => {
-                const name = row.getAttribute("data-name") || "";
-                const username = row.getAttribute("data-username") || "";
-                const match = name.includes(q) || username.includes(q);
-                row.style.display = match ? "flex" : "none";
-            });
-        });
-    }
-
-    if (formSubmitReview) {
-        formSubmitReview.addEventListener("submit", function (e) {
-            e.preventDefault();
-
-            const checkedReviewers = formSubmitReview.querySelectorAll('input[name="reviewer_ids[]"]:checked');
-            if (checkedReviewers.length === 0) {
-                alert("Please select at least one reviewer.");
-                return;
-            }
-
-            const reviewerIds = Array.from(checkedReviewers).map(cb => parseInt(cb.value, 10));
-            const notes = formSubmitReview.querySelector('textarea[name="notes"]')?.value || "";
-
-            if (btnSubmitReviewAction) {
-                btnSubmitReviewAction.disabled = true;
-                btnSubmitReviewAction.innerHTML = `<span>Submitting...</span>`;
-            }
-
-            fetch("../actions/review-handler.php?action=submit_review", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-Requested-With": "XMLHttpRequest"
-                },
-                body: JSON.stringify({
-                    doc_id: docId,
-                    reviewer_ids: reviewerIds,
-                    notes: notes
-                })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    window.location.href = `view.php?id=${docId}`;
+                if (isDocHold && existingStages) {
+                    window.openTieredWorkflowModal({
+                        stages: existingStages,
+                        locked: true,
+                        canManage: (cfg.canRetractReview === true || cfg.isOwner === true)
+                    });
                 } else {
-                    alert(data.message || "Failed to submit for review.");
-                    if (btnSubmitReviewAction) {
-                        btnSubmitReviewAction.disabled = false;
-                        btnSubmitReviewAction.innerHTML = `<span>Submit</span>`;
-                    }
+                    window.openTieredWorkflowModal({
+                        stages: null,
+                        locked: false,
+                        canManage: true
+                    });
                 }
-            })
-            .catch(err => {
-                console.error("Error submitting review:", err);
-                alert("Network error while submitting review.");
-                if (btnSubmitReviewAction) {
-                    btnSubmitReviewAction.disabled = false;
-                    btnSubmitReviewAction.innerHTML = `<span>Submit</span>`;
-                }
-            });
+            }
         });
     }
+
+    // Modal Cancel Submission Trigger
+    window.onTieredWorkflowCancelSubmission = function () {
+        if (!confirm("Are you sure you want to cancel this review submission? The document will return to Active status.")) {
+            return;
+        }
+
+        const btnCancelSub = document.getElementById("btnCancelSubmissionWf");
+        if (btnCancelSub) {
+            btnCancelSub.disabled = true;
+            btnCancelSub.textContent = "Cancelling...";
+        }
+
+        fetch("../actions/review-handler.php?action=cancel_review", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Requested-With": "XMLHttpRequest"
+            },
+            body: JSON.stringify({ doc_id: docId })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                window.location.href = `view.php?id=${docId}`;
+            } else {
+                alert(data.message || "Failed to cancel review submission.");
+                if (btnCancelSub) {
+                    btnCancelSub.disabled = false;
+                    btnCancelSub.textContent = "Cancel Submission";
+                }
+            }
+        })
+        .catch(err => {
+            console.error("Error cancelling review submission:", err);
+            alert("Network error while cancelling review submission.");
+            if (btnCancelSub) {
+                btnCancelSub.disabled = false;
+                btnCancelSub.textContent = "Cancel Submission";
+            }
+        });
+    };
+
+    window.onTieredWorkflowConfirmed = function (stages) {
+        const btnConfirm = document.getElementById("btnConfirmWfPipeline");
+        if (btnConfirm) {
+            btnConfirm.disabled = true;
+            btnConfirm.innerHTML = `<span>Submitting...</span>`;
+        }
+
+        fetch("../actions/review-handler.php?action=submit_review", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Requested-With": "XMLHttpRequest"
+            },
+            body: JSON.stringify({
+                doc_id: docId,
+                stages: stages
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                if (typeof window.closeTieredWorkflowModal === "function") {
+                    window.closeTieredWorkflowModal();
+                }
+                window.location.href = `view.php?id=${docId}`;
+            } else {
+                alert(data.message || "Failed to submit review pipeline.");
+                if (btnConfirm) {
+                    btnConfirm.disabled = false;
+                    btnConfirm.innerHTML = `
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                        <span>Confirm Pipeline</span>
+                    `;
+                }
+            }
+        })
+        .catch(err => {
+            console.error("Error submitting review pipeline:", err);
+            alert("Network error while submitting review pipeline.");
+            if (btnConfirm) {
+                btnConfirm.disabled = false;
+                btnConfirm.innerHTML = `
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                    <span>Confirm Pipeline</span>
+                `;
+            }
+        });
+    };
 
     // --- 17. Finish Review & Verdict Handling ---
     const modalReviewVerdict = document.getElementById("modalReviewVerdict");
@@ -2957,11 +3001,11 @@ document.addEventListener("DOMContentLoaded", function () {
                 alert(data.message || "Failed to record verdict.");
                 if (btnApproveVerdict) {
                     btnApproveVerdict.disabled = false;
-                    btnApproveVerdict.innerHTML = "✔ Approve";
+                    btnApproveVerdict.innerHTML = "Approve";
                 }
                 if (btnRejectVerdict) {
                     btnRejectVerdict.disabled = false;
-                    btnRejectVerdict.innerHTML = "✖ Reject";
+                    btnRejectVerdict.innerHTML = "Reject";
                 }
                 if (btnCancelVerdict) btnCancelVerdict.disabled = false;
             }
@@ -2971,11 +3015,11 @@ document.addEventListener("DOMContentLoaded", function () {
             alert("Network error while recording verdict.");
             if (btnApproveVerdict) {
                 btnApproveVerdict.disabled = false;
-                btnApproveVerdict.innerHTML = "✔ Approve";
+                btnApproveVerdict.innerHTML = "Approve";
             }
             if (btnRejectVerdict) {
                 btnRejectVerdict.disabled = false;
-                btnRejectVerdict.innerHTML = "✖ Reject";
+                btnRejectVerdict.innerHTML = "Reject";
             }
             if (btnCancelVerdict) btnCancelVerdict.disabled = false;
         });
@@ -3014,14 +3058,14 @@ document.addEventListener("DOMContentLoaded", function () {
                 } else {
                     alert(data.message || "Failed to retract review submission.");
                     btnRetractReviewSubmission.disabled = false;
-                    btnRetractReviewSubmission.textContent = "↺ Retract Submission";
+                    btnRetractReviewSubmission.textContent = "Cancel Submission";
                 }
             })
             .catch(err => {
                 console.error("Error retracting review submission:", err);
                 alert("Network error while retracting review submission.");
                 btnRetractReviewSubmission.disabled = false;
-                btnRetractReviewSubmission.textContent = "↺ Retract Submission";
+                btnRetractReviewSubmission.textContent = "Cancel Submission";
             });
         });
     }
