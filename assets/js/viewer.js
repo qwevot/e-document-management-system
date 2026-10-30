@@ -2846,7 +2846,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     window.openTieredWorkflowModal({
                         stages: existingStages,
                         locked: true,
-                        canManage: (cfg.canRetractReview === true || cfg.isOwner === true)
+                        canManage: (cfg.canManageWorkflow === true)
                     });
                 } else {
                     window.openTieredWorkflowModal({

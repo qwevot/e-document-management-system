@@ -118,6 +118,18 @@ function submit_document_for_review(
         return ['success' => false, 'message' => 'Cannot submit an obsolete document for review.'];
     }
 
+    // If the document is currently in review, only the submitter or author can modify the workflow
+    if ($doc['status'] === 'hold') {
+        $stReq = $pdo->prepare("SELECT requested_by FROM dms_document_reviews WHERE document_id = :doc_id LIMIT 1");
+        $stReq->execute(['doc_id' => $docId]);
+        $requestedBy = (int)$stReq->fetchColumn();
+
+        $isSubmitter = ($userId === $requestedBy || (int)$doc['created_by'] === $userId);
+        if (!$isSubmitter) {
+            return ['success' => false, 'message' => 'Unauthorized. Reviewers cannot edit or cancel the review submission.'];
+        }
+    }
+
     // Normalize input to tiered stages
     $normalizedStages = [];
     if (!empty($reviewersOrStages) && isset($reviewersOrStages[0]) && (is_array($reviewersOrStages[0]) || is_object($reviewersOrStages[0]))) {

@@ -147,6 +147,7 @@ foreach ($reviews as $rev) {
     }
 }
 $allReviewersCount = count($reviews);
+$reviewerUserIds = array_values(array_unique(array_map('intval', array_column($reviews, 'reviewer_id'))));
 if ($submittedByUserId === 0) {
     $submittedByUserId = (int)$doc['created_by'];
 }
@@ -162,12 +163,14 @@ $canSubmitReview = ($isDocActive && $isContributor);
 $canManageAccess = $isOwner;
 
 $isSubmitter = ($userId === $submittedByUserId || (int)$doc['created_by'] === $userId);
+$isAssignedReviewer = in_array($userId, $reviewerUserIds, true);
 
 // Reviewers can act on the review only if they have an active pending review in the current stage
 $canActOnReview = $isDocHold && ($userPendingReview !== null);
 
-// Only the submitter who requested the review can retract/cancel it
-$canRetractReview = $isDocHold && $isSubmitter;
+// Only the submitter who is not currently an assigned reviewer can manage, edit, or retract the review workflow
+$canManageWorkflow = $isDocHold && $isSubmitter && !$isAssignedReviewer;
+$canRetractReview = $canManageWorkflow;
 $eligibleReviewers = get_eligible_reviewers($userId);
 
 // Check if file type can be rendered in the canvas/preview engine
@@ -193,8 +196,6 @@ $isSupportedViewer = ($renderMode !== 'unsupported');
 
 // --- AJAX Annotation Persistence API ---
 require_once __DIR__ . '/../includes/viewer_actions.php';
-
-$reviewerUserIds = array_values(array_unique(array_map('intval', array_column($reviews, 'reviewer_id'))));
 
 // Structure existing multi-stage review pipeline for modal inspection
 $existingReviewStages = [];
@@ -894,6 +895,7 @@ window.EDMS_WORKSPACE_CONFIG = {
     activeVersionName: <?php echo json_encode($activeVersionName); ?>,
     isHistoricalSnapshot: <?php echo $isHistoricalSnapshot ? 'true' : 'false'; ?>,
     canRetractReview: <?php echo $canRetractReview ? 'true' : 'false'; ?>,
+    canManageWorkflow: <?php echo $canManageWorkflow ? 'true' : 'false'; ?>,
     existingReviewStages: <?php echo json_encode($existingReviewStages); ?>,
     icons: {
         comment: <?php echo json_encode(render_icon('comment-add')); ?>,
