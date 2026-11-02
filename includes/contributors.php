@@ -82,10 +82,10 @@ function can_user_annotate_document(array $doc, int $userId): bool
 
     $docId = (int)$doc['id'];
 
-    // While on Hold (Review), strictly only assigned reviewers can annotate
+    // While on Hold (Review), strictly only active-stage pending reviewers can annotate
     if ($status === 'hold') {
         $pdo = db();
-        $rStmt = $pdo->prepare("SELECT 1 FROM dms_document_reviews WHERE document_id = :doc_id AND reviewer_id = :user_id");
+        $rStmt = $pdo->prepare("SELECT 1 FROM dms_document_reviews WHERE document_id = :doc_id AND reviewer_id = :user_id AND status = 'pending'");
         $rStmt->execute(['doc_id' => $docId, 'user_id' => $userId]);
         return (bool)$rStmt->fetchColumn();
     }

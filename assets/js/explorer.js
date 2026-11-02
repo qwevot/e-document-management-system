@@ -1109,6 +1109,7 @@
             if (popoverMove) popoverMove.style.display = isObsolete ? "none" : "flex";
             if (popoverActionMoveLabel) popoverActionMoveLabel.textContent = "Move to...";
             if (popoverActionDeleteLabel) popoverActionDeleteLabel.textContent = isObsolete ? "Restore" : "Trash";
+            if (popoverDelete) popoverDelete.style.color = isObsolete ? "var(--green)" : "";
 
             // Configure Open Workspace link in popover
             if (popoverView) {
@@ -1535,7 +1536,9 @@
                     const fd = new FormData();
                     fd.append("action", "restore_node");
                     fd.append("id", currentActiveItem.id);
-                    fetch("explorer.php", { method: "POST", body: fd }).then(() => window.location.reload());
+                    fetch("explorer.php", { method: "POST", body: fd, headers: { "X-Requested-With": "XMLHttpRequest" } })
+                        .then(r => r.json())
+                        .then(d => d.success ? window.location.reload() : showBottomToast(d.message || "Failed to restore item.", "error"));
                     return;
                 }
                 const isBulk = isContextMenuActive && selectedItemsMap.size > 1;
@@ -1791,6 +1794,7 @@
                 if (popoverRename) popoverRename.style.display = "none";
                 if (popoverActionMoveLabel) popoverActionMoveLabel.textContent = `Move ${count} items...`;
                 if (popoverActionDeleteLabel) popoverActionDeleteLabel.textContent = `Trash (${count})`;
+                if (popoverDelete) popoverDelete.style.color = "";
             } else {
                 const singleItem = Array.from(selectedItemsMap.values())[0];
                 currentActiveItem = singleItem;
@@ -1817,6 +1821,7 @@
                 if (popoverMove) popoverMove.style.display = isObsolete ? "none" : "flex";
                 if (popoverActionMoveLabel) popoverActionMoveLabel.textContent = "Move to...";
                 if (popoverActionDeleteLabel) popoverActionDeleteLabel.textContent = isObsolete ? "Restore" : "Trash";
+                if (popoverDelete) popoverDelete.style.color = isObsolete ? "var(--green)" : "";
             }
 
             // Position Context Popover at cursor with boundary safety

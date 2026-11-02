@@ -180,9 +180,10 @@ window.EDMS_WORKFLOW_REVIEWERS = <?php echo json_encode(array_map(function($r) {
                     if (!r) return;
 
                     let reviewerStatusBadge = "";
+                    let rStat = "waiting";
                     if (st.reviewers) {
                         const rData = st.reviewers.find(item => item.id === uid);
-                        const rStat = rData ? rData.status : "waiting";
+                        rStat = rData ? rData.status : "waiting";
                         if (rStat === "approved") {
                             reviewerStatusBadge = `<span style="font-size: 11px; font-weight: 700; color: var(--green);" title="Approved">&#10003;</span>`;
                         } else if (rStat === "pending") {
@@ -192,7 +193,7 @@ window.EDMS_WORKFLOW_REVIEWERS = <?php echo json_encode(array_map(function($r) {
                         }
                     }
 
-                    const canRemovePill = !isLocked && !isStageApproved;
+                    const canRemovePill = !isLocked && !isStageApproved && (rStat !== "approved");
                     assignedPillsHtml += `
                         <div class="wf-reviewer-pill" data-uid="${r.id}" style="display: flex; align-items: center; justify-content: space-between; padding: 5px 8px; border-radius: 6px; background: var(--surface-light); font-size: 12.5px; gap: 8px;">
                             <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
@@ -343,12 +344,6 @@ window.EDMS_WORKFLOW_REVIEWERS = <?php echo json_encode(array_map(function($r) {
                     searchInput.addEventListener("input", function() {
                         updateDropdown();
                         dropdown.style.display = "flex";
-                    });
-
-                    document.addEventListener("click", function(e) {
-                        if (!node.contains(e.target)) {
-                            dropdown.style.display = "none";
-                        }
                     });
                 }
             }
@@ -512,6 +507,16 @@ window.EDMS_WORKFLOW_REVIEWERS = <?php echo json_encode(array_map(function($r) {
             if (e.target === modal) window.closeTieredWorkflowModal();
         });
     }
+
+    document.addEventListener("click", function(e) {
+        if (!stagesList) return;
+        stagesList.querySelectorAll(".wf-stage-node").forEach(stageNode => {
+            if (!stageNode.contains(e.target)) {
+                const dd = stageNode.querySelector(".wf-search-dropdown");
+                if (dd) dd.style.display = "none";
+            }
+        });
+    });
 
     if (form) {
         form.addEventListener("submit", function(e) {

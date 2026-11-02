@@ -64,6 +64,22 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     }
     $action = $_POST['action'] ?? '';
 
+    if ($action === 'toggle_star') {
+        header('Content-Type: application/json');
+        $uid = (int)(current_user()['id'] ?? 0);
+        $nid = (int)($_POST['id'] ?? 0);
+        if ($uid <= 0 || $nid <= 0) { echo json_encode(['success' => false]); exit; }
+        $del = $pdo->prepare("DELETE FROM dms_starred_nodes WHERE user_id = ? AND node_id = ?");
+        $del->execute([$uid, $nid]);
+        if ($del->rowCount() === 0) {
+            $pdo->prepare("INSERT IGNORE INTO dms_starred_nodes (user_id, node_id) VALUES (?, ?)")->execute([$uid, $nid]);
+            echo json_encode(['success' => true, 'starred' => true]);
+        } else {
+            echo json_encode(['success' => true, 'starred' => false]);
+        }
+        exit;
+    }
+
     // Disallow mutating operations if current user does not have edit permissions (e.g., viewers)
     if (!can_edit_dms() && in_array($action, ['create_folder', 'rename_node', 'batch_move', 'batch_archive', 'move_node', 'delete_node', 'restore_node', 'upload_document'], true)) {
         log_activity('auth.access_denied', 'node', null, [
@@ -535,17 +551,32 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         $currUid = (int)(current_user()['id'] ?? 0);
         $isAdmin = in_array(current_role(), ['super admin', 'admin'], true) ? 1 : 0;
 
-        $stmt = $pdo->prepare("UPDATE dms_nodes SET is_deleted = 0, status = 'active', updated_at = NOW() WHERE id = ? AND (created_by = ? OR ? = 1)");
-        $stmt->execute([$nodeId, $currUid, $isAdmin]);
+        $nStmt = $pdo->prepare("SELECT id, name, parent_id, node_type FROM dms_nodes WHERE id = ? AND (created_by = ? OR ? = 1)");
+        $nStmt->execute([$nodeId, $currUid, $isAdmin]);
+        $targetNode = $nStmt->fetch(PDO::FETCH_ASSOC);
+        $restoreIds = $targetNode ? get_descendant_node_ids($pdo, [$nodeId], false, true) : [];
+        $conflictName = null;
+        if ($restoreIds) {
+            foreach ($pdo->query("SELECT id, name, parent_id FROM dms_nodes WHERE id IN (" . implode(',', $restoreIds) . ") AND is_deleted = 1")->fetchAll(PDO::FETCH_ASSOC) as $rNode) {
+                if (is_node_duplicate($pdo, !empty($rNode['parent_id']) ? (int)$rNode['parent_id'] : null, $rNode['name'], (int)$rNode['id'])) {
+                    $conflictName = $rNode['name'];
+                    break;
+                }
+            }
+        }
 
-        log_activity('node.restore', 'document', $nodeId, []);
-
-        if ($isAjax) {
+        if (!$targetNode || $conflictName !== null) {
+            $errMsg = $targetNode ? "Cannot restore: an active item named \"{$conflictName}\" already exists in the destination folder." : 'Item not found or unauthorized.';
             header('Content-Type: application/json');
-            echo json_encode(['success' => true, 'message' => 'Document restored to active workspace.']);
+            echo json_encode(['success' => false, 'message' => $errMsg]);
             exit;
         }
-        header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? 'my-workspace.php'));
+
+        $pdo->exec("UPDATE dms_nodes SET is_deleted = 0, status = 'active', updated_at = NOW() WHERE id IN (" . implode(',', $restoreIds) . ") AND is_deleted = 1");
+        log_activity('node.restore', $targetNode['node_type'] ?? 'document', $nodeId, ['name' => $targetNode['name'], 'affected_node_ids' => $restoreIds]);
+
+        header('Content-Type: application/json');
+        echo json_encode(['success' => true, 'message' => 'Document restored to active workspace.']);
         exit;
     }
 
@@ -616,7 +647,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 $relativeStoragePath = $stored['file_path'];
 
                 if ($docName === '') {
-                    $docName = pathinfo($originalName, PATHINFO_FILENAME);
+                    $docName = preg_replace('/\.(docx?|xlsx?|pptx?|pdf|odt|ods|odp|rtf|csv|txt)$/i', '', pathinfo($originalName, PATHINFO_FILENAME));
                 }
                 // Verify parent folder exists if specified
                 if ($postParentId !== null) {

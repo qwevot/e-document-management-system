@@ -88,23 +88,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $parentId = $nodeToRestore['parent_id'] !== null ? (int)$nodeToRestore['parent_id'] : null;
             $name = $nodeToRestore['name'];
+            $allAffectedIds = get_descendant_node_ids($pdo, [$nodeId], false, true);
+            $conflictName = null;
+            foreach ($pdo->query("SELECT id, name, parent_id FROM dms_nodes WHERE id IN (" . implode(',', $allAffectedIds) . ") AND is_deleted = 1")->fetchAll(PDO::FETCH_ASSOC) as $rNode) {
+                if (is_node_duplicate($pdo, $rNode['parent_id'] !== null ? (int)$rNode['parent_id'] : null, $rNode['name'], (int)$rNode['id'])) {
+                    $conflictName = $rNode['name'];
+                    break;
+                }
+            }
 
-            if (is_node_duplicate($pdo, $parentId, $name, $nodeId)) {
+            if ($conflictName !== null) {
                 if ($isAjax) {
                     header('Content-Type: application/json');
                     echo json_encode([
                         'success'   => false,
-                        'message'   => "Cannot restore: An active item named \"{$name}\" already exists in the destination folder.",
+                        'message'   => "Cannot restore: An active item named \"{$conflictName}\" already exists in the destination folder.",
                         'duplicate' => true
                     ]);
                     exit;
                 }
-                redirect_to('archives', 'error', "An item named '{$name}' already exists in that folder.");
+                redirect_to('archives', 'error', "An item named '{$conflictName}' already exists in that folder.");
             }
 
-            $allAffectedIds = get_descendant_node_ids($pdo, [$nodeId], false);
             $placeholders = implode(',', array_fill(0, count($allAffectedIds), '?'));
-            $pdo->prepare("UPDATE dms_nodes SET is_deleted = 0, status = 'active', updated_at = NOW() WHERE id IN ($placeholders)")->execute($allAffectedIds);
+            $pdo->prepare("UPDATE dms_nodes SET is_deleted = 0, status = 'active', updated_at = NOW() WHERE id IN ($placeholders) AND is_deleted = 1")->execute($allAffectedIds);
 
             log_activity('node.restore', 'node', $nodeId, [
                 'name'              => $name,
@@ -132,10 +139,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
-        $placeholders = implode(',', array_fill(0, count($nodeIds), '?'));
-        $itemsStmt = $pdo->prepare("SELECT id, name, parent_id FROM dms_nodes WHERE id IN ($placeholders) AND is_deleted = 1");
-        $itemsStmt->execute($nodeIds);
-        $movingItems = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+        $allAffectedIds = get_descendant_node_ids($pdo, $nodeIds, false, true);
+        $movingItems = $allAffectedIds ? $pdo->query("SELECT id, name, parent_id FROM dms_nodes WHERE id IN (" . implode(',', $allAffectedIds) . ") AND is_deleted = 1")->fetchAll(PDO::FETCH_ASSOC) : [];
 
         $conflictingNames = [];
         foreach ($movingItems as $mItem) {
@@ -156,10 +161,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
-        $allAffectedIds = get_descendant_node_ids($pdo, $nodeIds, false);
         if (!empty($allAffectedIds)) {
             $descPlaceholders = implode(',', array_fill(0, count($allAffectedIds), '?'));
-            $pdo->prepare("UPDATE dms_nodes SET is_deleted = 0, status = 'active', updated_at = NOW() WHERE id IN ($descPlaceholders)")->execute($allAffectedIds);
+            $pdo->prepare("UPDATE dms_nodes SET is_deleted = 0, status = 'active', updated_at = NOW() WHERE id IN ($descPlaceholders) AND is_deleted = 1")->execute($allAffectedIds);
 
             log_activity('node.batch_restore', 'node', null, [
                 'selected_node_ids' => $nodeIds,

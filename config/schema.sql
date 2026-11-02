@@ -38,7 +38,9 @@ CREATE TABLE IF NOT EXISTS `dms_nodes` (
     INDEX `idx_status` (`status`),
     INDEX `idx_is_deleted` (`is_deleted`),
     INDEX `idx_created_by` (`created_by`),
+    INDEX `idx_file_extension` (`file_extension`),
     INDEX `idx_parent_deleted_status` (`parent_id`, `is_deleted`, `status`),
+    INDEX `idx_type_deleted_status` (`node_type`, `is_deleted`, `status`),
     CONSTRAINT `fk_dms_nodes_parent` FOREIGN KEY (`parent_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -67,18 +69,31 @@ CREATE TABLE IF NOT EXISTS `dms_document_reviews` (
     `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     `document_id` BIGINT UNSIGNED NOT NULL,
     `version` VARCHAR(20) NOT NULL DEFAULT 'v0.1',
+    `step_order` INT UNSIGNED NOT NULL DEFAULT 1,
     `requested_by` BIGINT UNSIGNED NOT NULL,
     `reviewer_id` BIGINT UNSIGNED NOT NULL,
-    `status` ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
+    `status` ENUM('waiting', 'pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
     `comments` TEXT NULL,
     `reviewed_at` DATETIME NULL,
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX `idx_review_doc` (`document_id`, `status`),
+    INDEX `idx_review_doc_ver_step` (`document_id`, `version`, `step_order`, `status`),
     INDEX `idx_review_reviewer` (`reviewer_id`, `status`),
+    INDEX `idx_review_req_status` (`requested_by`, `status`, `reviewed_at`),
     KEY `fk_reviews_req_user` (`requested_by`),
     CONSTRAINT `fk_reviews_doc` FOREIGN KEY (`document_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_reviews_req_user` FOREIGN KEY (`requested_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_reviews_rev_user` FOREIGN KEY (`reviewer_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `dms_notification_reads` (
+    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `user_id` BIGINT UNSIGNED NOT NULL,
+    `notif_type` VARCHAR(32) NOT NULL,
+    `item_id` BIGINT UNSIGNED NOT NULL,
+    `read_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY `uk_user_notif` (`user_id`, `notif_type`, `item_id`),
+    INDEX `idx_notif_user` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `dms_document_contributors` (
@@ -161,6 +176,16 @@ CREATE TABLE IF NOT EXISTS `dms_document_comments` (
     CONSTRAINT `fk_comment_doc` FOREIGN KEY (`document_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_comment_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_comment_parent` FOREIGN KEY (`parent_id`) REFERENCES `dms_document_comments` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `dms_starred_nodes` (
+    `user_id` BIGINT UNSIGNED NOT NULL,
+    `node_id` BIGINT UNSIGNED NOT NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`user_id`, `node_id`),
+    INDEX `idx_starred_node` (`node_id`),
+    CONSTRAINT `fk_star_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_star_node` FOREIGN KEY (`node_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `system_logs` (

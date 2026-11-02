@@ -554,8 +554,15 @@ document.addEventListener("DOMContentLoaded", function () {
     window.addEventListener("mouseup", handleStopDrawing);
     window.addEventListener("touchend", handleStopDrawing);
 
-    // Global drag move for continuous cross-page object transformation
+    // Global drag move for continuous cross-page object transformation & stage panning
     const onGlobalDrag = (e) => {
+        if (isPanningStage && workspaceCenterStage && panStartClient) {
+            const cx = e.clientX || (e.touches ? e.touches[0].clientX : 0);
+            const cy = e.clientY || (e.touches ? e.touches[0].clientY : 0);
+            workspaceCenterStage.scrollLeft = panStartScroll.left - (cx - panStartClient.x);
+            workspaceCenterStage.scrollTop = panStartScroll.top - (cy - panStartClient.y);
+            return;
+        }
         if (activeTool !== "select" || !isDraggingObject || !selectedAnnotation) return;
         const p = e.touches ? e.touches[0] : e;
         const wrapper = document.elementFromPoint(p.clientX, p.clientY)?.closest(".pdf-page-wrapper, section.docx");
@@ -1030,11 +1037,14 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
-        if (activeTool === "pan") {
+        if (activeTool === "pan" || isPanningStage) {
             if (isPanningStage) {
                 isPanningStage = false;
+                if (workspaceCenterStage) {
+                    workspaceCenterStage.style.cursor = (activeTool === "pan") ? "grab" : "";
+                }
                 const canvas = document.getElementById(`annoCanvas_${activeDrawingPage}`);
-                if (canvas) canvas.style.cursor = "grab";
+                if (canvas) canvas.style.cursor = (activeTool === "pan") ? "grab" : ((activeTool === "select") ? "default" : (activeTool === "eraser" ? "cell" : "crosshair"));
             }
             return;
         }
@@ -1775,7 +1785,20 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    // --- 8. Continuous Scroll & Page Navigation Observer ---
+    // --- 8. Continuous Scroll & Stage Centering Observer ---
+    function centerStageHorizontally(smooth = false) {
+        if (!workspaceCenterStage) return;
+        const maxScroll = workspaceCenterStage.scrollWidth - workspaceCenterStage.clientWidth;
+        if (maxScroll > 0) {
+            const targetX = Math.round(maxScroll / 2);
+            if (smooth) {
+                workspaceCenterStage.scrollTo({ left: targetX, behavior: "smooth" });
+            } else {
+                workspaceCenterStage.scrollLeft = targetX;
+            }
+        }
+    }
+
     function setupScrollObserver() {
         if (!window.IntersectionObserver || !workspaceCenterStage) return;
 
@@ -1797,6 +1820,7 @@ document.addEventListener("DOMContentLoaded", function () {
         document.querySelectorAll(".pdf-page-wrapper").forEach(pageEl => {
             observer.observe(pageEl);
         });
+        setTimeout(() => centerStageHorizontally(false), 60);
     }
 
     function scrollToPage(pageNum) {
@@ -1845,7 +1869,10 @@ document.addEventListener("DOMContentLoaded", function () {
     if (btnZoomFit) {
         btnZoomFit.addEventListener("click", () => {
             if (!workspaceCenterStage) return;
-            const containerWidth = workspaceCenterStage.clientWidth - 80;
+            const cs = window.getComputedStyle ? window.getComputedStyle(workspaceCenterStage) : null;
+            const padL = cs ? (parseFloat(cs.paddingLeft) || 32) : 32;
+            const padR = cs ? (parseFloat(cs.paddingRight) || 32) : 32;
+            const containerWidth = Math.max(300, workspaceCenterStage.clientWidth - padL - padR - 40);
             if (renderMode === "image" && loadedImageObj) {
                 const natW = loadedImageObj.naturalWidth || 800;
                 const baseDisplayWidth = Math.min(natW, 900);
@@ -1875,7 +1902,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }, { passive: false });
 
-    // Intercept Mouse Wheel Zoom (Ctrl + Scroll Wheel)
+    // Intercept Mouse Wheel Zoom (Ctrl + Wheel) & Sideways Scroll (Shift + Wheel)
     window.addEventListener("wheel", function (e) {
         if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
@@ -1884,8 +1911,24 @@ document.addEventListener("DOMContentLoaded", function () {
             } else if (e.deltaY > 0) {
                 setZoom(currentZoomPercent - 10);
             }
+        } else if (e.shiftKey && workspaceCenterStage) {
+            e.preventDefault();
+            workspaceCenterStage.scrollLeft += (e.deltaY || e.deltaX);
         }
     }, { passive: false });
+
+    // Allow panning directly by dragging the stage background in Pan mode or with middle-click
+    if (workspaceCenterStage) {
+        workspaceCenterStage.addEventListener("mousedown", (e) => {
+            if (activeTool === "pan" || e.button === 1) {
+                isPanningStage = true;
+                panStartClient = { x: e.clientX, y: e.clientY };
+                panStartScroll = { left: workspaceCenterStage.scrollLeft, top: workspaceCenterStage.scrollTop };
+                workspaceCenterStage.style.cursor = "grabbing";
+                e.preventDefault();
+            }
+        });
+    }
 
     // --- 10. Tool Palette Switching ---
     if (isAnnotationLocked) {

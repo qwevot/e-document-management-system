@@ -30,7 +30,7 @@ if (!$doc) {
     die('Document data not found.');
 }
 
-if (!empty($doc['is_deleted']) && !is_admin()) {
+if (!empty($doc['is_deleted']) && !is_admin() && (int)($doc['created_by'] ?? 0) !== (int)(current_user()['id'] ?? 0)) {
     redirect_to('explorer', 'error', 'Document is archived or inaccessible.');
 }
 
@@ -122,8 +122,11 @@ if (!$isAjaxRequest) {
     }
 }
 
-// Review and workflow query
-$reviews = get_document_reviews($docId);
+// Review and workflow query (scoped to the active/target major version cycle)
+$reviewTargetVersion = ($doc['status'] === 'published')
+    ? ($doc['version'] ?: 'v1.0')
+    : calculate_next_version($doc['version'] ?: 'v0.1', 'major');
+$reviews = get_document_reviews($docId, $reviewTargetVersion);
 $isDocHold = ($doc['status'] === 'hold');
 $isDocActive = ($doc['status'] === 'active');
 $isDocPublished = ($doc['status'] === 'published');
@@ -157,19 +160,19 @@ $isViewer = !can_edit_dms($currentUser);
 $isOwner = (!$isViewer && ((int)$doc['created_by'] === $userId || $isAdmin));
 $accessMode = $doc['access_mode'] ?? 'restricted';
 $isContributor = is_document_contributor($docId, $userId);
-$canAnnotate = can_user_annotate_document($doc, $userId);
-$canUploadRevision = can_user_upload_revision($doc, $userId);
-$canSubmitReview = ($isDocActive && $isContributor);
+$isAssignedReviewer = in_array($userId, $reviewerUserIds, true);
+$canAnnotate = !$isHistoricalSnapshot && can_user_annotate_document($doc, $userId);
+$canUploadRevision = !$isHistoricalSnapshot && can_user_upload_revision($doc, $userId);
+$canSubmitReview = (!$isHistoricalSnapshot && in_array($doc['status'] ?? '', ['active', 'rejected', 'suspend'], true) && $isContributor);
 $canManageAccess = $isOwner;
 
 $isSubmitter = ($userId === $submittedByUserId || (int)$doc['created_by'] === $userId);
-$isAssignedReviewer = in_array($userId, $reviewerUserIds, true);
 
 // Reviewers can act on the review only if they have an active pending review in the current stage
-$canActOnReview = $isDocHold && ($userPendingReview !== null);
+$canActOnReview = !$isHistoricalSnapshot && $isDocHold && ($userPendingReview !== null);
 
 // Only the submitter who is not currently an assigned reviewer can manage, edit, or retract the review workflow
-$canManageWorkflow = $isDocHold && $isSubmitter && !$isAssignedReviewer;
+$canManageWorkflow = !$isHistoricalSnapshot && $isDocHold && $isSubmitter && !$isAssignedReviewer;
 $canRetractReview = $canManageWorkflow;
 $eligibleReviewers = get_eligible_reviewers($userId);
 
@@ -245,10 +248,10 @@ if (!empty($reviews)) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo e($doc['name']); ?> - Workspace Viewer</title>
     <meta name="csrf-token" content="<?php echo e(csrf_token()); ?>">
-    <link rel="stylesheet" href="../assets/css/styles.css">
-    <link rel="stylesheet" href="../assets/css/responsive.css">
-    <link rel="stylesheet" href="../assets/css/viewer.css">
-    <link rel="stylesheet" href="../assets/css/explorer.css">
+    <link rel="stylesheet" href="../assets/css/styles.css?v=<?php echo filemtime(__DIR__ . '/../assets/css/styles.css'); ?>">
+    <link rel="stylesheet" href="../assets/css/responsive.css?v=<?php echo filemtime(__DIR__ . '/../assets/css/responsive.css'); ?>">
+    <link rel="stylesheet" href="../assets/css/viewer.css?v=<?php echo filemtime(__DIR__ . '/../assets/css/viewer.css'); ?>">
+    <link rel="stylesheet" href="../assets/css/explorer.css?v=<?php echo filemtime(__DIR__ . '/../assets/css/explorer.css'); ?>">
     <script>
     function handleWorkspaceBack(e, fallbackUrl) {
         if (window.history.length > 1 && document.referrer && !document.referrer.includes('view.php')) {
@@ -371,7 +374,8 @@ if (!empty($reviews)) {
                                     <span class="menu-item-sub">Convert to clean vector PDF</span>
                                 </div>
                             </a>
-                        <?php else: ?>
+                        <?php endif; ?>
+                        <?php if ($renderMode === 'pdf' || $renderMode === 'image'): ?>
                             <button type="button" class="download-menu-item" id="btnDownloadWithAnnotations">
                                 <?php echo render_icon('edit'); ?>
                                 <div class="menu-item-text">
@@ -398,7 +402,7 @@ if (!empty($reviews)) {
                 </button>
             <?php endif; ?>
 
-            <?php if ($isDocPublished && $isContributor): ?>
+            <?php if (!$isHistoricalSnapshot && $isDocPublished && $isContributor): ?>
                 <button type="button" class="btn-workspace-action" title="Suspend for Revision" style="color: var(--red);" onclick="document.getElementById('modalSuspendDoc').classList.add('is-open')">
                     <?php echo render_icon('close'); ?>
                     <span>Suspend</span>
@@ -411,7 +415,7 @@ if (!empty($reviews)) {
                     <?php echo render_icon('files'); ?>
                     <span>Approval</span>
                 </button>
-            <?php elseif ($isDocHold): ?>
+            <?php elseif (!$isHistoricalSnapshot && $isDocHold): ?>
                 <!-- Review Progress / Pipeline Trigger -->
                 <button type="button" class="btn-workspace-action" id="btnOpenSubmitReviewModal" title="View Review Approval Pipeline &amp; Progress" style="background: var(--amber-soft); border-color: var(--amber-line); color: var(--amber-ink);">
                     <?php echo render_icon('files'); ?>

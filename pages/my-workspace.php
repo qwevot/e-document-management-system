@@ -7,32 +7,35 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/review.php';
 require_once __DIR__ . '/../includes/contributors.php';
-require_once __DIR__ . '/../includes/header.php';
+require_login();
 
 $pdo = db();
 $user = current_user();
 $userId = (int)($user['id'] ?? 0);
 
-// 1. My Workspace: Documents authored by user OR where user is a contributor
+// 1. My Workspace: Documents authored by user, where user is a contributor, OR starred by user
 $myDocsStmt = $pdo->prepare("
     SELECT DISTINCT d.id, d.name, d.version, d.status, d.file_extension, d.updated_at, d.created_at,
            d.parent_id, p.name AS parent_name,
            COALESCE(u.full_name, u.username, 'System') AS creator_name,
            u.avatar AS creator_avatar,
-           (d.created_by = :uid1) AS is_owner
+           (d.created_by = :uid1) AS is_owner,
+           (d.created_by = :uid1b OR c.user_id IS NOT NULL) AS is_mine,
+           (s.node_id IS NOT NULL) AS is_starred
     FROM dms_nodes d
     LEFT JOIN users u ON d.created_by = u.id
     LEFT JOIN dms_nodes p ON d.parent_id = p.id
     LEFT JOIN dms_document_contributors c ON d.id = c.document_id AND c.user_id = :uid2
+    LEFT JOIN dms_starred_nodes s ON d.id = s.node_id AND s.user_id = :uid5
     WHERE d.node_type = 'document'
       AND (
-          (d.is_deleted = 0 AND (d.created_by = :uid3 OR c.user_id IS NOT NULL))
+          (d.is_deleted = 0 AND (d.created_by = :uid3 OR c.user_id IS NOT NULL OR s.node_id IS NOT NULL))
           OR
           (d.is_deleted = 1 AND d.status = 'obsolete' AND d.created_by = :uid4)
       )
     ORDER BY d.updated_at DESC
 ");
-$myDocsStmt->execute(['uid1' => $userId, 'uid2' => $userId, 'uid3' => $userId, 'uid4' => $userId]);
+$myDocsStmt->execute(['uid1' => $userId, 'uid1b' => $userId, 'uid2' => $userId, 'uid3' => $userId, 'uid4' => $userId, 'uid5' => $userId]);
 $myDocs = $myDocsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // 3. Recently Opened Documents: Aggregated by most recent access by current user
@@ -60,14 +63,18 @@ $recentDocs = $recentTouchedStmt->fetchAll(PDO::FETCH_ASSOC);
 $pendingReviews = get_pending_reviews_for_user($userId);
 $totalPending = count($pendingReviews);
 
-$statusCounts = array_count_values(array_column($myDocs, 'status'));
-$totalMyDocs = count($myDocs) - ($statusCounts['obsolete'] ?? 0);
+$mineDocs = array_filter($myDocs, fn($d) => !empty($d['is_mine']));
+$statusCounts = array_count_values(array_column($mineDocs, 'status'));
+$totalMyDocs = count($mineDocs) - ($statusCounts['obsolete'] ?? 0);
+$totalStarred = count(array_filter($myDocs, fn($d) => !empty($d['is_starred']) && $d['status'] !== 'obsolete'));
 
 function ws_loc_badge(?int $pid, ?string $pname): string {
     $url = $pid ? "explorer.php?mode=project&folder=$pid" : 'explorer.php?mode=project';
     $name = e($pname ?: 'Projects');
     return "<a href=\"$url\" class=\"location-badge\" title=\"Located in: $name\">" . render_icon('folder') . "<span class=\"loc-name\">$name</span></a>";
 }
+
+require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <div class="welcome-header">
@@ -76,70 +83,8 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
     
 <?php require_once __DIR__ . '/../includes/flash.php'; ?>
 
-<!-- Main 2-Column Dashboard Grid: Gmail-style Mailbox Left, Documents Right -->
-<div class="workspace-dashboard-grid">
-
-    <!-- Left Column: Mailbox Category Sidebar -->
-    <aside class="ws-mailbox-sidebar">
-        <div class="ws-mailbox-group">
-            <div class="ws-mailbox-heading">WORKSPACE</div>
-            <button type="button" class="ws-mailbox-item is-active" data-filter="all" onclick="filterWorkspace(this, 'all')">
-                <span class="ws-mailbox-icon"><?php echo render_icon('workspace'); ?></span>
-                <span class="ws-mailbox-label">My Workspace</span>
-                <span class="ws-mailbox-count"><?php echo $totalMyDocs; ?></span>
-            </button>
-            <button type="button" class="ws-mailbox-item" data-filter="recent" onclick="filterWorkspace(this, 'recent')">
-                <span class="ws-mailbox-icon"><?php echo render_icon('history'); ?></span>
-                <span class="ws-mailbox-label">Recently Opened</span>
-            </button>
-            <button type="button" class="ws-mailbox-item" data-filter="pending" onclick="filterWorkspace(this, 'pending')">
-                <span class="ws-mailbox-icon"><?php echo render_icon('tasks'); ?></span>
-                <span class="ws-mailbox-label">Pending Review</span>
-                <?php if ($totalPending > 0): ?>
-                    <span class="ws-mailbox-count" style="background: var(--amber-soft); color: var(--amber-ink); font-weight: 700;"><?php echo $totalPending; ?></span>
-                <?php endif; ?>
-            </button>
-        </div>
-
-        <div class="ws-mailbox-divider"></div>
-
-        <div class="ws-mailbox-group">
-            <div class="ws-mailbox-heading">STATUS</div>
-            <button type="button" class="ws-mailbox-item" data-filter="active" onclick="filterWorkspace(this, 'active')">
-                <span class="ws-status-dot" style="background: var(--info-blue);"></span>
-                <span class="ws-mailbox-label">Active</span>
-                <span class="ws-mailbox-count"><?php echo $statusCounts['active'] ?? 0; ?></span>
-            </button>
-            <button type="button" class="ws-mailbox-item" data-filter="hold" onclick="filterWorkspace(this, 'hold')">
-                <span class="ws-status-dot" style="background: var(--amber);"></span>
-                <span class="ws-mailbox-label">Hold</span>
-                <span class="ws-mailbox-count"><?php echo $statusCounts['hold'] ?? 0; ?></span>
-            </button>
-            <button type="button" class="ws-mailbox-item" data-filter="rejected" onclick="filterWorkspace(this, 'rejected')">
-                <span class="ws-status-dot" style="background: var(--red);"></span>
-                <span class="ws-mailbox-label">Rejected</span>
-                <span class="ws-mailbox-count"><?php echo $statusCounts['rejected'] ?? 0; ?></span>
-            </button>
-            <button type="button" class="ws-mailbox-item" data-filter="published" onclick="filterWorkspace(this, 'published')">
-                <span class="ws-status-dot" style="background: var(--green);"></span>
-                <span class="ws-mailbox-label">Published</span>
-                <span class="ws-mailbox-count"><?php echo $statusCounts['published'] ?? 0; ?></span>
-            </button>
-            <button type="button" class="ws-mailbox-item" data-filter="suspend" onclick="filterWorkspace(this, 'suspend')">
-                <span class="ws-status-dot" style="background: var(--red-soft, #fca5a5); border: 1px solid var(--red);"></span>
-                <span class="ws-mailbox-label">Suspend</span>
-                <span class="ws-mailbox-count"><?php echo $statusCounts['suspend'] ?? 0; ?></span>
-            </button>
-            <button type="button" class="ws-mailbox-item" data-filter="obsolete" onclick="filterWorkspace(this, 'obsolete')">
-                <span class="ws-status-dot" style="background: var(--slate);"></span>
-                <span class="ws-mailbox-label">Obsolete (Trash)</span>
-                <span class="ws-mailbox-count"><?php echo $statusCounts['obsolete'] ?? 0; ?></span>
-            </button>
-        </div>
-    </aside>
-
-    <!-- Right Column: Document Feeds Stage -->
-    <div class="explorer-wrapper" style="margin: 0;">
+<!-- Document Feeds Stage -->
+<div class="explorer-wrapper">
 
         <!-- Top Action & Search Bar -->
         <div class="explorer-toolbar-card" style="margin-bottom: 16px;">
@@ -188,7 +133,7 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                     $extIcon = $doc['file_extension'] ?: 'pdf';
                     $displayName = format_document_display_name($doc['name'], $doc['file_extension'] ?? null);
                     ?>
-                    <div class="explorer-item-card is-document" data-id="<?php echo (int)$doc['id']; ?>" data-name="<?php echo htmlspecialchars($doc['name'], ENT_QUOTES, 'UTF-8'); ?>" data-type="document" data-location="<?php echo htmlspecialchars($doc['parent_name'] ?? 'Projects', ENT_QUOTES, 'UTF-8'); ?>" data-status="<?php echo e($doc['status']); ?>">
+                    <div class="explorer-item-card is-document" data-id="<?php echo (int)$doc['id']; ?>" data-name="<?php echo htmlspecialchars($doc['name'], ENT_QUOTES, 'UTF-8'); ?>" data-type="document" data-location="<?php echo htmlspecialchars($doc['parent_name'] ?? 'Projects', ENT_QUOTES, 'UTF-8'); ?>" data-status="<?php echo e($doc['status']); ?>" data-mine="<?php echo !empty($doc['is_mine']) ? '1' : '0'; ?>" data-starred="<?php echo !empty($doc['is_starred']) ? '1' : '0'; ?>">
                         <div class="item-checkbox-col">
                             <input type="checkbox" class="item-checkbox" value="<?php echo (int)$doc['id']; ?>" aria-label="Select item">
                         </div>
@@ -222,6 +167,7 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
                         </div>
 
                         <div class="item-actions-col">
+                            <button type="button" class="btn-action btn-star <?php echo !empty($doc['is_starred']) ? 'is-starred' : ''; ?>" onclick="toggleStar(event, <?php echo (int)$doc['id']; ?>, this)" title="Star document"><?php echo render_icon('star'); ?></button>
                             <button type="button" class="btn-action btn-more-actions" 
                                     data-id="<?php echo (int)$doc['id']; ?>" 
                                     data-name="<?php echo htmlspecialchars($doc['name'], ENT_QUOTES, 'UTF-8'); ?>" 
@@ -421,23 +367,21 @@ function ws_loc_badge(?int $pid, ?string $pname): string {
             </div>
         </div>
 
-    </div>
-
 </div>
 
 <?php require_once __DIR__ . '/../includes/item_actions.php'; ?>
 <?php include __DIR__ . '/../includes/modal_upload_doc.php'; ?>
 
 <script>
-let currentWsFilter = 'all';
+let currentWsFilter = new URLSearchParams(window.location.search).get('filter') || 'all';
 let wsCurrentPage = 1;
 let wsPerPage = 25;
 
 function filterWorkspace(btn, filter) {
-    document.querySelectorAll('.ws-mailbox-item').forEach(el => el.classList.remove('is-active'));
-    if (btn) btn.classList.add('is-active');
+    document.querySelectorAll('.sidebar [data-filter]').forEach(el => el.classList.toggle('active', el.dataset.filter === filter));
     currentWsFilter = filter;
     wsCurrentPage = 1;
+    history.replaceState(null, '', '?filter=' + encodeURIComponent(filter));
     applyWorkspaceFilters();
 }
 
@@ -496,7 +440,9 @@ function applyWorkspaceFilters() {
         const status = card.dataset.status;
         const matchStatus = (currentWsFilter === 'recent' || currentWsFilter === 'pending')
             ? true
-            : (currentWsFilter === 'all' ? status !== 'obsolete' : status === currentWsFilter);
+            : (currentWsFilter === 'starred'
+                ? (card.dataset.starred === '1' && status !== 'obsolete')
+                : (card.dataset.mine === '1' && (currentWsFilter === 'all' ? status !== 'obsolete' : status === currentWsFilter)));
         const titleEl = card.querySelector('.item-title');
         const title = titleEl ? titleEl.textContent.toLowerCase() : '';
         const matchSearch = (q === '' || title.includes(q));

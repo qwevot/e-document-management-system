@@ -55,7 +55,7 @@ function is_libreoffice_available(): bool
  * Convert a document file (.docx, .doc, .rtf, .odt, .xlsx, .xls, .csv, .pptx) to vector PDF.
  * Returns the absolute path to the generated PDF file, or null on failure.
  */
-function convert_document_to_pdf(string $sourceFilePath): ?string
+function convert_document_to_pdf(string $sourceFilePath, string $originalExt = ''): ?string
 {
     if (!file_exists($sourceFilePath) || !is_readable($sourceFilePath)) {
         return null;
@@ -72,7 +72,8 @@ function convert_document_to_pdf(string $sourceFilePath): ?string
         @mkdir($cacheDir, 0777, true);
     }
 
-    $fileExt = strtolower(pathinfo($sourceFilePath, PATHINFO_EXTENSION));
+    $diskExt = strtolower(pathinfo($sourceFilePath, PATHINFO_EXTENSION));
+    $fileExt = $originalExt !== '' ? strtolower(ltrim($originalExt, '.')) : $diskExt;
     $isSpreadsheet = in_array($fileExt, ['xlsx', 'xls', 'csv', 'ods'], true);
 
     // Hash includes conversion mode flag so spreadsheet improvements invalidate older sliced PDF caches
@@ -85,16 +86,48 @@ function convert_document_to_pdf(string $sourceFilePath): ?string
         return $cachedPdfPath;
     }
 
+    // Serialize concurrent conversions for the same file via lockfile
+    $lockPath = $cacheDir . '/' . $fileHash . '.lock';
+    $lockFp = @fopen($lockPath, 'c');
+    if ($lockFp) {
+        @flock($lockFp, LOCK_EX);
+        clearstatcache(true, $cachedPdfPath);
+        if (file_exists($cachedPdfPath) && filesize($cachedPdfPath) > 0) {
+            @flock($lockFp, LOCK_UN);
+            @fclose($lockFp);
+            @unlink($lockPath);
+            return $cachedPdfPath;
+        }
+    }
+
+    $cleanupLock = static function () use ($lockFp, $lockPath): void {
+        if ($lockFp) {
+            @flock($lockFp, LOCK_UN);
+            @fclose($lockFp);
+            @unlink($lockPath);
+        }
+    };
+
     // Create a temporary working directory for this conversion process
     $tempDir = $cacheDir . '/tmp_' . bin2hex(random_bytes(8));
     if (!mkdir($tempDir, 0777, true) && !is_dir($tempDir)) {
+        $cleanupLock();
         return null;
+    }
+
+    // If stored as .bin on disk, stage a hardlink/copy with the true extension so LibreOffice selects the right import filter
+    $inputPath = $sourceFilePath;
+    if ($diskExt === 'bin' && $fileExt !== '' && $fileExt !== 'bin' && preg_match('/^[a-z0-9]+$/', $fileExt)) {
+        $stagedInput = $tempDir . '/source.' . $fileExt;
+        if (@link($sourceFilePath, $stagedInput) || @copy($sourceFilePath, $stagedInput)) {
+            $inputPath = $stagedInput;
+        }
     }
 
     // Execute headless LibreOffice conversion
     $escapedSoffice = escapeshellarg($soffice);
     $escapedTempDir = escapeshellarg($tempDir);
-    $escapedSource  = escapeshellarg($sourceFilePath);
+    $escapedSource  = escapeshellarg($inputPath);
 
     // For spreadsheets, use LibreOffice Calc PDF Export filter with SinglePageSheets=true
     // This auto-fits each worksheet dynamically onto a continuous vector page without slicing columns across pages.
@@ -107,12 +140,21 @@ function convert_document_to_pdf(string $sourceFilePath): ?string
 
     exec($cmd, $output, $returnCode);
 
+    $cleanupTemp = static function () use ($tempDir): void {
+        if (is_dir($tempDir)) {
+            foreach (glob($tempDir . '/*') ?: [] as $f) {
+                @unlink($f);
+            }
+            @rmdir($tempDir);
+        }
+    };
+
     // Look for the output .pdf in $tempDir
     $files = glob($tempDir . '/*.pdf');
     if (!empty($files) && file_exists($files[0]) && filesize($files[0]) > 0) {
-        // Move to final cached path
         rename($files[0], $cachedPdfPath);
-        @rmdir($tempDir);
+        $cleanupTemp();
+        $cleanupLock();
         return $cachedPdfPath;
     }
 
@@ -123,17 +165,13 @@ function convert_document_to_pdf(string $sourceFilePath): ?string
         $files = glob($tempDir . '/*.pdf');
         if (!empty($files) && file_exists($files[0]) && filesize($files[0]) > 0) {
             rename($files[0], $cachedPdfPath);
-            @rmdir($tempDir);
+            $cleanupTemp();
+            $cleanupLock();
             return $cachedPdfPath;
         }
     }
 
-    // Clean up temporary directory on failure
-    if (is_dir($tempDir)) {
-        $leftovers = glob($tempDir . '/*');
-        foreach ($leftovers as $f) @unlink($f);
-        @rmdir($tempDir);
-    }
-
+    $cleanupTemp();
+    $cleanupLock();
     return null;
 }

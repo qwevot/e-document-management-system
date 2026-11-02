@@ -19,7 +19,7 @@ if ($nodeId <= 0) {
 
 // Fetch document record
 $stmt = $pdo->prepare("
-    SELECT id, name, node_type, file_path, file_original_name, file_size, mime_type, file_extension, is_deleted
+    SELECT id, name, node_type, status, access_mode, created_by, file_path, file_original_name, file_size, mime_type, file_extension, is_deleted
     FROM dms_nodes
     WHERE id = :id
 ");
@@ -31,7 +31,8 @@ if (!$doc || $doc['node_type'] !== 'document') {
     die('Document not found.');
 }
 
-if (!empty($doc['is_deleted']) && !is_admin()) {
+$currUid = (int)(current_user()['id'] ?? 0);
+if (!empty($doc['is_deleted']) && !is_admin() && (int)($doc['created_by'] ?? 0) !== $currUid) {
     http_response_code(403);
     die('Access denied: Document is archived.');
 }
@@ -74,7 +75,7 @@ $downloadExt = $ext;
 $mimeType = !empty($doc['mime_type']) ? $doc['mime_type'] : 'application/octet-stream';
 
 if ($asPdf && $ext !== 'pdf') {
-    $convertedPath = convert_document_to_pdf($physicalFilePath);
+    $convertedPath = convert_document_to_pdf($physicalFilePath, $ext);
     if ($convertedPath && file_exists($convertedPath) && is_readable($convertedPath)) {
         $streamFilePath = $convertedPath;
         $downloadExt = 'pdf';

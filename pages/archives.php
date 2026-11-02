@@ -406,7 +406,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="edms-action-popover" id="archiveActionPopover" style="display: none;">
     <div class="popover-header-label" id="archivePopoverHeaderLabel" style="display: none;">1 item selected</div>
     <?php if (can_edit_dms()): ?>
-    <button type="button" class="popover-item" id="popoverArchiveRestore">
+    <button type="button" class="popover-item" id="popoverArchiveRestore" style="color: var(--green);">
         <?php echo render_icon('refresh'); ?>
         <span id="popoverArchiveRestoreLabel">Restore to Workspace</span>
     </button>

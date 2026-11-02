@@ -118,10 +118,18 @@ function submit_document_for_review(
         return ['success' => false, 'message' => 'Cannot submit an obsolete document for review.'];
     }
 
+    if ($doc['status'] === 'published') {
+        return ['success' => false, 'message' => 'Cannot submit an already published document for review. Suspend it first to create a new draft revision.'];
+    }
+
+    $curVersion = $doc['version'] ?: 'v0.1';
+    $targetVer = $targetVersion ?: calculate_next_version($curVersion, 'major');
+    $isEditingHold = ($doc['status'] === 'hold');
+
     // If the document is currently in review, only the submitter or author can modify the workflow
-    if ($doc['status'] === 'hold') {
-        $stReq = $pdo->prepare("SELECT requested_by FROM dms_document_reviews WHERE document_id = :doc_id LIMIT 1");
-        $stReq->execute(['doc_id' => $docId]);
+    if ($isEditingHold) {
+        $stReq = $pdo->prepare("SELECT requested_by FROM dms_document_reviews WHERE document_id = :doc_id AND version = :version ORDER BY id DESC LIMIT 1");
+        $stReq->execute(['doc_id' => $docId, 'version' => $targetVer]);
         $requestedBy = (int)$stReq->fetchColumn();
 
         $isSubmitter = ($userId === $requestedBy || (int)$doc['created_by'] === $userId);
@@ -159,9 +167,6 @@ function submit_document_for_review(
         return ['success' => false, 'message' => 'Please select at least one reviewer.'];
     }
 
-    $curVersion = $doc['version'] ?: 'v0.1';
-    $targetVer = $targetVersion ?: calculate_next_version($curVersion, 'major');
-
     $pdo->beginTransaction();
     try {
         // 1. Update document status to 'hold'
@@ -172,21 +177,44 @@ function submit_document_for_review(
         $updVer = $pdo->prepare("UPDATE dms_document_versions SET review_status = 'pending' WHERE document_id = :doc_id AND is_current = 1");
         $updVer->execute(['doc_id' => $docId]);
 
-        // 2. Fetch any already-approved reviews to preserve historical integrity across edits
-        $stExisting = $pdo->prepare("SELECT * FROM dms_document_reviews WHERE document_id = :doc_id");
-        $stExisting->execute(['doc_id' => $docId]);
-        $existingReviews = $stExisting->fetchAll(PDO::FETCH_ASSOC);
-
         $approvedByStep = [];
-        foreach ($existingReviews as $er) {
-            if ($er['status'] === 'approved') {
-                $approvedByStep[(int)$er['step_order']][(int)$er['reviewer_id']] = $er;
-            }
-        }
 
-        // 3. Clear non-approved reviews for this document (pending/waiting are replaced by new configuration)
-        $delNonApproved = $pdo->prepare("DELETE FROM dms_document_reviews WHERE document_id = :doc_id AND status != 'approved'");
-        $delNonApproved->execute(['doc_id' => $docId]);
+        if ($isEditingHold) {
+            // Build map of valid reviewer IDs per step in the new configuration
+            $validStepReviewers = [];
+            foreach ($normalizedStages as $ns) {
+                $validStepReviewers[(int)$ns['step_order']] = $ns['reviewer_ids'];
+            }
+
+            // 2a. Editing an active Hold pipeline: preserve already-approved reviews strictly within the current target version
+            $stExisting = $pdo->prepare("SELECT * FROM dms_document_reviews WHERE document_id = :doc_id AND version = :version");
+            $stExisting->execute(['doc_id' => $docId, 'version' => $targetVer]);
+            $existingReviews = $stExisting->fetchAll(PDO::FETCH_ASSOC);
+
+            $delOrphan = $pdo->prepare("DELETE FROM dms_document_reviews WHERE id = :id");
+            foreach ($existingReviews as $er) {
+                if ($er['status'] === 'approved') {
+                    $sOrd = (int)$er['step_order'];
+                    $rUid = (int)$er['reviewer_id'];
+                    if (isset($validStepReviewers[$sOrd]) && in_array($rUid, $validStepReviewers[$sOrd], true)) {
+                        $approvedByStep[$sOrd][$rUid] = $er;
+                    } else {
+                        // Approved reviewer was removed from this step during edit
+                        $delOrphan->execute(['id' => $er['id']]);
+                    }
+                }
+            }
+
+            // 3a. Clear non-approved reviews for this target version (pending/waiting are replaced by new configuration)
+            $delNonApproved = $pdo->prepare("DELETE FROM dms_document_reviews WHERE document_id = :doc_id AND version = :version AND status != 'approved'");
+            $delNonApproved->execute(['doc_id' => $docId, 'version' => $targetVer]);
+        } else {
+            // 2b. Fresh submission cycle (from active/rejected/suspend -> hold):
+            // Clear any stale review records for this target version from prior rejected/aborted cycles
+            // while keeping historical records from older published versions intact.
+            $delCycle = $pdo->prepare("DELETE FROM dms_document_reviews WHERE document_id = :doc_id AND version = :version");
+            $delCycle->execute(['doc_id' => $docId, 'version' => $targetVer]);
+        }
 
         // 4. Create review assignments per stage
         $ins = $pdo->prepare("
@@ -235,6 +263,25 @@ function submit_document_for_review(
         }
 
         $pdo->commit();
+
+        // If all stages in the edited pipeline are now 100% approved, immediately publish the document
+        if (!$activePendingAssigned && !empty($allCleanUids)) {
+            $publishRes = publish_document($docId, "Published after workflow adjustment (all remaining stages approved).", $userId);
+            log_activity('document.published', 'document', $docId, [
+                'document_name'  => $doc['name'],
+                'target_version' => $publishRes['version'] ?? $targetVer,
+                'approved_by'    => $userId,
+                'sign_off_note'  => 'All remaining stages approved after workflow adjustment'
+            ], $userId);
+
+            return [
+                'success'        => true,
+                'message'        => "All remaining stages are already approved. Document published as " . ($publishRes['version'] ?? $targetVer) . ".",
+                'status'         => 'published',
+                'is_published'   => true,
+                'target_version' => $publishRes['version'] ?? $targetVer
+            ];
+        }
 
         log_activity('document.review_requested', 'document', $docId, [
             'document_name'  => $doc['name'],
@@ -476,9 +523,12 @@ function cancel_document_review(int $docId, int $userId): array
         return ['success' => false, 'message' => 'Document is not currently on Hold for review.'];
     }
 
-    // Identify the user who submitted the review request
-    $reqStmt = $pdo->prepare("SELECT requested_by FROM dms_document_reviews WHERE document_id = :doc_id ORDER BY id DESC LIMIT 1");
-    $reqStmt->execute(['doc_id' => $docId]);
+    $curVersion = $doc['version'] ?: 'v0.1';
+    $targetVer = calculate_next_version($curVersion, 'major');
+
+    // Identify the user who submitted the current review request
+    $reqStmt = $pdo->prepare("SELECT requested_by FROM dms_document_reviews WHERE document_id = :doc_id AND version = :version ORDER BY id DESC LIMIT 1");
+    $reqStmt->execute(['doc_id' => $docId, 'version' => $targetVer]);
     $reviewRow = $reqStmt->fetch(PDO::FETCH_ASSOC);
     $requestedBy = $reviewRow ? (int)$reviewRow['requested_by'] : (int)$doc['created_by'];
 
@@ -493,9 +543,9 @@ function cancel_document_review(int $docId, int $userId): array
 
     $pdo->beginTransaction();
     try {
-        // 1. Delete all review cycle records for this document
-        $del = $pdo->prepare("DELETE FROM dms_document_reviews WHERE document_id = :doc_id");
-        $del->execute(['doc_id' => $docId]);
+        // 1. Delete review records for the current target version cycle only
+        $del = $pdo->prepare("DELETE FROM dms_document_reviews WHERE document_id = :doc_id AND version = :version");
+        $del->execute(['doc_id' => $docId, 'version' => $targetVer]);
 
         // 2. Set document status back to 'active' and reset version status to 'draft'
         $upd = $pdo->prepare("UPDATE dms_nodes SET status = 'active', updated_at = NOW() WHERE id = :id");

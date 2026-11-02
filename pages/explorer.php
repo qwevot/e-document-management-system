@@ -73,13 +73,16 @@ if ($viewMode === 'project' && $parentId !== null) {
 $items = [];
 $totalCount = 0;
 
+$curUid = (int)(current_user()['id'] ?? 0);
 $baseSelect = 'SELECT dms_nodes.*, 
                       COALESCE(u.full_name, u.username, "System") AS creator_name,
                       u.avatar AS creator_avatar,
-                      p.name AS parent_name
+                      p.name AS parent_name,
+                      (s.node_id IS NOT NULL) AS is_starred
                FROM dms_nodes
                LEFT JOIN users u ON dms_nodes.created_by = u.id
-               LEFT JOIN dms_nodes p ON dms_nodes.parent_id = p.id';
+               LEFT JOIN dms_nodes p ON dms_nodes.parent_id = p.id
+               LEFT JOIN dms_starred_nodes s ON dms_nodes.id = s.node_id AND s.user_id = ' . $curUid;
 
 $baseCount = 'SELECT COUNT(*) FROM dms_nodes';
 
@@ -96,65 +99,29 @@ if ($searchQ !== '') {
     if ($viewMode === 'document') {
         $whereClause .= ' AND dms_nodes.node_type = "document"';
     }
-
-    if ($statusFilt !== null) {
-        $whereClause .= ' AND dms_nodes.status = :status';
-        $params['status'] = $statusFilt;
-        $countParams['status'] = $statusFilt;
-    }
-    if ($typeFilt !== null) {
-        $cleanExt = ltrim(strtolower($typeFilt), '.');
-        $whereClause .= ' AND (LOWER(TRIM(LEADING "." FROM dms_nodes.file_extension)) = :file_ext)';
-        $params['file_ext'] = $cleanExt;
-        $countParams['file_ext'] = $cleanExt;
-    }
 } elseif ($viewMode === 'document') {
     // Flat All Documents View
     $whereClause = ' WHERE dms_nodes.node_type = "document" AND dms_nodes.is_deleted = 0 AND dms_nodes.status != "obsolete"';
-
-    if ($statusFilt !== null) {
-        $whereClause .= ' AND dms_nodes.status = :status';
-        $params['status'] = $statusFilt;
-        $countParams['status'] = $statusFilt;
-    }
-    if ($typeFilt !== null) {
-        $cleanExt = ltrim(strtolower($typeFilt), '.');
-        $whereClause .= ' AND (LOWER(TRIM(LEADING "." FROM dms_nodes.file_extension)) = :file_ext)';
-        $params['file_ext'] = $cleanExt;
-        $countParams['file_ext'] = $cleanExt;
-    }
 } elseif ($parentId === null) {
     // Root level view (ALL Root Folders and Root Documents)
     $whereClause = ' WHERE dms_nodes.parent_id IS NULL AND dms_nodes.is_deleted = 0 AND dms_nodes.status != "obsolete"';
-
-    if ($statusFilt !== null) {
-        $whereClause .= ' AND dms_nodes.status = :status';
-        $params['status'] = $statusFilt;
-        $countParams['status'] = $statusFilt;
-    }
-    if ($typeFilt !== null) {
-        $cleanExt = ltrim(strtolower($typeFilt), '.');
-        $whereClause .= ' AND (LOWER(TRIM(LEADING "." FROM dms_nodes.file_extension)) = :file_ext)';
-        $params['file_ext'] = $cleanExt;
-        $countParams['file_ext'] = $cleanExt;
-    }
 } else {
     // Inside a specific folder
     $whereClause = ' WHERE dms_nodes.parent_id = :parent_id AND dms_nodes.is_deleted = 0 AND dms_nodes.status != "obsolete"';
     $params['parent_id'] = $parentId;
     $countParams['parent_id'] = $parentId;
+}
 
-    if ($statusFilt !== null) {
-        $whereClause .= ' AND dms_nodes.status = :status';
-        $params['status'] = $statusFilt;
-        $countParams['status'] = $statusFilt;
-    }
-    if ($typeFilt !== null) {
-        $cleanExt = ltrim(strtolower($typeFilt), '.');
-        $whereClause .= ' AND (LOWER(TRIM(LEADING "." FROM dms_nodes.file_extension)) = :file_ext)';
-        $params['file_ext'] = $cleanExt;
-        $countParams['file_ext'] = $cleanExt;
-    }
+if ($statusFilt !== null) {
+    $whereClause .= ' AND dms_nodes.status = :status';
+    $params['status'] = $statusFilt;
+    $countParams['status'] = $statusFilt;
+}
+if ($typeFilt !== null) {
+    $cleanExt = ltrim(strtolower($typeFilt), '.');
+    $whereClause .= ' AND dms_nodes.file_extension = :file_ext';
+    $params['file_ext'] = $cleanExt;
+    $countParams['file_ext'] = $cleanExt;
 }
 
 // Build unified deterministic ORDER BY clause
@@ -376,6 +343,7 @@ function render_card_list_html($items, $viewMode, $parentId, $currentNode, $brea
                 <!-- 6. Quick Action Tools -->
                 <div class="item-actions-col">
                     <?php if (!$isFolder): ?>
+                        <button type="button" class="btn-action btn-star <?php echo !empty($item['is_starred']) ? 'is-starred' : ''; ?>" onclick="toggleStar(event, <?php echo (int)$item['id']; ?>, this)" title="Star document"><?php echo render_icon('star'); ?></button>
                         <a href="view.php?id=<?php echo e((string)$item['id']); ?>" class="btn-action" title="Open Workspace">
                             <?php echo render_icon('view'); ?>
                         </a>

@@ -311,6 +311,33 @@ function store_uploaded_document_file(array $file): array
         finfo_close($finfo);
     }
 
+    // Block dangerous executable or server-side script uploads
+    $blockedExtensions = ['php', 'phtml', 'phar', 'exe', 'bat', 'cmd', 'ps1', 'vbs', 'msi', 'com', 'scr', 'hta', 'dll'];
+    if (in_array($fileExt, $blockedExtensions, true) || in_array($mimeType, ['application/x-dosexec', 'application/x-msdownload', 'text/x-php'], true)) {
+        return ['success' => false, 'message' => "Security policy: \".{$fileExt}\" executable or script files are not permitted."];
+    }
+
+    // Reconcile extension if a viewable format has a mismatched/spoofed extension
+    $mimeToExt = [
+        'application/pdf'                                                           => 'pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'   => 'docx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'         => 'xlsx',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation' => 'pptx',
+        'image/png'                                                                 => 'png',
+        'image/jpeg'                                                                => 'jpg',
+        'image/webp'                                                                => 'webp',
+        'image/gif'                                                                 => 'gif',
+    ];
+    if ($fileExt === 'pdf' && $mimeType !== 'application/pdf') {
+        if (isset($mimeToExt[$mimeType])) {
+            $fileExt = $mimeToExt[$mimeType];
+        } else {
+            return ['success' => false, 'message' => 'Invalid PDF file: the uploaded file content does not match the PDF format.'];
+        }
+    } elseif ($fileExt === 'dat' && isset($mimeToExt[$mimeType])) {
+        $fileExt = $mimeToExt[$mimeType];
+    }
+
     $yearMonth = date('Y/m');
     $uploadDir = __DIR__ . '/../uploads/documents/' . $yearMonth;
     if (!is_dir($uploadDir)) {
@@ -456,7 +483,7 @@ function render_user_avatar_sm(?string $name, ?string $avatar): string
  * High-performance recursive descendant node ID collector using CTE
  * Collects all nested descendant IDs of given root IDs in a single query.
  */
-function get_descendant_node_ids(PDO $pdo, array $nodeIds, bool $activeOnly = false): array
+function get_descendant_node_ids(PDO $pdo, array $nodeIds, bool $activeOnly = false, bool $includeAncestors = false): array
 {
     $cleanIds = array_values(array_unique(array_filter(array_map('intval', $nodeIds))));
     if (empty($cleanIds)) {
@@ -465,39 +492,25 @@ function get_descendant_node_ids(PDO $pdo, array $nodeIds, bool $activeOnly = fa
 
     $inClause = implode(',', $cleanIds);
     $activeFilter = $activeOnly ? 'AND is_deleted = 0' : '';
+    $stmt = $pdo->query("
+        WITH RECURSIVE node_tree AS (
+            SELECT id FROM dms_nodes WHERE id IN ($inClause)
+            UNION ALL
+            SELECT n.id FROM dms_nodes n
+            INNER JOIN node_tree t ON n.parent_id = t.id
+            WHERE 1=1 $activeFilter
+        )
+        SELECT id FROM node_tree
+    ");
+    $allIds = array_values(array_unique(array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN))));
 
-    try {
-        $sql = "
-            WITH RECURSIVE node_tree AS (
-                SELECT id FROM dms_nodes WHERE id IN ($inClause)
-                UNION ALL
-                SELECT n.id FROM dms_nodes n
-                INNER JOIN node_tree t ON n.parent_id = t.id
-                WHERE 1=1 $activeFilter
-            )
-            SELECT id FROM node_tree
-        ";
-        $stmt = $pdo->query($sql);
-        $allIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
-        return array_values(array_unique(array_map('intval', $allIds)));
-    } catch (\Throwable $e) {
-        // Graceful fallback for non-CTE or legacy setups
-        $all = $cleanIds;
-        $queue = $cleanIds;
-        while (!empty($queue)) {
-            $currId = array_shift($queue);
-            $q = "SELECT id FROM dms_nodes WHERE parent_id = " . (int)$currId . " $activeFilter";
-            $cIds = $pdo->query($q)->fetchAll(PDO::FETCH_COLUMN);
-            foreach ($cIds as $cid) {
-                $cInt = (int)$cid;
-                if (!in_array($cInt, $all, true)) {
-                    $all[] = $cInt;
-                    $queue[] = $cInt;
-                }
-            }
+    if ($includeAncestors) {
+        for ($cur = $cleanIds; !empty($cur); ) {
+            $cur = array_values(array_filter(array_map('intval', $pdo->query("SELECT parent_id FROM dms_nodes WHERE id IN (" . implode(',', $cur) . ") AND parent_id IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN)), fn($id) => !in_array($id, $allIds, true)));
+            $allIds = array_merge($allIds, $cur);
         }
-        return $all;
     }
+    return $allIds;
 }
 
 /**

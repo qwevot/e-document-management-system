@@ -313,6 +313,25 @@ button {
     display: inline-block;
 }
 
+.nav-item.nav-group-toggle {
+    justify-content: flex-start;
+    padding: 10px 11px;
+    font-size: 13px;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--green-subtle);
+}
+.nav-item.nav-group-toggle:hover { background: var(--glass-white-16); color: var(--surface); }
+.nav-item.nav-group-toggle .nav-chevron { margin-left: auto; }
+.nav-subitem { padding: 6px 10px 6px 22px; font-size: 12.5px; gap: 9px; }
+.nav-sublabel { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-subdivider { height: 1px; background: var(--glass-white-16); margin: 4px 10px 4px 22px; }
+.ws-status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin: 0 6px; box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.45); }
+.nav-badge { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 10px; background: var(--glass-white-16); color: var(--surface); }
+.nav-item.active .nav-badge { background: var(--green); color: #fff; }
+.nav-badge.is-pending { background: var(--amber-soft); color: var(--amber-ink); font-weight: 700; }
+
 /* Sidebar Footer */
 .sidebar-version {
     padding: 10px 11px 2px;
@@ -1305,6 +1324,23 @@ body.sidebar-collapsed .main {
     height: 15px;
 }
 
+.col-hdr-actions,
+.item-actions-col {
+    width: 118px;
+}
+
+.btn-action.btn-star:hover {
+    color: var(--amber);
+}
+
+.btn-action.btn-star.is-starred {
+    color: var(--amber);
+}
+
+.btn-action.btn-star.is-starred svg {
+    fill: var(--amber);
+}
+
 .btn-action:hover {
     background: var(--glass-white-85);
     color: var(--green);
@@ -2295,128 +2331,6 @@ MY WORKSPACE PAGE & DASHBOARD GRID
 
 .welcome-header span {
     color: var(--accent);
-}
-
-/* Workspace Mailbox 2-Column Dashboard Grid */
-.workspace-dashboard-grid {
-    display: grid;
-    grid-template-columns: 240px minmax(0, 1fr);
-    gap: 16px;
-    align-items: start;
-}
-@media (max-width: 860px) {
-    .workspace-dashboard-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-/* Ensure workspace rows stay aligned and long filenames never blow bars out */
-.workspace-dashboard-grid .explorer-table-header,
-.workspace-dashboard-grid .explorer-item-card {
-    width: 100%;
-    box-sizing: border-box;
-}
-
-.workspace-dashboard-grid .col-hdr-name,
-.workspace-dashboard-grid .item-main-col {
-    flex: 1 1 0%;
-    min-width: 0;
-    overflow: hidden;
-}
-
-.workspace-dashboard-grid .item-title-row {
-    min-width: 0;
-    overflow: hidden;
-}
-
-.workspace-dashboard-grid .item-title {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-/* Gmail-style Mailbox Sidebar */
-.ws-mailbox-sidebar {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 10px 6px;
-    box-shadow: var(--shadow-sm);
-    position: sticky;
-    top: 80px;
-}
-.ws-mailbox-heading {
-    font-size: 10.5px;
-    font-weight: 700;
-    color: var(--muted);
-    letter-spacing: 0.6px;
-    padding: 6px 12px 4px;
-}
-.ws-mailbox-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    padding: 7px 12px;
-    border-radius: 6px;
-    border: none;
-    background: transparent;
-    color: var(--ink);
-    font-size: 13px;
-    font-weight: 500;
-    text-align: left;
-    cursor: pointer;
-    transition: background 0.12s ease, color 0.12s ease;
-}
-.ws-mailbox-item:hover {
-    background: var(--surface-light);
-    color: var(--green);
-}
-.ws-mailbox-item.is-active {
-    background: var(--green-soft);
-    color: var(--green-ink);
-    font-weight: 700;
-}
-.ws-mailbox-icon {
-    display: inline-flex;
-    color: var(--muted);
-    width: 16px;
-    height: 16px;
-    flex-shrink: 0;
-}
-.ws-mailbox-item.is-active .ws-mailbox-icon {
-    color: var(--green);
-}
-.ws-status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-}
-.ws-mailbox-label {
-    flex: 1;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.ws-mailbox-count {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--muted);
-    background: var(--surface-light);
-    padding: 1px 7px;
-    border-radius: 10px;
-}
-.ws-mailbox-item.is-active .ws-mailbox-count {
-    background: var(--green);
-    color: #fff;
-}
-.ws-mailbox-divider {
-    height: 1px;
-    background: var(--border);
-    margin: 8px 6px;
 }
 
 /* Topbar Notification Dropdown & Global Action Popovers */

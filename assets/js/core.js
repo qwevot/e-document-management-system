@@ -201,7 +201,7 @@
         document.querySelectorAll(".nav-group-toggle[data-group]").forEach((btn) => {
             const key = btn.dataset.group;
             const group = btn.nextElementSibling;
-            const open = (savedGroups && savedGroups.includes(key)) || key === activeKey;
+            const open = (savedGroups ? savedGroups.includes(key) : btn.classList.contains("open")) || key === activeKey;
             btn.classList.toggle("open", open);
             if (group) group.classList.toggle("open", open);
         });
@@ -226,6 +226,22 @@
         setInterval(tick, 1000);
     }
     initSidebarClock();
+
+    window.toggleStar = function (e, id, btn) {
+        if (e) e.stopPropagation();
+        const fd = new URLSearchParams({ action: "toggle_star", id: id, csrf_token: window.EDMS_CSRF_TOKEN || "" });
+        fetch("explorer.php?ajax=1", { method: "POST", body: fd })
+            .then((r) => r.json())
+            .then((d) => {
+                if (!d || !d.success) return;
+                btn.classList.toggle("is-starred", d.starred);
+                const card = btn.closest(".explorer-item-card");
+                if (card) card.dataset.starred = d.starred ? "1" : "0";
+                const badge = document.querySelector('.sidebar [data-filter="starred"] .nav-badge');
+                if (badge) badge.textContent = Math.max(0, (parseInt(badge.textContent, 10) || 0) + (d.starred ? 1 : -1));
+                if (typeof window.applyWorkspaceFilters === "function") window.applyWorkspaceFilters();
+            });
+    };
 
     // Auto-close notification dropdown on click-outside or escape
     document.addEventListener("click", function (e) {

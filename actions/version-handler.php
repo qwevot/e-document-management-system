@@ -47,6 +47,10 @@ if ($action === 'get_versions') {
 // 1B. Suspend document for major revision
 if ($action === 'suspend_document' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $docId = (int)($_POST['doc_id'] ?? 0);
+    if ($docId <= 0 || !is_document_contributor($docId, $userId)) {
+        echo json_encode(['success' => false, 'message' => 'Unauthorized: Only contributors can suspend this document.']);
+        exit;
+    }
     $pdo = db();
     $pdo->prepare("UPDATE dms_nodes SET status = 'suspend', updated_at = NOW() WHERE id = ? AND status = 'published'")->execute([$docId]);
     $pdo->prepare("UPDATE dms_document_versions SET change_summary = CONCAT(COALESCE(change_summary, ''), ' (SUSPENDED)') WHERE document_id = ? AND is_current = 1 AND change_summary NOT LIKE '%(SUSPENDED)%'")->execute([$docId]);
