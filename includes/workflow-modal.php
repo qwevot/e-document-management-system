@@ -274,7 +274,7 @@ window.EDMS_WORKFLOW_REVIEWERS = <?php echo json_encode(array_map(function($r) {
                 <div class="wf-node-dot" 
                      title="${dotTitle}"
                      ${isRemovable ? 'role="button" tabindex="0"' : ''}
-                     style="width: 30px; height: 30px; border-radius: 50%; box-sizing: border-box; border: ${dotBorder}; box-shadow: ${dotBoxShadow}; display: flex; align-items: center; justify-content: center; font-size: 13.5px; font-weight: 700; color: ${dotColor}; background: ${dotBg}; margin-bottom: 12px; cursor: ${isRemovable ? 'pointer' : 'default'};">
+                     style="position: relative; width: 30px; height: 30px; border-radius: 50%; box-sizing: border-box; border: ${dotBorder}; box-shadow: ${dotBoxShadow}; display: flex; align-items: center; justify-content: center; font-size: 13.5px; font-weight: 700; color: ${dotColor}; background: ${dotBg}; margin-bottom: 12px; cursor: ${isRemovable ? 'pointer' : 'default'};">
                     ${dotContentHtml}
                     ${isRemovable ? `
                     <span class="wf-dot-cross" style="display: none; align-items: center; justify-content: center;">
@@ -282,7 +282,10 @@ window.EDMS_WORKFLOW_REVIEWERS = <?php echo json_encode(array_map(function($r) {
                             <line x1="18" y1="6" x2="6" y2="18"></line>
                             <line x1="6" y1="6" x2="18" y2="18"></line>
                         </svg>
-                    </span>` : ''}
+                    </span>
+                    <button type="button" class="wf-dot-badge-remove" title="Remove Stage ${stageNum}" aria-label="Remove Stage ${stageNum}" style="position: absolute; top: -5px; right: -5px; width: 16px; height: 16px; border-radius: 50%; background: var(--red); color: #ffffff; border: 2px solid var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; line-height: 1; cursor: pointer; padding: 0; z-index: 10;">
+                        &times;
+                    </button>` : ''}
                 </div>
                 <div style="width: 100%; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box;">
                     <div style="font-size: 13.5px; font-weight: 700; color: var(--ink); text-align: center;">Stage ${stageNum}</div>
@@ -360,9 +363,22 @@ window.EDMS_WORKFLOW_REVIEWERS = <?php echo json_encode(array_map(function($r) {
                 });
             }
 
-            // Bind click & hover removal to dot when stages > 1
+            // Bind click & hover removal to dot & badge when stages > 1
             if (isRemovable) {
+                const badgeBtn = node.querySelector(".wf-dot-badge-remove");
                 const dotBtn = node.querySelector(".wf-node-dot");
+
+                const handleRemove = function(e) {
+                    if (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }
+                    if (stages.length > 1) {
+                        stages.splice(idx, 1);
+                        renderStages();
+                    }
+                };
+
                 if (dotBtn) {
                     dotBtn.addEventListener("mouseenter", function() {
                         this.style.background = "var(--red)";
@@ -370,6 +386,7 @@ window.EDMS_WORKFLOW_REVIEWERS = <?php echo json_encode(array_map(function($r) {
                         const crossEl = this.querySelector(".wf-dot-cross");
                         if (numEl) numEl.style.display = "none";
                         if (crossEl) crossEl.style.display = "flex";
+                        if (badgeBtn) badgeBtn.style.display = "none";
                     });
                     dotBtn.addEventListener("mouseleave", function() {
                         this.style.background = "var(--green)";
@@ -377,14 +394,8 @@ window.EDMS_WORKFLOW_REVIEWERS = <?php echo json_encode(array_map(function($r) {
                         const crossEl = this.querySelector(".wf-dot-cross");
                         if (numEl) numEl.style.display = "inline";
                         if (crossEl) crossEl.style.display = "none";
+                        if (badgeBtn) badgeBtn.style.display = "flex";
                     });
-                    const handleRemove = function(e) {
-                        e.stopPropagation();
-                        if (stages.length > 1) {
-                            stages.splice(idx, 1);
-                            renderStages();
-                        }
-                    };
                     dotBtn.addEventListener("click", handleRemove);
                     dotBtn.addEventListener("keydown", function(e) {
                         if (e.key === "Enter" || e.key === " ") {
@@ -392,6 +403,10 @@ window.EDMS_WORKFLOW_REVIEWERS = <?php echo json_encode(array_map(function($r) {
                             handleRemove(e);
                         }
                     });
+                }
+
+                if (badgeBtn) {
+                    badgeBtn.addEventListener("click", handleRemove);
                 }
             }
 

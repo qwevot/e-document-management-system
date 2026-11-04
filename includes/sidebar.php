@@ -9,12 +9,12 @@ $wsFilter     = ($activeNav === 'my-workspace') ? ($_GET['filter'] ?? 'all') : '
 $isWsOpen     = ($activeNav === 'my-workspace' && !in_array($wsFilter, ['starred', 'recent', 'pending'], true));
 $pendingBadge = $totalPending ?? count($hdrPendingReviews ?? []);
 $wsStatuses = [
-    ['active',    'Active',           'var(--info-blue)', $statusCounts['active'] ?? null],
-    ['hold',      'Hold',             'var(--amber)',     $statusCounts['hold'] ?? null],
-    ['rejected',  'Rejected',         'var(--red)',       $statusCounts['rejected'] ?? null],
-    ['published', 'Published',        '#22c55e',          $statusCounts['published'] ?? null],
-    ['suspend',   'Suspend',          '#fca5a5',          $statusCounts['suspend'] ?? null],
-    ['obsolete',  'Obsolete (Trash)', '#94a3b8',          $statusCounts['obsolete'] ?? null],
+    ['active',    'Active',           $statusCounts['active'] ?? null],
+    ['hold',      'Hold',             $statusCounts['hold'] ?? null],
+    ['rejected',  'Rejected',         $statusCounts['rejected'] ?? null],
+    ['published', 'Published',        $statusCounts['published'] ?? null],
+    ['suspend',   'Suspend',          $statusCounts['suspend'] ?? null],
+    ['obsolete',  'Obsolete (Trash)', $statusCounts['obsolete'] ?? null],
 ];
 $wsTopFeeds = [
     ['starred', 'Starred',         'star',    $totalStarred ?? null],
@@ -54,9 +54,8 @@ if (in_array($role, ['super admin', 'admin'], true)) {
         </a>
 
         <div class="nav-group <?php echo $isWsOpen ? 'open' : ''; ?>">
-            <?php foreach ($wsStatuses as [$fKey, $label, $dotColor, $count]): ?>
+            <?php foreach ($wsStatuses as [$fKey, $label, $count]): ?>
                 <a href="<?php echo BASE_URL . '/pages/my-workspace.php?filter=' . $fKey; ?>" class="nav-item nav-subitem <?php echo $wsFilter === $fKey ? 'active' : ''; ?>" data-filter="<?php echo $fKey; ?>" onclick="if(window.filterWorkspace){event.preventDefault();window.filterWorkspace(this,'<?php echo $fKey; ?>');}">
-                    <span class="ws-status-dot" style="background: <?php echo $dotColor; ?>;"></span>
                     <span class="nav-sublabel"><?php echo $label; ?></span>
                     <?php if ($count !== null): ?>
                         <span class="nav-badge"><?php echo (int)$count; ?></span>

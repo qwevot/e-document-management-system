@@ -1788,6 +1788,11 @@ document.addEventListener("DOMContentLoaded", function () {
     // --- 8. Continuous Scroll & Stage Centering Observer ---
     function centerStageHorizontally(smooth = false) {
         if (!workspaceCenterStage) return;
+        if (window.innerWidth <= 768) {
+            // On mobile, keep stage anchored at 0 so document left margin is never cut off
+            workspaceCenterStage.scrollLeft = 0;
+            return;
+        }
         const maxScroll = workspaceCenterStage.scrollWidth - workspaceCenterStage.clientWidth;
         if (maxScroll > 0) {
             const targetX = Math.round(maxScroll / 2);
@@ -1872,7 +1877,9 @@ document.addEventListener("DOMContentLoaded", function () {
             const cs = window.getComputedStyle ? window.getComputedStyle(workspaceCenterStage) : null;
             const padL = cs ? (parseFloat(cs.paddingLeft) || 32) : 32;
             const padR = cs ? (parseFloat(cs.paddingRight) || 32) : 32;
-            const containerWidth = Math.max(300, workspaceCenterStage.clientWidth - padL - padR - 40);
+            const isMobile = window.innerWidth <= 768;
+            const horizontalBuffer = isMobile ? 8 : 40;
+            const containerWidth = Math.max(isMobile ? 240 : 300, workspaceCenterStage.clientWidth - padL - padR - horizontalBuffer);
             if (renderMode === "image" && loadedImageObj) {
                 const natW = loadedImageObj.naturalWidth || 800;
                 const baseDisplayWidth = Math.min(natW, 900);
@@ -3441,6 +3448,19 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
             }, 250);
         });
+
+        window.addEventListener("orientationchange", function () {
+            setTimeout(function () {
+                if (btnZoomFit) btnZoomFit.click();
+            }, 250);
+        });
+
+        // One-time initial fit to width on mobile viewport
+        if (window.innerWidth <= 768 && btnZoomFit) {
+            setTimeout(function () {
+                btnZoomFit.click();
+            }, 300);
+        }
     })();
 });
 

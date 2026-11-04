@@ -800,6 +800,82 @@
     .pdf-annotation-canvas {
         touch-action: none !important;
     }
+
+    /* Responsive Document Center Stage & Mobile Layout */
+    .workspace-center-stage {
+        padding: 14px 8px 84px 8px !important;
+        justify-content: flex-start !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .workspace-document-container {
+        margin: 0 auto !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+    }
+
+    .pdf-pages-feed {
+        width: 100% !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        gap: 16px !important;
+        padding-bottom: 40px !important;
+    }
+
+    /* Stack comments vertically underneath each document page */
+    .pdf-page-row {
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        gap: 10px !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    .pdf-page-row > .pdf-page-wrapper {
+        margin: 0 auto !important;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
+    }
+
+    /* Page Marginalia Gutter Stacked under Page */
+    .pdf-page-gutter {
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: min(580px, 94vw) !important;
+        padding: 0 4px !important;
+        box-sizing: border-box !important;
+        align-items: center !important;
+    }
+
+    .comment-launcher-wrap {
+        align-items: center !important;
+        width: 100% !important;
+    }
+
+    .comment-input-box {
+        width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    .comment-card {
+        width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    .docx-render-host {
+        width: 100% !important;
+        overflow-x: auto !important;
+    }
+
+    .docx-render-host section.docx {
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+    }
 }
 
 /* ==========================================================================

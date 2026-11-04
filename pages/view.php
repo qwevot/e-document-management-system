@@ -249,9 +249,9 @@ if (!empty($reviews)) {
     <title><?php echo e($doc['name']); ?> - Workspace Viewer</title>
     <meta name="csrf-token" content="<?php echo e(csrf_token()); ?>">
     <link rel="stylesheet" href="../assets/css/styles.css?v=<?php echo filemtime(__DIR__ . '/../assets/css/styles.css'); ?>">
-    <link rel="stylesheet" href="../assets/css/responsive.css?v=<?php echo filemtime(__DIR__ . '/../assets/css/responsive.css'); ?>">
     <link rel="stylesheet" href="../assets/css/viewer.css?v=<?php echo filemtime(__DIR__ . '/../assets/css/viewer.css'); ?>">
     <link rel="stylesheet" href="../assets/css/explorer.css?v=<?php echo filemtime(__DIR__ . '/../assets/css/explorer.css'); ?>">
+    <link rel="stylesheet" href="../assets/css/responsive.css?v=<?php echo filemtime(__DIR__ . '/../assets/css/responsive.css'); ?>">
     <script>
     function handleWorkspaceBack(e, fallbackUrl) {
         if (window.history.length > 1 && document.referrer && !document.referrer.includes('view.php')) {

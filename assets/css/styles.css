@@ -329,9 +329,8 @@ button {
 .nav-item.nav-group-toggle.active { background: var(--green-soft); color: var(--green-ink); font-weight: 600; }
 .nav-chevron-hit { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin: -4px -4px -4px 2px; border-radius: 4px; }
 .nav-chevron-hit:hover { background: rgba(0, 0, 0, 0.12); }
-.nav-subitem { padding: 6px 10px 6px 22px; font-size: 12.5px; gap: 9px; }
+.nav-subitem { padding: 6px 12px 6px 36px; font-size: 12.5px; }
 .nav-sublabel { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ws-status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin: 0 6px; box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.45); }
 .nav-badge { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 10px; background: var(--glass-white-16); color: var(--surface); }
 .nav-item.active .nav-badge { background: var(--green); color: #fff; }
 .nav-badge.is-pending { background: var(--amber-soft); color: var(--amber-ink); font-weight: 700; }
@@ -1278,18 +1277,18 @@ body.sidebar-collapsed .main {
 }
 
 .badge-suspend {
-    background: var(--red-soft);
-    color: var(--red-ink);
+    background: var(--info-blue-soft);
+    color: var(--info-blue-dark);
 }
 
 .badge-rejected {
-    background: var(--red-soft);
-    color: var(--red-ink);
+    background: var(--info-blue-soft);
+    color: var(--info-blue-dark);
 }
 
 .badge-obsolete {
-    background: var(--slate-soft);
-    color: var(--slate-ink);
+    background: var(--red-soft);
+    color: var(--red-ink);
 }
 
 .folder-type-label {

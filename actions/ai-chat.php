@@ -25,41 +25,12 @@ if (current_user() === null) {
     ai_json_out(false, [], 'Sesi Anda telah berakhir. Harap login kembali.');
 }
 
-// 3. Database connection & schema introspection helper
+// 3. Database connection
 try {
     $pdo = db();
 } catch (Throwable $e) {
     ai_json_out(false, [], 'Gagal terhubung ke database: ' . $e->getMessage());
 }
-
-function getEdmsDatabaseSchema(PDO $pdo): string {
-    try {
-        $tablesStmt = $pdo->query("SHOW TABLES");
-        $tables = $tablesStmt->fetchAll(PDO::FETCH_COLUMN);
-
-        // Blacklist tabel sensitif yang tidak boleh diketahui atau diakses AI
-        $hiddenTables = ['users', 'password_resets', 'user_tokens', 'sessions', 'admin_credentials'];
-
-        $schema = "DATABASE: " . (defined('DB_NAME') ? DB_NAME : 'edms_db') . "\n\n";
-        foreach ($tables as $table) {
-            if (in_array(strtolower($table), $hiddenTables, true)) {
-                continue; // Sembunyikan keberadaan tabel pengguna dari AI
-            }
-            $colStmt = $pdo->query("DESCRIBE `{$table}`");
-            $columns = $colStmt->fetchAll(PDO::FETCH_ASSOC);
-            $cols = [];
-            foreach ($columns as $c) {
-                $cols[] = "{$c['Field']} ({$c['Type']})";
-            }
-            $schema .= "Table: {$table} (" . implode(', ', $cols) . ")\n";
-        }
-        return $schema;
-    } catch (Throwable $e) {
-        return "Failed to fetch schema: " . $e->getMessage();
-    }
-}
-
-$dbSchema = getEdmsDatabaseSchema($pdo);
 
 // 4. Groq Chat API Request Handler with Tool Calling
 function sendGroqRequest(string $model, array $messages, string $systemPrompt, bool $enableTools): array {
@@ -84,13 +55,19 @@ function sendGroqRequest(string $model, array $messages, string $systemPrompt, b
             'type' => 'function',
             'function' => [
                 'name' => 'execute_sql_query',
-                'description' => 'Mengeksekusi query SQL SELECT untuk membaca data dari database Electronic Document Management System (EDMS) MySQL.',
+                'description' => "Mengeksekusi query SQL SELECT pada database MySQL EDMS.\n"
+                    . "PANDUAN SKEMA:\n"
+                    . "- Tabel repositori berkas & folder: `dms_nodes` (id, parent_id, name, node_type, file_path, status, access_mode, is_deleted, created_at).\n"
+                    . "- Kolom `parent_id` terhubung ke `dms_nodes.id` untuk folder induk (lakukan LEFT JOIN ke dms_nodes untuk mendapatkan nama folder induk).\n"
+                    . "- Tabel riwayat versi: `dms_document_versions` (document_id -> dms_nodes.id).\n"
+                    . "- Tabel review: `dms_document_reviews` (document_id -> dms_nodes.id).\n"
+                    . "- JANGAN query tabel 'documents' atau 'folders' karena tidak ada.",
                 'parameters' => [
                     'type' => 'object',
                     'properties' => [
                         'query' => [
                             'type' => 'string',
-                            'description' => 'Query SQL SELECT yang valid untuk membaca tabel repositori dokumen, folder, versi berkas, atau status review.'
+                            'description' => 'Query SQL SELECT valid (contoh: SELECT n.id, n.name, n.parent_id, p.name AS parent_name, n.status FROM dms_nodes n LEFT JOIN dms_nodes p ON n.parent_id = p.id WHERE n.name LIKE \'%3. PIN%\' LIMIT 5)'
                         ]
                     ],
                     'required' => ['query']
@@ -168,9 +145,15 @@ function callGroq(array $messages, string $systemPrompt = '', bool $enableTools 
         $res = $fallbackRes;
     }
 
-    if (isset($res['error']) && !empty($res['is_rate_limit'])) {
+    if (isset($res['error'])) {
+        error_log("[EDMS AI Error] " . $res['error']);
+        if (!empty($res['is_rate_limit'])) {
+            return [
+                'content' => 'Maaf, kuota permintaan sementara sedang penuh. Silakan coba sesaat lagi.'
+            ];
+        }
         return [
-            'content' => 'Maaf, kuota permintaan sementara sedang penuh. Silakan coba sesaat lagi.'
+            'content' => 'Terjadi kendala saat memproses jawaban: ' . $res['error']
         ];
     }
 
@@ -233,10 +216,6 @@ try {
 
     $systemPrompt = $instructions . "\n\n"
         . ($pageContextPrompt !== '' ? $pageContextPrompt . "\n\n" : "")
-        . "STRUKTUR DATABASE & SKEMA TERHUBUNG:\n"
-        . "-------------------------\n"
-        . $dbSchema . "\n"
-        . "-------------------------\n"
         . "PETUNJUK RELASI DATA & QUERY SPESIFIK:\n"
         . "- Tabel `dms_nodes`: Repositori utama node hierarki berkas. Kolom `node_type` bernilai 'folder' atau 'document'. Kolom `parent_id` menunjuk folder induk (NULL berarti root repositori). Kolom `is_deleted = 0` menandakan file aktif (bukan sampah). Kolom `status`: 'active', 'hold', 'suspend', 'published', 'obsolete', 'rejected'. Kolom `access_mode`: 'public' atau 'restricted'.\n"
         . "- Tabel `dms_document_versions`: Riwayat versi dokumen. Kolom `document_id` terhubung ke `dms_nodes.id`. Kolom `is_current = 1` menandakan versi dokumen terkini yang aktif.\n"
@@ -290,22 +269,49 @@ try {
             $queryResult = ["error" => "Akses Ditolak: Dilarang mengakses database sistem internal."];
         } elseif (preg_match('/\b(users|password|passwd|user_tokens|password_resets|auth_tokens|credentials)\b/i', $sqlQuery)) {
             $queryResult = ["error" => "Akses Ditolak: Akses terhadap data kredensial atau pengguna sistem dibatasi."];
+        } elseif (preg_match('/\b(sleep|benchmark|load_file|into\s+outfile|into\s+dumpfile)\b/i', $sqlQuery)) {
+            $queryResult = ["error" => "Akses Ditolak: Fungsi sistem atau operasi berbahaya tidak diizinkan."];
         } else {
+            // Enforcement: Pastikan query memiliki batas LIMIT wajar (maksimal 25 baris) agar tidak membanjiri konteks LLM
+            $effectiveQuery = $sqlQuery;
+            if (preg_match('/^SELECT\b/i', $effectiveQuery) && !preg_match('/\bLIMIT\s+\d+/i', $effectiveQuery)) {
+                $effectiveQuery = rtrim($effectiveQuery, ';') . " LIMIT 25";
+            }
+
             try {
-                $stmt = $pdo->prepare($sqlQuery);
+                $stmt = $pdo->prepare($effectiveQuery);
                 $stmt->execute();
-                $queryResult = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                $rawRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Sanitasi & Pemotongan Kolom Berat (misal data_json kanvas, payload stroke, atau teks panjang)
+                $queryResult = [];
+                foreach (array_slice($rawRows, 0, 25) as $row) {
+                    $cleanedRow = [];
+                    foreach ($row as $colKey => $colVal) {
+                        // Jangan sertakan payload biner, JSON koordinat kanvas yang besar, atau kolom hash
+                        if (in_array(strtolower($colKey), ['data_json', 'password', 'password_hash', 'token'], true)) {
+                            $cleanedRow[$colKey] = '[Payload Terlalu Besar / Privat]';
+                        } elseif (is_string($colVal) && mb_strlen($colVal) > 250) {
+                            $cleanedRow[$colKey] = mb_substr($colVal, 0, 250) . '... (dipotong)';
+                        } else {
+                            $cleanedRow[$colKey] = $colVal;
+                        }
+                    }
+                    $queryResult[] = $cleanedRow;
+                }
             } catch (Throwable $e) {
-                $queryResult = ["error" => $e->getMessage()];
+                $queryResult = ["error" => "Gagal mengeksekusi data: " . $e->getMessage()];
             }
         }
 
-        // Step 2: Send DB results back to Groq for natural language summarization
+        // Step 2: Kirimkan hasil data kembali ke model untuk dirangkum secara natural.
+        // Catatan: Karena model reasoning (seperti openai/gpt-oss-120b) cenderung memicu tool-calling berulang jika diberi peran 'tool',
+        // format percakapan sintetis (user-assisted) digunakan agar model fokus pada perangkuman teks alami.
         $finalMessages = [
             ...$history,
             ['role' => 'user', 'content' => $userMessage],
-            ['role' => 'assistant', 'content' => $agentReply ?: "Saya telah memeriksa data di sistem arsip dokumen."],
-            ['role' => 'user', 'content' => "Data hasil pengecekan sistem:\n" . json_encode($queryResult, JSON_UNESCAPED_UNICODE) . "\n\nTolong jelaskan dan jawab pertanyaan awal saya secara langsung, ramah, dan jelas berdasarkan data tersebut."]
+            ['role' => 'assistant', 'content' => $agentReply ?: "Saya telah memeriksa data di sistem arsip dokumen EDMS."],
+            ['role' => 'user', 'content' => "Berikut adalah data hasil pengecekan sistem arsip EDMS:\n" . json_encode($queryResult, JSON_UNESCAPED_UNICODE) . "\n\nTolong jelaskan dan jawab pertanyaan awal saya berdasarkan data tersebut secara langsung, ramah, dan jelas (patuhi aturan persona, jangan sebut istilah teknis database seperti SQL/query/tabel)."]
         ];
 
         $finalGroq = callGroq($finalMessages, $systemPrompt, false);
@@ -315,9 +321,7 @@ try {
             : (!empty($agentReply) ? $agentReply : "Maaf, saya tidak dapat merangkum data tersebut saat ini. Silakan coba lagi.");
 
         ai_json_out(true, [
-            'reply'      => $finalAnswer,
-            'sql'        => $sqlQuery,
-            'sql_result' => $queryResult,
+            'reply' => $finalAnswer
         ]);
     } else {
         // Direct conversational reply without database query

@@ -6,11 +6,7 @@
         <!-- Header -->
         <div class="theme-modal-header">
             <h3 id="themeModalTitle" class="theme-modal-title">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                    <polyline points="21 15 16 10 5 21"></polyline>
-                </svg>
+                <?php echo render_icon('settings'); ?>
                 Customize Wallpaper
             </h3>
             <button type="button" class="theme-modal-close" onclick="closeThemeModal()" aria-label="Close dialog">&times;</button>
@@ -18,8 +14,14 @@
 
         <!-- Body -->
         <div class="theme-modal-body">
+            <!-- Dynamic Client-Side Uploaded Wallpapers Gallery -->
+            <div id="myUploadsSection" style="display: none;">
+                <div class="theme-section-title">My Uploads</div>
+                <div class="wallpaper-grid" id="myUploadsGrid"></div>
+            </div>
+
             <div>
-                <div class="theme-section-title">Sidebar & Header Wallpaper</div>
+                <div class="theme-section-title">Preset Wallpapers</div>
                 <div class="wallpaper-grid">
                     <!-- Default Classic Emerald -->
                     <div class="wallpaper-card active" data-wallpaper="default" onclick="setSidebarWallpaper('default')" style="background: linear-gradient(200deg, #16a34a 0%, #064e3b 150%);">
@@ -64,6 +66,17 @@
                         <div style="font-size: 12px; font-weight: 600; color: var(--ink);">Upload your own wallpaper image</div>
                         <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">JPG, PNG, or WEBP (automatically optimized)</div>
                     </div>
+                </div>
+
+                <!-- Glass Blur Toggle -->
+                <div class="theme-setting-card">
+                    <div>
+                        <div style="font-size: 12.5px; font-weight: 600; color: var(--ink);">Blur</div>
+                    </div>
+                    <label class="theme-switch" title="Toggle glass blur">
+                        <input type="checkbox" id="themeBlurToggle" onchange="toggleWallpaperBlur(this.checked)">
+                        <span class="theme-slider"></span>
+                    </label>
                 </div>
             </div>
         </div>

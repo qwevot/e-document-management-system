@@ -52,8 +52,14 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
                 document.documentElement.removeAttribute('data-theme');
                 localStorage.removeItem('edms_theme_mode');
 
+                // Preload glass blur state immediately to prevent layout flash
+                if (localStorage.getItem('edms_wallpaper_blur') === 'off') {
+                    document.documentElement.classList.add('no-glass-blur');
+                } else {
+                    document.documentElement.classList.remove('no-glass-blur');
+                }
+
                 const wp = localStorage.getItem('edms_sidebar_wallpaper') || 'default';
-                const customWp = localStorage.getItem('edms_custom_wallpaper_data');
                 const presets = {
                     "preset-forest": "https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=800&q=75",
                     "preset-tech": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=75",
@@ -61,7 +67,15 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
                     "preset-peaks": "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=800&q=75",
                     "preset-carbon": "https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=800&q=75"
                 };
-                const bg = (wp === 'custom' && customWp) ? customWp : (presets[wp] || null);
+                let bg = presets[wp] || null;
+                if (!bg && wp.startsWith('custom')) {
+                    try {
+                        const list = JSON.parse(localStorage.getItem('edms_custom_wallpapers_list') || '[]');
+                        const found = list.find(x => x.id === wp) || list[0];
+                        if (found) bg = found.dataUrl;
+                    } catch (e) {}
+                    if (!bg) bg = localStorage.getItem('edms_custom_wallpaper_data');
+                }
                 if (bg) {
                     document.documentElement.style.setProperty('--custom-wallpaper', 'url("' + bg + '")');
                 }
@@ -115,11 +129,7 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
 
             <div class="user-area">
                 <button type="button" class="sidebar-toggle theme-customizer-btn" onclick="openThemeModal()" title="Customize Wallpaper" aria-label="Wallpaper Settings" style="margin-right: 4px;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                        <polyline points="21 15 16 10 5 21"></polyline>
-                    </svg>
+                    <?php echo render_icon('settings'); ?>
                 </button>
 
                 <details class="notif-dropdown" id="notifDropdown" style="position: relative;">
