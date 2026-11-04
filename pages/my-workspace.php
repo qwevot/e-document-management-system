@@ -379,6 +379,7 @@ let wsPerPage = 25;
 
 function filterWorkspace(btn, filter) {
     document.querySelectorAll('.sidebar [data-filter]').forEach(el => el.classList.toggle('active', el.dataset.filter === filter));
+    if (filter === 'all' && btn && !btn.classList.contains('open') && window.toggleNavGroup) window.toggleNavGroup(btn);
     currentWsFilter = filter;
     wsCurrentPage = 1;
     history.replaceState(null, '', '?filter=' + encodeURIComponent(filter));

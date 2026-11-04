@@ -69,34 +69,24 @@ function create_document_version(
     int $userId = 1
 ): array {
     $pdo = db();
-
-    // Verify document exists
-    $stmt = $pdo->prepare("SELECT * FROM dms_nodes WHERE id = :id AND node_type = 'document'");
-    $stmt->execute(['id' => $docId]);
-    $doc = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!$doc) {
-        return ['success' => false, 'message' => 'Document not found.'];
-    }
-
-    if ($doc['status'] === 'obsolete') {
-        return ['success' => false, 'message' => 'Cannot upload revisions to an obsolete document.'];
-    }
-
-    if ($doc['status'] === 'hold') {
-        return ['success' => false, 'message' => 'Document is frozen on hold for review. Revisions cannot be uploaded at this stage.'];
-    }
-
-    // Always increment minor version for regular specimen revisions
-    $currentVer = $doc['version'] ?: 'v0.1';
-    $nextVer = calculate_next_version($currentVer, 'minor');
-    $summary = trim($changeSummary ?? '') ?: ("Revision update to " . $nextVer);
-
-    // Revisions always enter the editable active state awaiting review
-    $newStatus = 'active';
-
     $pdo->beginTransaction();
     try {
+        // Verify and lock document row to serialize concurrent revision uploads
+        $stmt = $pdo->prepare("SELECT * FROM dms_nodes WHERE id = :id AND node_type = 'document' FOR UPDATE");
+        $stmt->execute(['id' => $docId]);
+        $doc = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$doc || in_array($doc['status'], ['obsolete', 'hold'], true)) {
+            $pdo->rollBack();
+            $msg = !$doc ? 'Document not found.' : ($doc['status'] === 'obsolete' ? 'Cannot upload revisions to an obsolete document.' : 'Document is frozen on hold for review. Revisions cannot be uploaded at this stage.');
+            return ['success' => false, 'message' => $msg];
+        }
+
+        // Always increment minor version for regular specimen revisions
+        $currentVer = $doc['version'] ?: 'v0.1';
+        $nextVer = calculate_next_version($currentVer, 'minor');
+        $summary = trim($changeSummary ?? '') ?: ("Revision update to " . $nextVer);
+        $newStatus = 'active';
         // Set existing versions to is_current = 0
         $updOld = $pdo->prepare("UPDATE dms_document_versions SET is_current = 0 WHERE document_id = :doc_id");
         $updOld->execute(['doc_id' => $docId]);
@@ -169,20 +159,22 @@ function create_document_version(
 function publish_document(int $docId, ?string $publishNotes = null, int $userId = 1): array
 {
     $pdo = db();
-    $stmt = $pdo->prepare("SELECT * FROM dms_nodes WHERE id = :id AND node_type = 'document'");
-    $stmt->execute(['id' => $docId]);
-    $doc = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!$doc) {
-        return ['success' => false, 'message' => 'Document not found.'];
-    }
-
-    $currentVer = $doc['version'] ?: 'v0.1';
-    $nextMajorVer = calculate_next_version($currentVer, 'major');
-    $summary = trim($publishNotes ?? '') ?: ("Official publication release " . $nextMajorVer);
-
     $pdo->beginTransaction();
     try {
+        $stmt = $pdo->prepare("SELECT * FROM dms_nodes WHERE id = :id AND node_type = 'document' FOR UPDATE");
+        $stmt->execute(['id' => $docId]);
+        $doc = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$doc || $doc['status'] === 'published') {
+            $pdo->rollBack();
+            return $doc
+                ? ['success' => true, 'version' => $doc['version'], 'status' => 'published', 'message' => "Document officially published as {$doc['version']}"]
+                : ['success' => false, 'message' => 'Document not found.'];
+        }
+
+        $currentVer = $doc['version'] ?: 'v0.1';
+        $nextMajorVer = calculate_next_version($currentVer, 'major');
+        $summary = trim($publishNotes ?? '') ?: ("Official publication release " . $nextMajorVer);
         // Set existing versions is_current = 0
         $updOld = $pdo->prepare("UPDATE dms_document_versions SET is_current = 0 WHERE document_id = :doc_id");
         $updOld->execute(['doc_id' => $docId]);

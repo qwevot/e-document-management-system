@@ -1109,7 +1109,7 @@
             if (popoverMove) popoverMove.style.display = isObsolete ? "none" : "flex";
             if (popoverActionMoveLabel) popoverActionMoveLabel.textContent = "Move to...";
             if (popoverActionDeleteLabel) popoverActionDeleteLabel.textContent = isObsolete ? "Restore" : "Trash";
-            if (popoverDelete) popoverDelete.style.color = isObsolete ? "var(--green)" : "";
+            if (popoverDelete) { popoverDelete.classList.toggle("is-restore", isObsolete); popoverDelete.classList.toggle("is-danger", !isObsolete); }
 
             // Configure Open Workspace link in popover
             if (popoverView) {
@@ -1794,7 +1794,7 @@
                 if (popoverRename) popoverRename.style.display = "none";
                 if (popoverActionMoveLabel) popoverActionMoveLabel.textContent = `Move ${count} items...`;
                 if (popoverActionDeleteLabel) popoverActionDeleteLabel.textContent = `Trash (${count})`;
-                if (popoverDelete) popoverDelete.style.color = "";
+                if (popoverDelete) { popoverDelete.classList.remove("is-restore"); popoverDelete.classList.add("is-danger"); }
             } else {
                 const singleItem = Array.from(selectedItemsMap.values())[0];
                 currentActiveItem = singleItem;

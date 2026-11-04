@@ -324,45 +324,42 @@ function submit_review_verdict(
         return ['success' => false, 'message' => 'Invalid review verdict. Must be approved or rejected.'];
     }
 
-    // Verify document
-    $docStmt = $pdo->prepare("SELECT * FROM dms_nodes WHERE id = :id AND node_type = 'document'");
-    $docStmt->execute(['id' => $docId]);
-    $doc = $docStmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!$doc) {
-        return ['success' => false, 'message' => 'Document not found.'];
-    }
-
-    if ($doc['status'] !== 'hold') {
-        return ['success' => false, 'message' => 'Document is not currently awaiting review.'];
-    }
-
-    // Check user
-    $userStmt = $pdo->prepare("SELECT role, full_name, username FROM users WHERE id = :id");
-    $userStmt->execute(['id' => $reviewerId]);
-    $user = $userStmt->fetch(PDO::FETCH_ASSOC);
-
-    // Find review record specifically assigned to this reviewer in the active pending stage
-    $revStmt = $pdo->prepare("
-        SELECT * FROM dms_document_reviews 
-        WHERE document_id = :doc_id AND reviewer_id = :reviewer_id AND status = 'pending'
-        LIMIT 1
-    ");
-    $revStmt->execute([
-        'doc_id'      => $docId,
-        'reviewer_id' => $reviewerId
-    ]);
-    $reviewRecord = $revStmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!$reviewRecord) {
-        return ['success' => false, 'message' => 'Unauthorized. You are not assigned to review this document at the current stage.'];
-    }
-
-    $currentStep = (int)($reviewRecord['step_order'] ?? 1);
-    $targetVersion = $reviewRecord['version'];
-
     $pdo->beginTransaction();
     try {
+        // Verify and lock document row to serialize concurrent reviewer verdicts
+        $docStmt = $pdo->prepare("SELECT * FROM dms_nodes WHERE id = :id AND node_type = 'document' FOR UPDATE");
+        $docStmt->execute(['id' => $docId]);
+        $doc = $docStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$doc || $doc['status'] !== 'hold') {
+            $pdo->rollBack();
+            return ['success' => false, 'message' => !$doc ? 'Document not found.' : 'Document is not currently awaiting review.'];
+        }
+
+        // Check user
+        $userStmt = $pdo->prepare("SELECT role, full_name, username FROM users WHERE id = :id");
+        $userStmt->execute(['id' => $reviewerId]);
+        $user = $userStmt->fetch(PDO::FETCH_ASSOC);
+
+        // Find review record specifically assigned to this reviewer in the active pending stage
+        $revStmt = $pdo->prepare("
+            SELECT * FROM dms_document_reviews 
+            WHERE document_id = :doc_id AND reviewer_id = :reviewer_id AND status = 'pending'
+            LIMIT 1 FOR UPDATE
+        ");
+        $revStmt->execute([
+            'doc_id'      => $docId,
+            'reviewer_id' => $reviewerId
+        ]);
+        $reviewRecord = $revStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$reviewRecord) {
+            $pdo->rollBack();
+            return ['success' => false, 'message' => 'Unauthorized. You are not assigned to review this document at the current stage.'];
+        }
+
+        $currentStep = (int)($reviewRecord['step_order'] ?? 1);
+        $targetVersion = $reviewRecord['version'];
         $updRev = $pdo->prepare("
             UPDATE dms_document_reviews 
             SET status = :status, comments = :comments, reviewed_at = NOW() 

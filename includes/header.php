@@ -43,6 +43,31 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
     <script>window.EDMS_CSRF_TOKEN = "<?php echo e(csrf_token()); ?>";</script>
     <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/styles.css">
     <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/responsive.css">
+    <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/katex.min.css">
+    <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/theme-customizer.css">
+    <script>
+        (function() {
+            try {
+                // Ensure default light theme
+                document.documentElement.removeAttribute('data-theme');
+                localStorage.removeItem('edms_theme_mode');
+
+                const wp = localStorage.getItem('edms_sidebar_wallpaper') || 'default';
+                const customWp = localStorage.getItem('edms_custom_wallpaper_data');
+                const presets = {
+                    "preset-forest": "https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=800&q=75",
+                    "preset-tech": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=75",
+                    "preset-aurora": "https://images.unsplash.com/photo-1531366936337-7c912a4589a7?auto=format&fit=crop&w=800&q=75",
+                    "preset-peaks": "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=800&q=75",
+                    "preset-carbon": "https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=800&q=75"
+                };
+                const bg = (wp === 'custom' && customWp) ? customWp : (presets[wp] || null);
+                if (bg) {
+                    document.documentElement.style.setProperty('--custom-wallpaper', 'url("' + bg + '")');
+                }
+            } catch (e) {}
+        })();
+    </script>
     <?php if (!empty($extraCss)): ?>
         <?php foreach ((array)$extraCss as $cssFile): ?>
             <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/<?php echo e($cssFile); ?>">
@@ -89,6 +114,14 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
             </button>
 
             <div class="user-area">
+                <button type="button" class="sidebar-toggle theme-customizer-btn" onclick="openThemeModal()" title="Customize Wallpaper" aria-label="Wallpaper Settings" style="margin-right: 4px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                        <polyline points="21 15 16 10 5 21"></polyline>
+                    </svg>
+                </button>
+
                 <details class="notif-dropdown" id="notifDropdown" style="position: relative;">
                     <summary class="sidebar-toggle notif-bell-btn" title="Notifications" aria-label="Notifications" style="list-style: none; cursor: pointer; position: relative;">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">

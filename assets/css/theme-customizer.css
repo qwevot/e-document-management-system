@@ -1,0 +1,218 @@
+/* ==========================================================================
+   EDMS Wallpaper & Canvas Customizer
+   Seamless viewport wallpaper support across Sidebar & Header
+   ========================================================================== */
+
+/* 1. Sidebar & Header Seamless Wallpaper Support with Legibility Scrim */
+.sidebar.has-custom-wallpaper,
+.topbar.has-custom-wallpaper {
+    background-image: var(--custom-wallpaper) !important;
+    background-attachment: fixed !important;
+    background-size: cover !important;
+    background-position: top left !important;
+    background-repeat: no-repeat !important;
+    transition: background-image 0.25s ease-in-out;
+}
+
+.sidebar.has-custom-wallpaper {
+    border-right: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.sidebar.has-custom-wallpaper::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(200deg, rgba(15, 74, 39, 0.45) 0%, rgba(6, 78, 59, 0.45) 100%);
+    backdrop-filter: blur(2px);
+    z-index: 0;
+    pointer-events: none;
+}
+
+.sidebar.has-custom-wallpaper > * {
+    position: relative;
+    z-index: 1;
+}
+
+.topbar.has-custom-wallpaper {
+    position: sticky;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+
+.topbar.has-custom-wallpaper::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(200deg, rgba(15, 74, 39, 0.45) 0%, rgba(6, 78, 59, 0.45) 100%);
+    backdrop-filter: blur(2px);
+    z-index: 0;
+    pointer-events: none;
+}
+
+.topbar.has-custom-wallpaper > * {
+    position: relative;
+    z-index: 1;
+}
+
+/* 2. Wallpaper Customizer Modal UI */
+.theme-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    backdrop-filter: blur(3px);
+    z-index: 110;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    animation: themeFadeIn 0.15s ease-out;
+}
+
+.theme-modal-backdrop.open {
+    display: flex;
+}
+
+@keyframes themeFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.theme-modal-box {
+    background: var(--surface);
+    color: var(--ink);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 500px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    animation: themeScaleUp 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes themeScaleUp {
+    from { transform: scale(0.95); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+
+.theme-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.theme-modal-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin: 0;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.theme-modal-close {
+    background: none;
+    border: none;
+    font-size: 18px;
+    color: var(--muted);
+    cursor: pointer;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.theme-modal-close:hover {
+    background: var(--surface-muted);
+    color: var(--ink);
+}
+
+.theme-modal-body {
+    padding: 20px;
+    max-height: 70vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.theme-section-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin-bottom: 8px;
+}
+
+/* Wallpaper Preset Grid */
+.wallpaper-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+}
+
+.wallpaper-card {
+    height: 72px;
+    border-radius: 8px;
+    border: 2px solid var(--border);
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    background-size: cover;
+    background-position: center;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.wallpaper-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--green-muted);
+}
+
+.wallpaper-card.active {
+    border-color: var(--green);
+    box-shadow: 0 0 0 2px var(--green);
+}
+
+.wallpaper-card-label {
+    position: absolute;
+    bottom: 0;
+    inset-inline: 0;
+    background: rgba(0, 0, 0, 0.65);
+    color: #ffffff;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 6px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.theme-upload-zone {
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    text-align: center;
+    background: var(--surface-light);
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+}
+
+.theme-upload-zone:hover {
+    border-color: var(--green);
+}
+
+.theme-modal-footer {
+    padding: 12px 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--surface-light);
+}

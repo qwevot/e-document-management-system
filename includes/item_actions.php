@@ -34,7 +34,7 @@
     </button>
     <div class="popover-divider"></div>
     <button type="button" class="popover-item is-danger" id="popoverActionDelete">
-        <?php echo render_icon('archive'); ?>
+        <?php echo render_icon('archive', 'icon-trash') . render_icon('undo', 'icon-restore'); ?>
         <span id="popoverActionDeleteLabel">Trash</span>
     </button>
     <?php endif; ?>

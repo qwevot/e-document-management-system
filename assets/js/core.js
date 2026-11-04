@@ -195,7 +195,7 @@
 
         const activeItem = document.querySelector(".nav-item.active");
         const activeGroup = activeItem ? activeItem.closest(".nav-group") : null;
-        const activeToggle = activeGroup ? activeGroup.previousElementSibling : null;
+        const activeToggle = activeGroup ? activeGroup.previousElementSibling : (activeItem && activeItem.classList.contains("nav-group-toggle") ? activeItem : null);
         const activeKey = activeToggle ? activeToggle.dataset.group : null;
 
         document.querySelectorAll(".nav-group-toggle[data-group]").forEach((btn) => {

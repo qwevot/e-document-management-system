@@ -637,7 +637,7 @@ function get_document_audit_trail(int $docId): array {
         };
 
         $userName = htmlspecialchars($log['user_full_name'] ?? 'System', ENT_QUOTES, 'UTF-8');
-        $formattedTime = date('M j, Y &bull; H:i', strtotime($log['created_at']));
+        $formattedTime = date('M j, Y \• H:i', strtotime($log['created_at']));
 
         $htmlItems .= "
         <div class=\"audit-timeline-item\">
