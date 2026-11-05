@@ -25,11 +25,11 @@ $wsTopFeeds = [
 // Administration items (Retractable group)
 $adminNavItems = [];
 if (in_array($role, ['super admin', 'admin'], true)) {
-    $adminNavItems = [
-        ['archives',    'pages/archives.php',     'Archives', 'archive'],
-        ['users',       'pages/users.php',        'Users & Roles', 'users'],
-        ['system-logs', 'pages/system-logs.php',  'System Logs', 'system-logs'],
-    ];
+    $adminNavItems[] = ['archives', 'pages/archives.php', 'Archives', 'archive'];
+    if ($role === 'super admin') {
+        $adminNavItems[] = ['users', 'pages/users.php', 'Users & Roles', 'users'];
+    }
+    $adminNavItems[] = ['system-logs', 'pages/system-logs.php', 'System Logs', 'system-logs'];
 }
 ?>
 <aside class="sidebar">

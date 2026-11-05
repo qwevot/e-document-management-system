@@ -416,7 +416,7 @@ function render_pagination_bar(
 
             <div class="pagination-nav-group">
                 <button type="button" class="pagination-btn <?php echo $page <= 1 ? 'is-disabled' : ''; ?>" <?php echo $btnAttr($prevPage); ?> title="Previous Page" <?php echo $page <= 1 ? 'disabled' : ''; ?>>
-                    <?php echo render_icon('arrow-left'); ?>
+                    <?php echo render_icon('chevron-left'); ?>
                 </button>
 
                 <div class="pagination-pages">

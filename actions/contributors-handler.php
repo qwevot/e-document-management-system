@@ -37,8 +37,9 @@ if ($action === 'get_access_data') {
     $pdo = db();
     $stmt = $pdo->prepare("
         SELECT d.id, d.name, d.status, d.access_mode, d.created_by,
-               COALESCE(u.full_name, u.username, 'Author') AS owner_name,
-               u.username AS owner_username, u.avatar AS owner_avatar
+               u.id AS owner_user_id,
+               COALESCE(u.full_name, u.username, 'Guest') AS owner_name,
+               COALESCE(u.username, 'guest') AS owner_username, u.avatar AS owner_avatar
         FROM dms_nodes d
         LEFT JOIN users u ON d.created_by = u.id
         WHERE d.id = :id AND d.node_type = 'document' AND d.is_deleted = 0

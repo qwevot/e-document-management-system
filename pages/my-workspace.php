@@ -17,7 +17,7 @@ $userId = (int)($user['id'] ?? 0);
 $myDocsStmt = $pdo->prepare("
     SELECT DISTINCT d.id, d.name, d.version, d.status, d.file_extension, d.updated_at, d.created_at,
            d.parent_id, p.name AS parent_name,
-           COALESCE(u.full_name, u.username, 'System') AS creator_name,
+           COALESCE(u.full_name, u.username, 'Guest') AS creator_name,
            u.avatar AS creator_avatar,
            (d.created_by = :uid1) AS is_owner,
            (d.created_by = :uid1b OR c.user_id IS NOT NULL) AS is_mine,
@@ -42,7 +42,7 @@ $myDocs = $myDocsStmt->fetchAll(PDO::FETCH_ASSOC);
 $recentTouchedStmt = $pdo->prepare("
     SELECT d.id, d.name, d.version, d.status, d.file_extension,
            d.parent_id, p.name AS parent_name,
-           COALESCE(u.full_name, u.username, 'System') AS creator_name,
+           COALESCE(u.full_name, u.username, 'Guest') AS creator_name,
            u.avatar AS creator_avatar,
            MAX(l.created_at) AS last_touched_at
     FROM dms_nodes d
@@ -357,7 +357,7 @@ require_once __DIR__ . '/../includes/header.php';
 
                 <div class="pagination-nav-group">
                     <button type="button" class="pagination-btn" id="btnWsPagPrev" onclick="changeWsPage(wsCurrentPage - 1)" title="Previous Page">
-                        <?php echo render_icon('arrow-left'); ?>
+                        <?php echo render_icon('chevron-left'); ?>
                     </button>
                     <div class="pagination-pages" id="wsPagPages"></div>
                     <button type="button" class="pagination-btn" id="btnWsPagNext" onclick="changeWsPage(wsCurrentPage + 1)" title="Next Page">

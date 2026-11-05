@@ -34,7 +34,7 @@ function get_document_versions(int $docId): array
     $stmt = $pdo->prepare("
         SELECT v.*, 
                n.status AS doc_status,
-               COALESCE(u.full_name, u.username, 'System') AS author_name,
+               COALESCE(u.full_name, u.username, 'Guest') AS author_name,
                u.avatar AS author_avatar
         FROM dms_document_versions v
         LEFT JOIN dms_nodes n ON v.document_id = n.id

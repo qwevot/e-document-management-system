@@ -30,8 +30,13 @@ function is_document_contributor(int $docId, int $userId): bool
 {
     $pdo = db();
 
-    // 1. Fetch document meta
-    $stmt = $pdo->prepare("SELECT id, created_by, status, access_mode FROM dms_nodes WHERE id = :id AND node_type = 'document' AND is_deleted = 0");
+    // 1. Fetch document meta + whether owner account still exists (if deleted -> Guest / Public)
+    $stmt = $pdo->prepare("
+        SELECT d.id, d.created_by, d.status, d.access_mode, u.id AS owner_user_id
+        FROM dms_nodes d
+        LEFT JOIN users u ON d.created_by = u.id
+        WHERE d.id = :id AND d.node_type = 'document' AND d.is_deleted = 0
+    ");
     $stmt->execute(['id' => $docId]);
     $doc = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -57,12 +62,12 @@ function is_document_contributor(int $docId, int $userId): bool
         return true;
     }
 
-    // 5. Public access mode grants non-viewer authenticated users contributor rights
-    if (($doc['access_mode'] ?? 'restricted') === 'public') {
+    // 5. Public access mode OR Guest owner (deleted user account) grants non-viewer users contributor rights
+    if (($doc['access_mode'] ?? 'restricted') === 'public' || empty($doc['owner_user_id'])) {
         return true;
     }
 
-    // 5. Check explicit invitation in dms_document_contributors
+    // 6. Check explicit invitation in dms_document_contributors
     $cStmt = $pdo->prepare("SELECT 1 FROM dms_document_contributors WHERE document_id = :doc_id AND user_id = :user_id");
     $cStmt->execute(['doc_id' => $docId, 'user_id' => $userId]);
     return (bool)$cStmt->fetchColumn();
@@ -79,13 +84,18 @@ function can_manage_node(int $nodeId, int $userId): bool
     if (is_admin()) {
         return true;
     }
-    $stmt = db()->prepare("SELECT node_type, created_by FROM dms_nodes WHERE id = :id AND is_deleted = 0");
+    $stmt = db()->prepare("
+        SELECT d.node_type, d.created_by, d.access_mode, u.id AS owner_user_id
+        FROM dms_nodes d
+        LEFT JOIN users u ON d.created_by = u.id
+        WHERE d.id = :id AND d.is_deleted = 0
+    ");
     $stmt->execute(['id' => $nodeId]);
     $node = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$node) {
         return false;
     }
-    if ((int)$node['created_by'] === $userId) {
+    if ((int)$node['created_by'] === $userId || empty($node['owner_user_id'])) {
         return true;
     }
     return $node['node_type'] === 'document' && is_document_contributor($nodeId, $userId);

@@ -17,7 +17,7 @@ if ($docId <= 0) {
 
 // Fetch document metadata
 $stmt = $pdo->prepare("
-    SELECT n.*, COALESCE(u.full_name, u.username, 'System') AS creator_name, p.name AS parent_name
+    SELECT n.*, u.id AS owner_user_id, COALESCE(u.full_name, u.username, 'Guest') AS creator_name, p.name AS parent_name
     FROM dms_nodes n
     LEFT JOIN users u ON n.created_by = u.id
     LEFT JOIN dms_nodes p ON n.parent_id = p.id
@@ -162,8 +162,9 @@ if ($submittedByUserId === 0) {
 
 $isAdmin = in_array(strtolower($currentUser['role'] ?? ''), ['super admin', 'admin'], true);
 $isViewer = !can_edit_dms($currentUser);
+$isGuestOwned = empty($doc['owner_user_id']);
 $isOwner = (!$isViewer && ((int)$doc['created_by'] === $userId || $isAdmin));
-$accessMode = $doc['access_mode'] ?? 'restricted';
+$accessMode = $isGuestOwned ? 'public' : ($doc['access_mode'] ?? 'restricted');
 $isContributor = is_document_contributor($docId, $userId);
 $isAssignedReviewer = in_array($userId, $reviewerUserIds, true);
 $canAnnotate = !$isHistoricalSnapshot && can_user_annotate_document($doc, $userId);
@@ -171,7 +172,7 @@ $canUploadRevision = !$isHistoricalSnapshot && can_user_upload_revision($doc, $u
 $canSubmitReview = (!$isHistoricalSnapshot && in_array($doc['status'] ?? '', ['active', 'rejected', 'suspend'], true) && $isContributor);
 $canManageAccess = $isOwner;
 
-$isSubmitter = ($userId === $submittedByUserId || (int)$doc['created_by'] === $userId);
+$isSubmitter = ($userId === $submittedByUserId || (int)$doc['created_by'] === $userId || ($isGuestOwned && $isContributor));
 
 // Reviewers can act on the review only if they have an active pending review in the current stage
 $canActOnReview = !$isHistoricalSnapshot && $isDocHold && ($userPendingReview !== null);
@@ -307,7 +308,7 @@ if (!empty($reviews)) {
             <?php if ($isSupportedViewer): ?>
                 <div class="workspace-control-pill">
                     <button type="button" class="btn-ctrl" id="btnPrevPage" title="Previous Page">
-                        <?php echo render_icon('arrow-left'); ?>
+                        <?php echo render_icon('chevron-left'); ?>
                     </button>
                     <span class="page-indicator-text" id="pageIndicatorDisplay">Page 1 / 1</span>
                     <button type="button" class="btn-ctrl" id="btnNextPage" title="Next Page">

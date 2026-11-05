@@ -57,7 +57,7 @@ $allFilterTypes = array_values(array_filter($fileTypesStmt->fetchAll(PDO::FETCH_
 
 // 2. Query Obsolete Items (According to Project Tree Mode or Flat Documents Mode)
 $baseSelect = 'SELECT dms_nodes.*, 
-                    COALESCE(u.full_name, u.username, "System") AS creator_name,
+                    COALESCE(u.full_name, u.username, "Guest") AS creator_name,
                     u.avatar AS creator_avatar,
                     p.name AS parent_name
                 FROM dms_nodes

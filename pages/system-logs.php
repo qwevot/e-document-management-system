@@ -259,7 +259,7 @@ include __DIR__ . '/../includes/header.php';
             <!-- Navigation buttons -->
             <div class="pagination-nav-group">
                 <button type="button" class="pagination-btn <?php echo $page <= 1 ? 'is-disabled' : ''; ?>" onclick="navigateLogsPage(<?php echo max(1, $page - 1); ?>)" title="Previous Page" <?php echo $page <= 1 ? 'disabled' : ''; ?>>
-                    <?php echo render_icon('arrow-left'); ?>
+                    <?php echo render_icon('chevron-left'); ?>
                 </button>
 
                 <div class="pagination-pages">

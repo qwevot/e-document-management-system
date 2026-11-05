@@ -37,12 +37,12 @@ function get_document_reviews(int $docId, ?string $version = null): array
     $pdo = db();
     $sql = "
         SELECT r.*,
-               COALESCE(u.full_name, u.username, 'Reviewer') AS reviewer_name,
+               COALESCE(u.full_name, u.username, 'Guest') AS reviewer_name,
                u.username AS reviewer_username,
                u.role AS reviewer_role,
                u.department AS reviewer_department,
                u.avatar AS reviewer_avatar,
-               COALESCE(req.full_name, req.username, 'Requester') AS requester_name
+               COALESCE(req.full_name, req.username, 'Guest') AS requester_name
         FROM dms_document_reviews r
         LEFT JOIN users u ON r.reviewer_id = u.id
         LEFT JOIN users req ON r.requested_by = req.id
@@ -74,7 +74,7 @@ function get_pending_reviews_for_user(int $userId): array
                d.id AS document_id, d.name AS document_name, d.version AS current_version,
                d.file_extension, d.file_size, d.file_original_name, d.status AS document_status,
                p.name AS parent_folder_name,
-               COALESCE(req.full_name, req.username, 'Author') AS requested_by_name,
+               COALESCE(req.full_name, req.username, 'Guest') AS requested_by_name,
                req.avatar AS requester_avatar
         FROM dms_document_reviews r
         JOIN dms_nodes d ON r.document_id = d.id
@@ -126,13 +126,17 @@ function submit_document_for_review(
     $targetVer = $targetVersion ?: calculate_next_version($curVersion, 'major');
     $isEditingHold = ($doc['status'] === 'hold');
 
-    // If the document is currently in review, only the submitter or author can modify the workflow
+    // If the document is currently in review, only the submitter, author, or a collaborator on a Guest-owned doc can modify the workflow
     if ($isEditingHold) {
         $stReq = $pdo->prepare("SELECT requested_by FROM dms_document_reviews WHERE document_id = :doc_id AND version = :version ORDER BY id DESC LIMIT 1");
         $stReq->execute(['doc_id' => $docId, 'version' => $targetVer]);
         $requestedBy = (int)$stReq->fetchColumn();
 
-        $isSubmitter = ($userId === $requestedBy || (int)$doc['created_by'] === $userId);
+        $ownerExistsStmt = $pdo->prepare("SELECT 1 FROM users WHERE id = :id");
+        $ownerExistsStmt->execute(['id' => (int)$doc['created_by']]);
+        $isGuestOwned = !$ownerExistsStmt->fetchColumn();
+
+        $isSubmitter = ($userId === $requestedBy || (int)$doc['created_by'] === $userId || ($isGuestOwned && is_document_contributor($docId, $userId)));
         if (!$isSubmitter) {
             log_activity('auth.access_denied', 'document', $docId, [
                 'attempted_action' => 'edit_review_workflow',
@@ -553,7 +557,11 @@ function cancel_document_review(int $docId, int $userId): array
     $reviewRow = $reqStmt->fetch(PDO::FETCH_ASSOC);
     $requestedBy = $reviewRow ? (int)$reviewRow['requested_by'] : (int)$doc['created_by'];
 
-    $isSubmitter = ($userId === $requestedBy || (int)$doc['created_by'] === $userId);
+    $ownerExistsStmt = $pdo->prepare("SELECT 1 FROM users WHERE id = :id");
+    $ownerExistsStmt->execute(['id' => (int)$doc['created_by']]);
+    $isGuestOwned = !$ownerExistsStmt->fetchColumn();
+
+    $isSubmitter = ($userId === $requestedBy || (int)$doc['created_by'] === $userId || ($isGuestOwned && is_document_contributor($docId, $userId)));
     if (!$isSubmitter) {
         log_activity('auth.access_denied', 'document', $docId, [
             'attempted_action' => 'cancel_review',

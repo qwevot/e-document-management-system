@@ -58,7 +58,7 @@ $totalCount = 0;
 
 $curUid = (int)(current_user()['id'] ?? 0);
 $baseSelect = 'SELECT dms_nodes.*, 
-                      COALESCE(u.full_name, u.username, "System") AS creator_name,
+                      COALESCE(u.full_name, u.username, "Guest") AS creator_name,
                       u.avatar AS creator_avatar,
                       p.name AS parent_name,
                       (s.node_id IS NOT NULL) AS is_starred

@@ -464,15 +464,15 @@ svg.icon-lg, .icon-lg svg { width: 20px; height: 20px; flex-shrink: 0; }
 /* Center Stage Viewport */
 .workspace-center-stage {
     flex: 1;
+    min-width: 0;
     overflow-y: auto;
     overflow-x: auto;
     display: flex;
     align-items: flex-start;
-    justify-content: center;
-    padding: 32px max(60px, 25vw);
+    justify-content: flex-start;
+    padding: 32px 24px;
     background: var(--surface-muted);
     position: relative;
-    scroll-behavior: smooth;
 }
 
 .workspace-document-container {
@@ -481,13 +481,18 @@ svg.icon-lg, .icon-lg svg { width: 20px; height: 20px; flex-shrink: 0; }
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
-    min-width: 0;
+    margin: 0 auto;
+    min-width: max-content;
+    flex-shrink: 0;
+    padding: 0 76px;
+    box-sizing: border-box;
 }
 
 .pdf-pages-feed {
     display: flex;
     flex-direction: column;
     align-items: center;
+    min-width: max-content;
     gap: 24px;
     padding-bottom: 48px;
 }
@@ -1319,7 +1324,7 @@ svg.icon-lg, .icon-lg svg { width: 20px; height: 20px; flex-shrink: 0; }
 
 
 /* Page Marginalia Comments Gutter */
-.pdf-page-row { display: flex; flex-direction: row; align-items: flex-start; justify-content: center; gap: 20px; width: 100%; }
+.pdf-page-row { display: flex; flex-direction: row; align-items: flex-start; justify-content: center; gap: 20px; min-width: max-content; }
 .pdf-page-row > .pdf-page-wrapper { flex-shrink: 0; }
 .pdf-page-gutter { width: 270px; min-width: 270px; max-width: 270px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
 

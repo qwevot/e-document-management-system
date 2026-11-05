@@ -803,7 +803,7 @@
 
     /* Responsive Document Center Stage & Mobile Layout */
     .workspace-center-stage {
-        padding: 14px 8px 84px 8px !important;
+        padding: 16px 12px 84px 12px !important;
         justify-content: flex-start !important;
         overflow-x: auto !important;
         -webkit-overflow-scrolling: touch;
@@ -811,15 +811,18 @@
 
     .workspace-document-container {
         margin: 0 auto !important;
-        width: 100% !important;
-        max-width: 100% !important;
+        width: auto !important;
+        min-width: max-content !important;
+        max-width: none !important;
+        padding: 0 16px !important;
         display: flex !important;
         flex-direction: column !important;
         align-items: center !important;
     }
 
     .pdf-pages-feed {
-        width: 100% !important;
+        width: auto !important;
+        min-width: max-content !important;
         display: flex !important;
         flex-direction: column !important;
         align-items: center !important;
@@ -833,8 +836,9 @@
         align-items: center !important;
         justify-content: flex-start !important;
         gap: 10px !important;
-        width: 100% !important;
-        max-width: 100% !important;
+        width: auto !important;
+        min-width: max-content !important;
+        max-width: none !important;
     }
 
     .pdf-page-row > .pdf-page-wrapper {

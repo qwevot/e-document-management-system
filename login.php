@@ -113,13 +113,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             <div class="field">
                 <label for="password">Password</label>
-                <input
-                    type="password"
-                    id="password"
-                    name="password"
-                    placeholder="Enter password"
-                    required
-                >
+                <div class="password-input-wrap">
+                    <input
+                        type="password"
+                        id="password"
+                        name="password"
+                        placeholder="Enter password"
+                        required
+                    >
+                    <button type="button" class="password-toggle-btn" id="togglePasswordBtn" aria-label="Show password" title="Show password">
+                        <span class="icon-eye-open"><?php echo render_icon('eye'); ?></span>
+                        <span class="icon-eye-closed" style="display: none;"><?php echo render_icon('eye-off'); ?></span>
+                    </button>
+                </div>
             </div>
 
             <button type="submit" class="btn primary">
@@ -136,6 +142,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     document.querySelector(".login-form").addEventListener("submit", function () {
         document.getElementById("pageLoader").classList.add("active");
     });
+
+    (function () {
+        const pwdInput = document.getElementById("password");
+        const toggleBtn = document.getElementById("togglePasswordBtn");
+        if (!pwdInput || !toggleBtn) return;
+        const eyeOpen = toggleBtn.querySelector(".icon-eye-open");
+        const eyeClosed = toggleBtn.querySelector(".icon-eye-closed");
+
+        toggleBtn.addEventListener("click", function () {
+            const isHidden = pwdInput.type === "password";
+            pwdInput.type = isHidden ? "text" : "password";
+            eyeOpen.style.display = isHidden ? "none" : "";
+            eyeClosed.style.display = isHidden ? "" : "none";
+            toggleBtn.setAttribute("aria-label", isHidden ? "Hide password" : "Show password");
+            toggleBtn.setAttribute("title", isHidden ? "Hide password" : "Show password");
+        });
+    })();
 </script>
 
 </body>
