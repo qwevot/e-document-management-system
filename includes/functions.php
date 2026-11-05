@@ -131,11 +131,17 @@ function csrf_valid(): bool
         }
     }
 
-    if (!is_string($token) || $token === '' || empty($_SESSION['csrf_token'])) {
+    if (!is_string($token) || $token === '' || empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $token)) {
+        if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
+            log_activity('security.csrf_failed', 'system', null, [
+                'endpoint' => basename($_SERVER['PHP_SELF'] ?? ''),
+                'action'   => $_REQUEST['action'] ?? null
+            ]);
+        }
         return false;
     }
 
-    return hash_equals($_SESSION['csrf_token'], $token);
+    return true;
 }
 
 /**
@@ -511,6 +517,33 @@ function get_descendant_node_ids(PDO $pdo, array $nodeIds, bool $activeOnly = fa
         }
     }
     return $allIds;
+}
+
+/**
+ * Retrieve ordered folder breadcrumb lineage (root -> target folder) in a single recursive CTE query.
+ */
+function get_folder_breadcrumbs(PDO $pdo, int $folderId, bool $activeOnly = true): array
+{
+    if ($folderId <= 0) {
+        return [];
+    }
+    $activeFilter = $activeOnly ? 'AND is_deleted = 0' : 'AND node_type = "folder"';
+    $parentActive = $activeOnly ? 'AND p.is_deleted = 0' : '';
+    $stmt = $pdo->prepare("
+        WITH RECURSIVE folder_lineage AS (
+            SELECT n.*, 0 AS depth
+            FROM dms_nodes n
+            WHERE n.id = :id $activeFilter
+            UNION ALL
+            SELECT p.*, fl.depth + 1
+            FROM dms_nodes p
+            INNER JOIN folder_lineage fl ON p.id = fl.parent_id
+            WHERE fl.depth < 50 $parentActive
+        )
+        SELECT * FROM folder_lineage ORDER BY depth DESC
+    ");
+    $stmt->execute(['id' => $folderId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
 /**

@@ -46,7 +46,7 @@ function get_document_versions(int $docId): array
     $versions = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($versions as &$v) {
-        if ((!empty($v['is_current']) && ($v['doc_status'] ?? '') === 'suspend') || str_contains($v['change_summary'] ?? '', '(SUSPENDED)')) {
+        if ((!empty($v['is_current']) && ($v['doc_status'] ?? '') === 'suspend') || ($v['review_status'] ?? '') === 'suspended' || str_contains($v['change_summary'] ?? '', '(SUSPENDED)')) {
             $v['review_status'] = 'suspended';
         } elseif ((!empty($v['is_current']) && ($v['doc_status'] ?? '') === 'published') || (($v['review_status'] ?? '') === 'approved' && preg_match('/\.0$/', $v['version_number'] ?? ''))) {
             $v['review_status'] = 'published';

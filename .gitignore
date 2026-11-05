@@ -6,7 +6,8 @@ uploads/*
 bin/
 bin/*
 
-# Local context & scratch notes
+# Local context, secrets & scratch notes
+config/secrets.php
 context.md
 *.log
 

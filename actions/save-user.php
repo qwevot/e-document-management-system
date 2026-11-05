@@ -26,6 +26,7 @@ $currentUserId = (int)(current_user()['id'] ?? 0);
 
 // A super admin cannot demote their own account (avoids locking everyone out).
 if ($id === $currentUserId && $role !== 'super admin') {
+    log_activity('user.save_failed', 'user', $id, ['reason' => 'Attempted self-demotion from super admin']);
     redirect_to('users', 'error', 'You cannot change your own role.');
 }
 

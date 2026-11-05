@@ -8,6 +8,7 @@
 
 <?php include __DIR__ . '/ai-chat-drawer.php'; ?>
 <?php include __DIR__ . '/theme-modal.php'; ?>
+<?php include __DIR__ . '/help-modal.php'; ?>
 
 <script src="<?php echo BASE_URL; ?>/assets/js/core.js?v=<?php echo filemtime(__DIR__ . '/../assets/js/core.js'); ?>"></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/theme-customizer.js?v=<?php echo filemtime(__DIR__ . '/../assets/js/theme-customizer.js'); ?>"></script>

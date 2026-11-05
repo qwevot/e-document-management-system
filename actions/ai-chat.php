@@ -20,16 +20,19 @@ function ai_json_out(bool $status, array $data = [], string $message = ''): void
     exit;
 }
 
-// 2. Authentication check
+// 2. Authentication & CSRF check
 if (current_user() === null) {
     ai_json_out(false, [], 'Sesi Anda telah berakhir. Harap login kembali.');
+}
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !csrf_valid()) {
+    ai_json_out(false, [], 'Validasi keamanan (CSRF) gagal. Silakan muat ulang halaman.');
 }
 
 // 3. Database connection
 try {
     $pdo = db();
 } catch (Throwable $e) {
-    ai_json_out(false, [], 'Gagal terhubung ke database: ' . $e->getMessage());
+    ai_json_out(false, [], 'Gagal terhubung ke database.');
 }
 
 // 4. Groq Chat API Request Handler with Tool Calling
@@ -88,7 +91,7 @@ function sendGroqRequest(string $model, array $messages, string $systemPrompt, b
             'Authorization: Bearer ' . $apiKey,
         ],
         CURLOPT_POSTFIELDS     => json_encode($payload),
-        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYPEER => (bool)(ini_get('curl.cainfo') || ini_get('openssl.cafile')),
         CURLOPT_TIMEOUT        => 30,
     ]);
 
@@ -147,6 +150,11 @@ function callGroq(array $messages, string $systemPrompt = '', bool $enableTools 
 
     if (isset($res['error'])) {
         error_log("[EDMS AI Error] " . $res['error']);
+        log_activity('ai.api_error', 'ai', null, [
+            'error'         => $res['error'],
+            'http_code'     => $res['http_code'] ?? null,
+            'is_rate_limit' => !empty($res['is_rate_limit'])
+        ]);
         if (!empty($res['is_rate_limit'])) {
             return [
                 'content' => 'Maaf, kuota permintaan sementara sedang penuh. Silakan coba sesaat lagi.'
@@ -188,6 +196,8 @@ try {
         }
     }
     $_SESSION['ai_last_request_timestamp'] = $currentTime;
+    $isAdminUser = is_admin();
+    session_write_close();
 
     if (!defined('GROQ_API_KEY') || GROQ_API_KEY === 'YOUR_GROQ_API_KEY_HERE' || empty(GROQ_API_KEY)) {
         ai_json_out(false, [], 'Groq API Key belum dikonfigurasi di includes/ai-config.php.');
@@ -262,26 +272,34 @@ try {
     }
 
     if (!empty($sqlQuery) && $pdo) {
+        $sqlQuery = trim(preg_replace('/\/\*[\s\S]*?\*\/|--.*$/m', '', $sqlQuery));
+        $sqlQuery = rtrim($sqlQuery, "; \t\n\r\0\x0B");
         // Keamanan Berlapis: Verifikasi apakah query murni Read-Only & tidak mengakses database sistem atau tabel kredensial
-        if (!preg_match('/^(SELECT|SHOW|DESCRIBE|EXPLAIN)\s+/i', $sqlQuery) || preg_match('/\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|RENAME|CREATE|REPLACE)\b/i', $sqlQuery)) {
+        if (str_contains($sqlQuery, ';') || !preg_match('/^(SELECT|WITH|SHOW|DESCRIBE|EXPLAIN)\s+/i', $sqlQuery) || preg_match('/\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|RENAME|CREATE|REPLACE|GRANT|REVOKE|CALL|HANDLER)\b/i', $sqlQuery)) {
             $queryResult = ["error" => "Akses Ditolak: Hanya operasi pembacaan data (SELECT / Read-Only) yang diizinkan."];
+            log_activity('ai.sql_blocked', 'ai', null, ['query' => $sqlQuery, 'reason' => 'Non-SELECT or multi-statement query blocked']);
         } elseif (preg_match('/\b(information_schema|performance_schema|mysql|sys)\b/i', $sqlQuery)) {
             $queryResult = ["error" => "Akses Ditolak: Dilarang mengakses database sistem internal."];
-        } elseif (preg_match('/\b(users|password|passwd|user_tokens|password_resets|auth_tokens|credentials)\b/i', $sqlQuery)) {
-            $queryResult = ["error" => "Akses Ditolak: Akses terhadap data kredensial atau pengguna sistem dibatasi."];
+            log_activity('ai.sql_blocked', 'ai', null, ['query' => $sqlQuery, 'reason' => 'System schema access blocked']);
+        } elseif (preg_match('/(?:FROM|JOIN|TABLE|DESCRIBE|EXPLAIN|SHOW\s+COLUMNS\s+FROM)\s+[`"\']?(users|user_tokens|password_resets|auth_tokens|credentials' . (!$isAdminUser ? '|system_logs' : '') . ')[`"\']?\b/i', $sqlQuery) || preg_match('/\b(password_hash|passwd)\b/i', $sqlQuery)) {
+            $queryResult = ["error" => "Akses Ditolak: Akses terhadap tabel pengguna atau log audit dibatasi."];
+            log_activity('ai.sql_blocked', 'ai', null, ['query' => $sqlQuery, 'reason' => 'Restricted table/column access blocked']);
         } elseif (preg_match('/\b(sleep|benchmark|load_file|into\s+outfile|into\s+dumpfile)\b/i', $sqlQuery)) {
             $queryResult = ["error" => "Akses Ditolak: Fungsi sistem atau operasi berbahaya tidak diizinkan."];
+            log_activity('ai.sql_blocked', 'ai', null, ['query' => $sqlQuery, 'reason' => 'Dangerous SQL function blocked']);
         } else {
             // Enforcement: Pastikan query memiliki batas LIMIT wajar (maksimal 25 baris) agar tidak membanjiri konteks LLM
             $effectiveQuery = $sqlQuery;
-            if (preg_match('/^SELECT\b/i', $effectiveQuery) && !preg_match('/\bLIMIT\s+\d+/i', $effectiveQuery)) {
-                $effectiveQuery = rtrim($effectiveQuery, ';') . " LIMIT 25";
+            if (preg_match('/^(SELECT|WITH)\b/i', $effectiveQuery) && !preg_match('/\bLIMIT\s+\d+/i', $effectiveQuery)) {
+                $effectiveQuery .= " LIMIT 25";
             }
 
             try {
+                $pdo->exec('SET SESSION TRANSACTION READ ONLY');
                 $stmt = $pdo->prepare($effectiveQuery);
                 $stmt->execute();
                 $rawRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                $pdo->exec('SET SESSION TRANSACTION READ WRITE');
 
                 // Sanitasi & Pemotongan Kolom Berat (misal data_json kanvas, payload stroke, atau teks panjang)
                 $queryResult = [];
@@ -300,6 +318,8 @@ try {
                     $queryResult[] = $cleanedRow;
                 }
             } catch (Throwable $e) {
+                $pdo->exec('SET SESSION TRANSACTION READ WRITE');
+                log_activity('ai.sql_error', 'ai', null, ['query' => $effectiveQuery, 'error' => $e->getMessage()]);
                 $queryResult = ["error" => "Gagal mengeksekusi data: " . $e->getMessage()];
             }
         }
@@ -320,10 +340,22 @@ try {
             ? $finalGroq['content']
             : (!empty($agentReply) ? $agentReply : "Maaf, saya tidak dapat merangkum data tersebut saat ini. Silakan coba lagi.");
 
+        log_activity('ai.chat', 'ai', null, [
+            'prompt'   => mb_strimwidth($userMessage, 0, 120, '...'),
+            'used_sql' => true,
+            'model'    => $finalGroq['model_used'] ?? ($groqResponse['model_used'] ?? null)
+        ]);
+
         ai_json_out(true, [
             'reply' => $finalAnswer
         ]);
     } else {
+        log_activity('ai.chat', 'ai', null, [
+            'prompt'   => mb_strimwidth($userMessage, 0, 120, '...'),
+            'used_sql' => false,
+            'model'    => $groqResponse['model_used'] ?? null
+        ]);
+
         // Direct conversational reply without database query
         ai_json_out(true, [
             'reply'      => $agentReply,
@@ -332,5 +364,6 @@ try {
         ]);
     }
 } catch (Throwable $e) {
+    log_activity('ai.error', 'ai', null, ['error' => $e->getMessage()]);
     ai_json_out(false, [], 'Terjadi kesalahan pada sistem AI: ' . $e->getMessage());
 }

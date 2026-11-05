@@ -31,25 +31,9 @@ $breadcrumbs = [];
 $currentFolder = null;
 
 if ($viewMode === 'project' && $folderId !== null) {
-    $stmt = $pdo->prepare('SELECT * FROM dms_nodes WHERE id = :id AND node_type = "folder"');
-    $stmt->execute(['id' => $folderId]);
-    $currentFolder = $stmt->fetch();
-
-    if ($currentFolder) {
-        $temp = $currentFolder;
-        $visitedBreadcrumbs = [];
-        while ($temp && !isset($visitedBreadcrumbs[$temp['id']])) {
-            $visitedBreadcrumbs[$temp['id']] = true;
-            array_unshift($breadcrumbs, $temp);
-            if ($temp['parent_id'] !== null) {
-                $pStmt = $pdo->prepare('SELECT * FROM dms_nodes WHERE id = :id');
-                $pStmt->execute(['id' => $temp['parent_id']]);
-                $temp = $pStmt->fetch();
-            } else {
-                $temp = null;
-            }
-        }
-    } else {
+    $breadcrumbs = get_folder_breadcrumbs($pdo, $folderId, false);
+    $currentFolder = !empty($breadcrumbs) ? end($breadcrumbs) : null;
+    if (!$currentFolder) {
         $folderId = null;
     }
 }

@@ -1,6 +1,7 @@
 <?php
 $pageTitle = 'System Logs';
 $activeNav  = 'system-logs';
+$extraCss  = ['explorer.css'];
 
 require_once __DIR__ . '/../includes/auth.php';
 require_login();
@@ -107,11 +108,13 @@ include __DIR__ . '/../includes/header.php';
                 <select name="cat" class="filter-select" onchange="this.form.submit()">
                     <option value="">All Categories</option>
                     <option value="auth" <?php echo $filterCat === 'auth' ? 'selected' : ''; ?>>Auth (auth.*)</option>
+                    <option value="security" <?php echo $filterCat === 'security' ? 'selected' : ''; ?>>Security (security.*)</option>
                     <option value="document" <?php echo $filterCat === 'document' ? 'selected' : ''; ?>>Documents (document.*)</option>
                     <option value="folder" <?php echo $filterCat === 'folder' ? 'selected' : ''; ?>>Folders (folder.*)</option>
                     <option value="node" <?php echo $filterCat === 'node' ? 'selected' : ''; ?>>Nodes (node.*)</option>
                     <option value="version" <?php echo $filterCat === 'version' ? 'selected' : ''; ?>>Versions (version.*)</option>
                     <option value="user" <?php echo $filterCat === 'user' ? 'selected' : ''; ?>>Users (user.*)</option>
+                    <option value="ai" <?php echo $filterCat === 'ai' ? 'selected' : ''; ?>>AI Assistant (ai.*)</option>
                     <option value="system" <?php echo $filterCat === 'system' ? 'selected' : ''; ?>>System (system.*)</option>
                 </select>
             </div>
@@ -163,7 +166,7 @@ include __DIR__ . '/../includes/header.php';
                             $detailJson = $hasDetails ? json_encode($detailsArr, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '';
                             $detailSnippet = $hasDetails ? json_encode($detailsArr, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '';
                             $roleSlug = strtolower(str_replace(' ', '-', (string)($lg['role'] ?? 'viewer')));
-                            $isFail = str_contains($lg['action'], 'failed') || str_contains($lg['action'], 'error') || str_contains($lg['action'], 'missing');
+                            $isFail = (bool)preg_match('/(failed|error|missing|denied|blocked|rejected|throttled)/i', (string)$lg['action']);
                             $badgeStyle = $isFail
                                 ? "color: var(--red-ink); background: var(--red-soft); border-color: var(--red-line);"
                                 : "color: var(--green-dark); background: var(--green-soft); border-color: var(--green-line);";

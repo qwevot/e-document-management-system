@@ -41,6 +41,12 @@ if (in_array($role, ['super admin', 'admin'], true)) {
     </div>
 
     <div class="sidebar-content">
+        <a href="<?php echo BASE_URL; ?>/pages/explorer.php" class="nav-item <?php echo $activeNav === 'explorer' ? 'active' : ''; ?>">
+            <div class="nav-icon"><?php echo render_icon('explorer'); ?></div>
+            <span>Document Explorer</span>
+        </a>
+        <div style="height: 1px; background: var(--glass-white-16); margin: 8px 4px 10px;" aria-hidden="true"></div>
+
         <!-- Extendable My Workspace Section (Split Click: Label = filter=all, Chevron = toggle status list) -->
         <a href="<?php echo BASE_URL; ?>/pages/my-workspace.php?filter=all" class="nav-item nav-group-toggle <?php echo $wsFilter === 'all' ? 'active' : ''; ?> <?php echo $isWsOpen ? 'open' : ''; ?>" data-group="my-workspace" data-filter="all" onclick="if(window.filterWorkspace){event.preventDefault();window.filterWorkspace(this,'all');}">
             <div class="nav-icon"><?php echo render_icon('workspace'); ?></div>
@@ -73,11 +79,6 @@ if (in_array($role, ['super admin', 'admin'], true)) {
                 <?php endif; ?>
             </a>
         <?php endforeach; ?>
-
-        <a href="<?php echo BASE_URL; ?>/pages/explorer.php" class="nav-item <?php echo $activeNav === 'explorer' ? 'active' : ''; ?>">
-            <div class="nav-icon"><?php echo render_icon('explorer'); ?></div>
-            <span>Document Explorer</span>
-        </a>
 
         <!-- Retractable Administration Section -->
         <?php if (!empty($adminNavItems)): ?>

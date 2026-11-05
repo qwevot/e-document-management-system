@@ -3,9 +3,13 @@
  * AI Assistant Configuration & Extended Context Protocols for EDMS
  */
 
+if (is_file(__DIR__ . '/../config/secrets.php')) {
+    require_once __DIR__ . '/../config/secrets.php';
+}
+
 // 1. Groq API Settings
 if (!defined('GROQ_API_KEY')) {
-    define('GROQ_API_KEY', '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');
+    define('GROQ_API_KEY', getenv('GROQ_API_KEY') ?: '');
 }
 if (!defined('PRIMARY_MODEL')) {
     define('PRIMARY_MODEL', 'qwen/qwen3.8-27b'); // Fast, reliable multilingual function calling & summarization
@@ -16,7 +20,7 @@ if (!defined('FALLBACK_MODEL')) {
 
 // 2. ElevenLabs Text-to-Speech (TTS) Settings
 if (!defined('ELEVENLABS_API_KEY')) {
-    define('ELEVENLABS_API_KEY', 'sk_22cdc097305efa5f73d4b07e5ebd8c9ce4450544c158936a');
+    define('ELEVENLABS_API_KEY', getenv('ELEVENLABS_API_KEY') ?: '');
 }
 if (!defined('ELEVENLABS_VOICE_ID')) {
     define('ELEVENLABS_VOICE_ID', 'gpzZjtWbZNetDrq8CXKD');
@@ -113,6 +117,6 @@ if (!defined('AGENT_CUSTOM_INSTRUCTIONS')) {
 
         "7. Manajemen Arsip & Audit Sistem:\n" .
         "   - Arsip & Dokumen Usang: Dapat diakses melalui menu sidebar 'Archives' (pages/archives.php) untuk memulihkan (Restore) atau menghapus permanen dokumen usang/terhapus.\n" .
-        "   - Audit Trail & Log Sistem: Administrator dapat melihat jejak rekam audit global di menu 'Audit History' (pages/audit.php) untuk akuntabilitas integritas sistem."
+        "   - Audit Trail & Log Sistem: Administrator dapat melihat jejak rekam audit global di menu 'System Logs' (pages/system-logs.php) untuk akuntabilitas integritas sistem."
     );
 }

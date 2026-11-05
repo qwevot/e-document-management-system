@@ -48,25 +48,8 @@ $breadcrumbs = [];
 $currentNode = null;
 
 if ($viewMode === 'project' && $parentId !== null) {
-    $stmt = $pdo->prepare('SELECT * FROM dms_nodes WHERE id = :id AND is_deleted = 0');
-    $stmt->execute(['id' => $parentId]);
-    $currentNode = $stmt->fetch();
-
-    if ($currentNode) {
-        $temp = $currentNode;
-        $visitedBreadcrumbs = [];
-        while ($temp && !isset($visitedBreadcrumbs[$temp['id']])) {
-            $visitedBreadcrumbs[$temp['id']] = true;
-            array_unshift($breadcrumbs, $temp);
-            if ($temp['parent_id'] !== null) {
-                $pStmt = $pdo->prepare('SELECT * FROM dms_nodes WHERE id = :id AND is_deleted = 0');
-                $pStmt->execute(['id' => $temp['parent_id']]);
-                $temp = $pStmt->fetch();
-            } else {
-                $temp = null;
-            }
-        }
-    }
+    $breadcrumbs = get_folder_breadcrumbs($pdo, $parentId, true);
+    $currentNode = !empty($breadcrumbs) ? end($breadcrumbs) : null;
 }
 
 // 3. Query items according to Mode with Creator, Location joins, and Pagination

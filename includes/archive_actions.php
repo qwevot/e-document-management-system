@@ -55,6 +55,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Disallow mutating operations if current user does not have edit permissions
     if (!can_edit_dms() && in_array($action, ['restore_node', 'batch_restore', 'purge_node', 'batch_purge'], true)) {
+        log_activity('auth.access_denied', 'node', null, [
+            'attempted_action' => $action,
+            'reason'           => 'Read-only viewer attempted archive modification'
+        ]);
         if ($isAjax) {
             header('Content-Type: application/json');
             echo json_encode(['success' => false, 'message' => 'Access denied: Viewers have read-only permissions and cannot restore or alter archived items.']);
@@ -98,6 +102,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($conflictName !== null) {
+                log_activity('node.restore_failed', 'node', $nodeId, [
+                    'name'          => $name,
+                    'conflict_name' => $conflictName,
+                    'reason'        => 'Active duplicate exists in destination folder'
+                ]);
                 if ($isAjax) {
                     header('Content-Type: application/json');
                     echo json_encode([
@@ -111,7 +120,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $placeholders = implode(',', array_fill(0, count($allAffectedIds), '?'));
-            $pdo->prepare("UPDATE dms_nodes SET is_deleted = 0, status = 'active', updated_at = NOW() WHERE id IN ($placeholders) AND is_deleted = 1")->execute($allAffectedIds);
+            $pdo->prepare("
+                UPDATE dms_nodes n
+                LEFT JOIN dms_document_versions v ON n.id = v.document_id AND v.is_current = 1
+                SET n.is_deleted = 0,
+                    n.status = CASE
+                        WHEN n.node_type = 'folder' THEN 'active'
+                        WHEN v.review_status IN ('published', 'approved') THEN 'published'
+                        WHEN v.review_status = 'pending' THEN 'hold'
+                        WHEN v.review_status = 'rejected' THEN 'rejected'
+                        WHEN v.review_status = 'suspended' THEN 'suspend'
+                        ELSE 'active'
+                    END,
+                    n.updated_at = NOW()
+                WHERE n.id IN ($placeholders) AND n.is_deleted = 1
+            ")->execute($allAffectedIds);
 
             log_activity('node.restore', 'node', $nodeId, [
                 'name'              => $name,
@@ -152,6 +175,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (!empty($conflictingNames)) {
             $conflictList = implode(', ', array_map(fn($n) => "\"{$n}\"", array_unique($conflictingNames)));
+            log_activity('node.restore_failed', 'node', null, [
+                'selected_node_ids' => $nodeIds,
+                'conflicts'         => array_unique($conflictingNames),
+                'reason'            => 'Active duplicate exists in destination folder'
+            ]);
             header('Content-Type: application/json');
             echo json_encode([
                 'success'   => false,
@@ -163,7 +191,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (!empty($allAffectedIds)) {
             $descPlaceholders = implode(',', array_fill(0, count($allAffectedIds), '?'));
-            $pdo->prepare("UPDATE dms_nodes SET is_deleted = 0, status = 'active', updated_at = NOW() WHERE id IN ($descPlaceholders) AND is_deleted = 1")->execute($allAffectedIds);
+            $pdo->prepare("
+                UPDATE dms_nodes n
+                LEFT JOIN dms_document_versions v ON n.id = v.document_id AND v.is_current = 1
+                SET n.is_deleted = 0,
+                    n.status = CASE
+                        WHEN n.node_type = 'folder' THEN 'active'
+                        WHEN v.review_status IN ('published', 'approved') THEN 'published'
+                        WHEN v.review_status = 'pending' THEN 'hold'
+                        WHEN v.review_status = 'rejected' THEN 'rejected'
+                        WHEN v.review_status = 'suspended' THEN 'suspend'
+                        ELSE 'active'
+                    END,
+                    n.updated_at = NOW()
+                WHERE n.id IN ($descPlaceholders) AND n.is_deleted = 1
+            ")->execute($allAffectedIds);
 
             log_activity('node.batch_restore', 'node', null, [
                 'selected_node_ids' => $nodeIds,
@@ -183,6 +225,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // 2. Permanently Delete Item (Hard delete from database & disk) - Super Admin only
     if ($action === 'purge_node') {
         if (!$isSuperAdmin) {
+            log_activity('auth.access_denied', 'node', (int)($_POST['id'] ?? 0) ?: null, [
+                'attempted_action' => 'purge_node',
+                'reason'           => 'Only Super Administrators can permanently purge items'
+            ]);
             if ($isAjax) {
                 header('Content-Type: application/json');
                 echo json_encode(['success' => false, 'message' => 'Unauthorized. Only Super Administrators can permanently delete archived items.']);
@@ -224,6 +270,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // 2B. Batch Permanently Delete Items - Super Admin only
     if ($action === 'batch_purge') {
         if (!$isSuperAdmin) {
+            log_activity('auth.access_denied', 'node', null, [
+                'attempted_action' => 'batch_purge',
+                'reason'           => 'Only Super Administrators can permanently purge items'
+            ]);
             header('Content-Type: application/json');
             echo json_encode(['success' => false, 'message' => 'Unauthorized. Only Super Administrators can permanently delete archived items.']);
             exit;

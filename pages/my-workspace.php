@@ -29,9 +29,9 @@ $myDocsStmt = $pdo->prepare("
     LEFT JOIN dms_starred_nodes s ON d.id = s.node_id AND s.user_id = :uid5
     WHERE d.node_type = 'document'
       AND (
-          (d.is_deleted = 0 AND (d.created_by = :uid3 OR c.user_id IS NOT NULL OR s.node_id IS NOT NULL))
-          OR
-          (d.is_deleted = 1 AND d.status = 'obsolete' AND d.created_by = :uid4)
+          s.node_id IS NOT NULL
+          OR (d.is_deleted = 0 AND (d.created_by = :uid3 OR c.user_id IS NOT NULL))
+          OR (d.is_deleted = 1 AND d.status = 'obsolete' AND d.created_by = :uid4)
       )
     ORDER BY d.updated_at DESC
 ");
@@ -66,7 +66,7 @@ $totalPending = count($pendingReviews);
 $mineDocs = array_filter($myDocs, fn($d) => !empty($d['is_mine']));
 $statusCounts = array_count_values(array_column($mineDocs, 'status'));
 $totalMyDocs = count($mineDocs) - ($statusCounts['obsolete'] ?? 0);
-$totalStarred = count(array_filter($myDocs, fn($d) => !empty($d['is_starred']) && $d['status'] !== 'obsolete'));
+$totalStarred = count(array_filter($myDocs, fn($d) => !empty($d['is_starred'])));
 
 function ws_loc_badge(?int $pid, ?string $pname): string {
     $url = $pid ? "explorer.php?mode=project&folder=$pid" : 'explorer.php?mode=project';
@@ -442,7 +442,7 @@ function applyWorkspaceFilters() {
         const matchStatus = (currentWsFilter === 'recent' || currentWsFilter === 'pending')
             ? true
             : (currentWsFilter === 'starred'
-                ? (card.dataset.starred === '1' && status !== 'obsolete')
+                ? (card.dataset.starred === '1')
                 : (card.dataset.mine === '1' && (currentWsFilter === 'all' ? status !== 'obsolete' : status === currentWsFilter)));
         const titleEl = card.querySelector('.item-title');
         const title = titleEl ? titleEl.textContent.toLowerCase() : '';
@@ -473,7 +473,7 @@ function applyWorkspaceFilters() {
 
     // 4. Update Pagination Bar (Identical styling to explorer.php)
     if (pagBar) {
-        if (totalMatching > 10) {
+        if (totalMatching > 0) {
             pagBar.style.display = 'flex';
             const pagStart = document.getElementById('wsPagStart');
             const pagEnd = document.getElementById('wsPagEnd');

@@ -231,6 +231,12 @@ if ($action) {
 
         $newLayerId = (int)$pdo->lastInsertId();
 
+        log_activity('document.layer_create', 'document', $docId, [
+            'layer_id'   => $newLayerId,
+            'layer_name' => $customName,
+            'version_id' => $ajaxVersionId
+        ]);
+
         echo json_encode([
             'success' => true,
             'layer'   => [
@@ -533,6 +539,12 @@ if ($action) {
             'details' => 'Deleted annotation group: "' . $groupName . '"'
         ]);
 
+        log_activity('document.layer_delete', 'document', $docId, [
+            'layer_id'   => $reqLayerId,
+            'layer_name' => $groupName,
+            'version_id' => $ajaxVersionId
+        ]);
+
         echo json_encode([
             'success'          => true,
             'deleted_layer_id' => $reqLayerId,
@@ -602,6 +614,12 @@ if ($action) {
                 'user_id' => $userId,
                 'details' => 'Renamed group "' . $oldName . '" to "' . $newName . '"'
             ]);
+            log_activity('document.layer_rename', 'document', $docId, [
+                'layer_id'   => $reqLayerId,
+                'old_name'   => $oldName,
+                'new_name'   => $newName,
+                'version_id' => $ajaxVersionId
+            ]);
         }
 
         echo json_encode([
@@ -609,6 +627,20 @@ if ($action) {
             'layer_id'   => $reqLayerId,
             'layer_name' => $newName
         ]);
+        exit;
+    }
+
+    // 6. Record client-side annotated document export telemetry
+    if ($action === 'log_export_annotated') {
+        $rawInput = file_get_contents('php://input');
+        $data = json_decode($rawInput, true) ?: $_POST;
+        log_activity('document.export_annotated', 'document', $docId, [
+            'document_name' => $doc['name'] ?? '',
+            'filename'      => $data['filename'] ?? null,
+            'format'        => $data['format'] ?? 'pdf',
+            'version_id'    => $ajaxVersionId
+        ]);
+        echo json_encode(['success' => true]);
         exit;
     }
 }

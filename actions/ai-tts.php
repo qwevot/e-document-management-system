@@ -23,9 +23,10 @@ if (current_user() === null) {
     ai_tts_json_out(false, [], 'Sesi Anda telah berakhir. Harap login kembali.', 401);
 }
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    ai_tts_json_out(false, [], 'Metode permintaan tidak valid.', 405);
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !csrf_valid()) {
+    ai_tts_json_out(false, [], 'Permintaan atau token keamanan (CSRF) tidak valid.', 403);
 }
+session_write_close();
 
 if (!defined('ELEVENLABS_API_KEY') || ELEVENLABS_API_KEY === 'YOUR_ELEVENLABS_API_KEY_HERE' || empty(ELEVENLABS_API_KEY)) {
     ai_tts_json_out(false, [], 'API Key ElevenLabs belum dikonfigurasi di includes/ai-config.php.', 400);
@@ -96,7 +97,7 @@ try {
             'Accept: audio/mpeg'
         ],
         CURLOPT_POSTFIELDS     => json_encode($payload),
-        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYPEER => (bool)(ini_get('curl.cainfo') || ini_get('openssl.cafile')),
         CURLOPT_TIMEOUT        => 30,
     ]);
 
@@ -106,14 +107,21 @@ try {
     curl_close($ch);
 
     if ($curlErr) {
+        log_activity('ai.tts_failed', 'ai', null, ['error' => $curlErr]);
         ai_tts_json_out(false, [], 'Koneksi ke ElevenLabs gagal: ' . $curlErr, 502);
     }
 
     if ($httpCode !== 200) {
         $errData = json_decode((string)$response, true);
         $errMsg = $errData['detail']['message'] ?? $errData['message'] ?? "ElevenLabs error (HTTP {$httpCode})";
+        log_activity('ai.tts_failed', 'ai', null, ['http_code' => $httpCode, 'error' => $errMsg]);
         ai_tts_json_out(false, [], $errMsg, $httpCode >= 400 && $httpCode < 600 ? $httpCode : 502);
     }
+
+    log_activity('ai.tts', 'ai', null, [
+        'text_length' => mb_strlen($speechText),
+        'model'       => $modelId
+    ]);
 
     // Output audio/mpeg stream directly
     header('Content-Type: audio/mpeg');
@@ -123,5 +131,6 @@ try {
     exit;
 
 } catch (Throwable $e) {
+    log_activity('ai.tts_failed', 'ai', null, ['error' => $e->getMessage()]);
     ai_tts_json_out(false, [], 'Terjadi kesalahan sistem TTS: ' . $e->getMessage(), 500);
 }

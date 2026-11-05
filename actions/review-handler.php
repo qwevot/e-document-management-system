@@ -74,6 +74,7 @@ if ($action === 'submit_review' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (!is_document_contributor($docId, $userId)) {
+        log_activity('auth.access_denied', 'document', $docId, ['attempted_action' => 'submit_review']);
         echo json_encode(['success' => false, 'message' => 'Unauthorized: Only contributors can submit documents for review.']);
         exit;
     }
@@ -125,6 +126,7 @@ if ($action === 'cancel_review' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (!is_document_contributor($docId, $userId)) {
+        log_activity('auth.access_denied', 'document', $docId, ['attempted_action' => 'cancel_review']);
         echo json_encode(['success' => false, 'message' => 'Unauthorized: Only contributors can cancel a review.']);
         exit;
     }

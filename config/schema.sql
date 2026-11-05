@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS `dms_nodes` (
     INDEX `idx_file_extension` (`file_extension`),
     INDEX `idx_parent_deleted_status` (`parent_id`, `is_deleted`, `status`),
     INDEX `idx_type_deleted_status` (`node_type`, `is_deleted`, `status`),
-    CONSTRAINT `fk_dms_nodes_parent` FOREIGN KEY (`parent_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE
+    CONSTRAINT `fk_dms_nodes_parent` FOREIGN KEY (`parent_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_dms_nodes_creator` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `dms_document_versions` (
@@ -86,16 +87,6 @@ CREATE TABLE IF NOT EXISTS `dms_document_reviews` (
     CONSTRAINT `fk_reviews_rev_user` FOREIGN KEY (`reviewer_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS `dms_notification_reads` (
-    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    `user_id` BIGINT UNSIGNED NOT NULL,
-    `notif_type` VARCHAR(32) NOT NULL,
-    `item_id` BIGINT UNSIGNED NOT NULL,
-    `read_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY `uk_user_notif` (`user_id`, `notif_type`, `item_id`),
-    INDEX `idx_notif_user` (`user_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 CREATE TABLE IF NOT EXISTS `dms_document_contributors` (
     `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     `document_id` BIGINT UNSIGNED NOT NULL,
@@ -121,6 +112,7 @@ CREATE TABLE IF NOT EXISTS `dms_annotation_layers` (
     INDEX `idx_doc_user` (`document_id`, `user_id`),
     INDEX `idx_layer_doc_ver` (`document_id`, `version_id`),
     CONSTRAINT `fk_layer_doc` FOREIGN KEY (`document_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_layer_ver` FOREIGN KEY (`version_id`) REFERENCES `dms_document_versions` (`id`) ON DELETE SET NULL,
     CONSTRAINT `fk_layer_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -138,6 +130,7 @@ CREATE TABLE IF NOT EXISTS `dms_annotations` (
     INDEX `fk_anno_layer` (`layer_id`),
     INDEX `idx_anno_doc_ver` (`document_id`, `version_id`),
     CONSTRAINT `fk_anno_doc` FOREIGN KEY (`document_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_anno_ver` FOREIGN KEY (`version_id`) REFERENCES `dms_document_versions` (`id`) ON DELETE SET NULL,
     CONSTRAINT `fk_anno_layer` FOREIGN KEY (`layer_id`) REFERENCES `dms_annotation_layers` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -155,6 +148,7 @@ CREATE TABLE IF NOT EXISTS `dms_annotation_history` (
     INDEX `idx_hist_user` (`user_id`),
     INDEX `idx_hist_doc_ver` (`document_id`, `version_id`),
     CONSTRAINT `fk_hist_doc` FOREIGN KEY (`document_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_hist_ver` FOREIGN KEY (`version_id`) REFERENCES `dms_document_versions` (`id`) ON DELETE SET NULL,
     CONSTRAINT `fk_hist_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -174,6 +168,7 @@ CREATE TABLE IF NOT EXISTS `dms_document_comments` (
     INDEX `idx_comment_doc_page` (`document_id`, `page_number`),
     INDEX `idx_comment_parent` (`parent_id`),
     CONSTRAINT `fk_comment_doc` FOREIGN KEY (`document_id`) REFERENCES `dms_nodes` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_comment_ver` FOREIGN KEY (`version_id`) REFERENCES `dms_document_versions` (`id`) ON DELETE SET NULL,
     CONSTRAINT `fk_comment_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_comment_parent` FOREIGN KEY (`parent_id`) REFERENCES `dms_document_comments` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

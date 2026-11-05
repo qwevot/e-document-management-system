@@ -73,8 +73,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         $del->execute([$uid, $nid]);
         if ($del->rowCount() === 0) {
             $pdo->prepare("INSERT IGNORE INTO dms_starred_nodes (user_id, node_id) VALUES (?, ?)")->execute([$uid, $nid]);
+            log_activity('node.star', 'document', $nid);
             echo json_encode(['success' => true, 'starred' => true]);
         } else {
+            log_activity('node.unstar', 'document', $nid);
             echo json_encode(['success' => true, 'starred' => false]);
         }
         exit;
@@ -180,6 +182,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 exit;
             }
         } else {
+            $currUid = (int)(current_user()['id'] ?? 0);
+            if (!can_manage_node($nodeId, $currUid)) {
+                log_activity('auth.access_denied', 'node', $nodeId, ['attempted_action' => 'rename_node']);
+                if ($isAjax) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => 'Access denied: Only the owner, invited contributors, or administrators can rename this item.']);
+                    exit;
+                }
+                redirect_to('explorer', 'error', 'Access denied: You do not have permission to rename this item.');
+            }
             $nodeStmt = $pdo->prepare("SELECT name, node_type, parent_id FROM dms_nodes WHERE id = :id");
             $nodeStmt->execute(['id' => $nodeId]);
             $nodeData = $nodeStmt->fetch(PDO::FETCH_ASSOC);
@@ -304,6 +316,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             exit;
         }
 
+        $currUid = (int)(current_user()['id'] ?? 0);
+        foreach ($nodeIds as $nid) {
+            if (!can_manage_node($nid, $currUid)) {
+                log_activity('auth.access_denied', 'node', $nid, ['attempted_action' => 'batch_move', 'selected_ids' => $nodeIds]);
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'message' => 'Access denied: You do not have permission to move one or more selected items.']);
+                exit;
+            }
+        }
+
         if ($targetFolderId !== null) {
             $checkTarget = $pdo->prepare("SELECT id FROM dms_nodes WHERE id = :id AND is_deleted = 0 AND node_type = 'folder'");
             $checkTarget->execute(['id' => $targetFolderId]);
@@ -353,6 +375,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 
         if (!empty($conflictingNames)) {
             $conflictList = implode(', ', array_map(fn($n) => "\"{$n}\"", array_unique($conflictingNames)));
+            log_activity('node.move_failed', 'folder', $targetFolderId, [
+                'moved_node_ids' => $nodeIds,
+                'conflicts'      => array_unique($conflictingNames),
+                'reason'         => 'Duplicate name collision in destination folder'
+            ]);
             header('Content-Type: application/json');
             echo json_encode([
                 'success'   => false,
@@ -391,6 +418,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             exit;
         }
 
+        $currUid = (int)(current_user()['id'] ?? 0);
+        foreach ($nodeIds as $nid) {
+            if (!can_manage_node($nid, $currUid)) {
+                log_activity('auth.access_denied', 'node', $nid, ['attempted_action' => 'batch_archive', 'selected_ids' => $nodeIds]);
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'message' => 'Access denied: You do not have permission to archive one or more selected items.']);
+                exit;
+            }
+        }
+
         // Collect all target items and their nested descendants
         $allAffectedIds = get_descendant_node_ids($pdo, $nodeIds, false);
         if (!empty($allAffectedIds)) {
@@ -427,6 +464,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 exit;
             }
         } else {
+            $currUid = (int)(current_user()['id'] ?? 0);
+            if (!can_manage_node($nodeId, $currUid)) {
+                log_activity('auth.access_denied', 'node', $nodeId, ['attempted_action' => 'move_node']);
+                if ($isAjax) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => 'Access denied: Only the owner, invited contributors, or administrators can move this item.']);
+                    exit;
+                }
+                redirect_to('explorer', 'error', 'Access denied: You do not have permission to move this item.');
+            }
             $nodeStmt = $pdo->prepare("SELECT name, node_type, parent_id FROM dms_nodes WHERE id = :id AND is_deleted = 0");
             $nodeStmt->execute(['id' => $nodeId]);
             $currentNode = $nodeStmt->fetch(PDO::FETCH_ASSOC);
@@ -472,6 +519,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             $itemName = $currentNode['name'];
 
             if (is_node_duplicate($pdo, $targetFolderId, $itemName, $nodeId)) {
+                log_activity('node.move_failed', $currentNode['node_type'] ?? 'document', $nodeId, [
+                    'name'             => $itemName,
+                    'target_folder_id' => $targetFolderId,
+                    'reason'           => 'Duplicate name collision in destination folder'
+                ]);
                 if ($isAjax) {
                     header('Content-Type: application/json');
                     echo json_encode([
@@ -515,6 +567,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 exit;
             }
         } else {
+            $currUid = (int)(current_user()['id'] ?? 0);
+            if (!can_manage_node($nodeId, $currUid)) {
+                log_activity('auth.access_denied', 'node', $nodeId, ['attempted_action' => 'delete_node']);
+                if ($isAjax) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => 'Access denied: Only the owner, invited contributors, or administrators can archive this item.']);
+                    exit;
+                }
+                redirect_to('explorer', 'error', 'Access denied: You do not have permission to archive this item.');
+            }
             $nodeStmt = $pdo->prepare("SELECT name, node_type FROM dms_nodes WHERE id = :id");
             $nodeStmt->execute(['id' => $nodeId]);
             $nodeData = $nodeStmt->fetch(PDO::FETCH_ASSOC);
@@ -567,12 +629,30 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 
         if (!$targetNode || $conflictName !== null) {
             $errMsg = $targetNode ? "Cannot restore: an active item named \"{$conflictName}\" already exists in the destination folder." : 'Item not found or unauthorized.';
+            log_activity($targetNode ? 'node.restore_failed' : 'auth.access_denied', 'node', $nodeId ?: null, [
+                'conflict_name' => $conflictName,
+                'reason'        => $errMsg
+            ]);
             header('Content-Type: application/json');
             echo json_encode(['success' => false, 'message' => $errMsg]);
             exit;
         }
 
-        $pdo->exec("UPDATE dms_nodes SET is_deleted = 0, status = 'active', updated_at = NOW() WHERE id IN (" . implode(',', $restoreIds) . ") AND is_deleted = 1");
+        $pdo->exec("
+            UPDATE dms_nodes n
+            LEFT JOIN dms_document_versions v ON n.id = v.document_id AND v.is_current = 1
+            SET n.is_deleted = 0,
+                n.status = CASE
+                    WHEN n.node_type = 'folder' THEN 'active'
+                    WHEN v.review_status IN ('published', 'approved') THEN 'published'
+                    WHEN v.review_status = 'pending' THEN 'hold'
+                    WHEN v.review_status = 'rejected' THEN 'rejected'
+                    WHEN v.review_status = 'suspended' THEN 'suspend'
+                    ELSE 'active'
+                END,
+                n.updated_at = NOW()
+            WHERE n.id IN (" . implode(',', $restoreIds) . ") AND n.is_deleted = 1
+        ");
         log_activity('node.restore', $targetNode['node_type'] ?? 'document', $nodeId, ['name' => $targetNode['name'], 'affected_node_ids' => $restoreIds]);
 
         header('Content-Type: application/json');

@@ -18,7 +18,8 @@ function db(): PDO
         try {
             $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
         } catch (PDOException $e) {
-            die('Database Connection Failed: ' . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8'));
+            error_log('Database Connection Failed: ' . $e->getMessage());
+            die('Database connection is currently unavailable.');
         }
     }
 

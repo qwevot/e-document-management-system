@@ -313,7 +313,8 @@
             return token;
         });
 
-        // 3. Process Markdown with Marked.js
+        // 3. Escape raw HTML to neutralize DOM XSS before Markdown parsing
+        text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         let parsedHtml = "";
         if (window.marked) {
             try {
@@ -323,7 +324,7 @@
                     headerIds: false,
                     mangle: false
                 });
-                parsedHtml = window.marked.parse(text);
+                parsedHtml = window.marked.parse(text).replace(/href\s*=\s*["']\s*(javascript|data|vbscript):[^"']*["']/gi, 'href="#"');
             } catch (err) {
                 parsedHtml = escapeHtml(text).replace(/\n/g, '<br>');
             }
@@ -350,10 +351,10 @@
         };
 
         // Detect open modal data (upload modal, new folder modal, workflow modal, etc.)
-        const activeModalEl = document.querySelector(".modal.active, .modal.open, .modal-active, #uploadModal, #newFolderModal, #workflowModal");
-        if (activeModalEl && (activeModalEl.classList.contains("active") || activeModalEl.classList.contains("open") || activeModalEl.style.display === "block" || activeModalEl.style.display === "flex")) {
-            const modalTitle = activeModalEl.querySelector(".modal-title, h2, h3")?.textContent?.trim();
-            const docName = document.querySelector("#docName, #nodeName, #fileName")?.value?.trim() || document.querySelector("#docName")?.textContent?.trim();
+        const activeModalEl = document.querySelector(".edms-modal-backdrop.is-open, .theme-modal-backdrop.open");
+        if (activeModalEl) {
+            const modalTitle = activeModalEl.querySelector(".edms-modal-title, .theme-modal-title, h2, h3")?.textContent?.trim();
+            const docName = activeModalEl.querySelector("input[name='name'], #uploadDocTitleInput, #renameNodeInput")?.value?.trim();
             ctx.active_modal = {
                 modal_name: modalTitle || "Active Modal",
                 document_name: docName || null

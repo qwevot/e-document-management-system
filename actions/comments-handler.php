@@ -119,6 +119,7 @@ if ($action === 'get_comments') {
 // -------------------------------------------------------------
 if ($action === 'add_comment' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     if (!can_user_annotate_document($doc, $userId)) {
+        log_activity('auth.access_denied', 'document', $docId, ['attempted_action' => 'add_comment']);
         echo json_encode(['success' => false, 'message' => 'Permission denied. You cannot annotate this document.']);
         exit;
     }
@@ -214,6 +215,7 @@ if ($action === 'resolve_comment' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === '
     $isAuthor = ((int)$comment['user_id'] === $userId);
 
     if (!$isAdmin && !$isOwner && !$isAuthor && !is_document_contributor($docId, $userId)) {
+        log_activity('auth.access_denied', 'document', $docId, ['attempted_action' => 'resolve_comment', 'comment_id' => $commentId]);
         echo json_encode(['success' => false, 'message' => 'Unauthorized to resolve this comment.']);
         exit;
     }
@@ -258,6 +260,7 @@ if ($action === 'delete_comment' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'P
 
     // Strictly only the commenter who wrote the note can delete it
     if ((int)$comment['user_id'] !== $userId) {
+        log_activity('auth.access_denied', 'document', $docId, ['attempted_action' => 'delete_comment', 'comment_id' => $commentId]);
         echo json_encode(['success' => false, 'message' => 'Unauthorized. Only the original commenter can delete this comment.']);
         exit;
     }

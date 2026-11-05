@@ -33,6 +33,7 @@ if (!$doc || $doc['node_type'] !== 'document') {
 
 $currUid = (int)(current_user()['id'] ?? 0);
 if (!empty($doc['is_deleted']) && !is_admin() && (int)($doc['created_by'] ?? 0) !== $currUid) {
+    log_activity('auth.access_denied', 'document', $nodeId, ['reason' => 'Attempted to stream archived document without permission']);
     http_response_code(403);
     die('Access denied: Document is archived.');
 }

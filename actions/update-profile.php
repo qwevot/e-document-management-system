@@ -46,6 +46,7 @@ if ($action === 'update_profile') {
             $avatarPath = $uploaded;
             $avatarUpdated = true;
         } else {
+            log_activity('user.profile_update_failed', 'user', $userId, ['reason' => 'Invalid avatar image upload']);
             redirect_to('profile', 'error', 'Failed to upload image. Please ensure it is a valid JPEG, PNG, or WebP image under 5MB.');
         }
     }

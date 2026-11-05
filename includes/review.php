@@ -134,6 +134,10 @@ function submit_document_for_review(
 
         $isSubmitter = ($userId === $requestedBy || (int)$doc['created_by'] === $userId);
         if (!$isSubmitter) {
+            log_activity('auth.access_denied', 'document', $docId, [
+                'attempted_action' => 'edit_review_workflow',
+                'reason'           => 'Non-submitter attempted to modify active Hold workflow'
+            ], $userId);
             return ['success' => false, 'message' => 'Unauthorized. Reviewers cannot edit or cancel the review submission.'];
         }
     }
@@ -304,6 +308,10 @@ function submit_document_for_review(
         ];
     } catch (\Throwable $e) {
         $pdo->rollBack();
+        log_activity('document.review_failed', 'document', $docId, [
+            'operation' => 'submit_review',
+            'error'     => $e->getMessage()
+        ], $userId);
         return ['success' => false, 'message' => 'Failed to submit for review: ' . $e->getMessage()];
     }
 }
@@ -355,6 +363,10 @@ function submit_review_verdict(
 
         if (!$reviewRecord) {
             $pdo->rollBack();
+            log_activity('auth.access_denied', 'document', $docId, [
+                'attempted_action' => 'submit_verdict',
+                'reason'           => 'User is not an active-stage pending reviewer for this document'
+            ], $reviewerId);
             return ['success' => false, 'message' => 'Unauthorized. You are not assigned to review this document at the current stage.'];
         }
 
@@ -486,6 +498,14 @@ function submit_review_verdict(
                 ];
             }
 
+            log_activity('document.review_approved', 'document', $docId, [
+                'document_name'  => $doc['name'],
+                'target_version' => $targetVersion,
+                'reviewer_id'    => $reviewerId,
+                'stage'          => $currentStep,
+                'comments'       => $comments
+            ], $reviewerId);
+
             return [
                 'success'      => true,
                 'verdict'      => 'approved',
@@ -496,6 +516,10 @@ function submit_review_verdict(
         }
     } catch (\Throwable $e) {
         $pdo->rollBack();
+        log_activity('document.review_failed', 'document', $docId, [
+            'operation' => 'submit_verdict',
+            'error'     => $e->getMessage()
+        ], $reviewerId);
         return ['success' => false, 'message' => 'Failed to record verdict: ' . $e->getMessage()];
     }
 }
@@ -531,6 +555,10 @@ function cancel_document_review(int $docId, int $userId): array
 
     $isSubmitter = ($userId === $requestedBy || (int)$doc['created_by'] === $userId);
     if (!$isSubmitter) {
+        log_activity('auth.access_denied', 'document', $docId, [
+            'attempted_action' => 'cancel_review',
+            'reason'           => 'Non-submitter attempted to cancel active review'
+        ], $userId);
         return ['success' => false, 'message' => 'Only the user who submitted the review request can cancel/retract it.'];
     }
 
@@ -566,6 +594,10 @@ function cancel_document_review(int $docId, int $userId): array
         ];
     } catch (\Throwable $e) {
         $pdo->rollBack();
+        log_activity('document.review_failed', 'document', $docId, [
+            'operation' => 'cancel_review',
+            'error'     => $e->getMessage()
+        ], $userId);
         return ['success' => false, 'message' => 'Failed to cancel review: ' . $e->getMessage()];
     }
 }

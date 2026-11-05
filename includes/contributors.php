@@ -69,6 +69,29 @@ function is_document_contributor(int $docId, int $userId): bool
 }
 
 /**
+ * Check whether a user has permission to mutate (rename, move, archive/delete) a node in Explorer.
+ */
+function can_manage_node(int $nodeId, int $userId): bool
+{
+    if ($userId <= 0 || !can_edit_dms()) {
+        return false;
+    }
+    if (is_admin()) {
+        return true;
+    }
+    $stmt = db()->prepare("SELECT node_type, created_by FROM dms_nodes WHERE id = :id AND is_deleted = 0");
+    $stmt->execute(['id' => $nodeId]);
+    $node = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$node) {
+        return false;
+    }
+    if ((int)$node['created_by'] === $userId) {
+        return true;
+    }
+    return $node['node_type'] === 'document' && is_document_contributor($nodeId, $userId);
+}
+
+/**
  * Check whether a specific user can annotate on the current document specimen.
  */
 function can_user_annotate_document(array $doc, int $userId): bool
@@ -130,6 +153,10 @@ function save_document_access(int $docId, string $accessMode, array $contributor
     $isOwner = ((int)$doc['created_by'] === $operatorUserId);
 
     if (!$isOwner && !$isAdmin) {
+        log_activity('auth.access_denied', 'document', $docId, [
+            'attempted_action' => 'save_document_access',
+            'reason'           => 'Only document owner or admin can modify access permissions'
+        ], $operatorUserId);
         return ['success' => false, 'message' => 'Only the document owner or an Administrator can modify access permissions.'];
     }
 
@@ -171,6 +198,9 @@ function save_document_access(int $docId, string $accessMode, array $contributor
         ];
     } catch (\Throwable $e) {
         $pdo->rollBack();
+        log_activity('document.access_failed', 'document', $docId, [
+            'error' => $e->getMessage()
+        ], $operatorUserId);
         return ['success' => false, 'message' => 'Failed to save access settings: ' . $e->getMessage()];
     }
 }

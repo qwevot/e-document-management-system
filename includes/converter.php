@@ -63,6 +63,13 @@ function convert_document_to_pdf(string $sourceFilePath, string $originalExt = '
 
     $soffice = get_libreoffice_binary();
     if (!$soffice) {
+        if (function_exists('log_activity')) {
+            log_activity('system.pdf_conversion_failed', 'document', null, [
+                'source'    => basename($sourceFilePath),
+                'extension' => $originalExt,
+                'reason'    => 'LibreOffice (soffice) binary not found'
+            ]);
+        }
         return null;
     }
 
@@ -124,26 +131,32 @@ function convert_document_to_pdf(string $sourceFilePath, string $originalExt = '
         }
     }
 
-    // Execute headless LibreOffice conversion
+    // Execute headless LibreOffice conversion with isolated user profile to prevent concurrent lock collisions
     $escapedSoffice = escapeshellarg($soffice);
     $escapedTempDir = escapeshellarg($tempDir);
     $escapedSource  = escapeshellarg($inputPath);
+    $profileUrl     = 'file:///' . ltrim(str_replace('\\', '/', $tempDir), '/') . '/profile';
+    $escapedProfile = escapeshellarg("-env:UserInstallation={$profileUrl}");
 
     // For spreadsheets, use LibreOffice Calc PDF Export filter with SinglePageSheets=true
     // This auto-fits each worksheet dynamically onto a continuous vector page without slicing columns across pages.
     if ($isSpreadsheet) {
         $pdfFilter = 'pdf:calc_pdf_Export:{\"SinglePageSheets\":{\"type\":\"boolean\",\"value\":\"true\"}}';
-        $cmd = "{$escapedSoffice} --headless --convert-to \"{$pdfFilter}\" --outdir {$escapedTempDir} {$escapedSource} 2>&1";
+        $cmd = "{$escapedSoffice} {$escapedProfile} --headless --convert-to \"{$pdfFilter}\" --outdir {$escapedTempDir} {$escapedSource} 2>&1";
     } else {
-        $cmd = "{$escapedSoffice} --headless --convert-to pdf --outdir {$escapedTempDir} {$escapedSource} 2>&1";
+        $cmd = "{$escapedSoffice} {$escapedProfile} --headless --convert-to pdf --outdir {$escapedTempDir} {$escapedSource} 2>&1";
     }
 
     exec($cmd, $output, $returnCode);
 
     $cleanupTemp = static function () use ($tempDir): void {
         if (is_dir($tempDir)) {
-            foreach (glob($tempDir . '/*') ?: [] as $f) {
-                @unlink($f);
+            $it = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($tempDir, FilesystemIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::CHILD_FIRST
+            );
+            foreach ($it as $item) {
+                $item->isDir() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
             }
             @rmdir($tempDir);
         }
@@ -160,7 +173,7 @@ function convert_document_to_pdf(string $sourceFilePath, string $originalExt = '
 
     // Fallback attempt for spreadsheets with standard pdf converter if custom filter failed
     if ($isSpreadsheet) {
-        $fallbackCmd = "{$escapedSoffice} --headless --convert-to pdf --outdir {$escapedTempDir} {$escapedSource} 2>&1";
+        $fallbackCmd = "{$escapedSoffice} {$escapedProfile} --headless --convert-to pdf --outdir {$escapedTempDir} {$escapedSource} 2>&1";
         exec($fallbackCmd, $fbOutput, $fbCode);
         $files = glob($tempDir . '/*.pdf');
         if (!empty($files) && file_exists($files[0]) && filesize($files[0]) > 0) {
@@ -169,6 +182,15 @@ function convert_document_to_pdf(string $sourceFilePath, string $originalExt = '
             $cleanupLock();
             return $cachedPdfPath;
         }
+    }
+
+    if (function_exists('log_activity')) {
+        log_activity('system.pdf_conversion_failed', 'document', null, [
+            'source'      => basename($sourceFilePath),
+            'extension'   => $fileExt,
+            'return_code' => $fbCode ?? $returnCode ?? null,
+            'output'      => array_slice($fbOutput ?? $output ?? [], 0, 5)
+        ]);
     }
 
     $cleanupTemp();

@@ -73,6 +73,14 @@
     --slate-soft: #f1f5f9;
     --slate-line: #cbd5e1;
 
+    /* Sidebar Status Accent Palette (High-saturation jewel tones, luminance-balanced) */
+    --status-active: #0ea5e9;
+    --status-hold: #f59e0b;
+    --status-rejected: #f43f5e;
+    --status-published: #22c55e;
+    --status-suspend: #a855f7;
+    --status-obsolete: #64748b;
+
     /* --- Neutral Text & Typography Colors --- */
     --ink: #0f172a;                     /* Heavy dark slate headline */
     --text: #475569;                    /* Standard body slate */
@@ -275,7 +283,7 @@ button {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.7px;
-    color: var(--green-muted);
+    color: var(--glass-white-95);
     padding: 16px 11px 6px;
 }
 
@@ -329,7 +337,19 @@ button {
 .nav-item.nav-group-toggle.active { background: var(--green-soft); color: var(--green-ink); font-weight: 600; }
 .nav-chevron-hit { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin: -4px -4px -4px 2px; border-radius: 4px; }
 .nav-chevron-hit:hover { background: rgba(0, 0, 0, 0.12); }
-.nav-subitem { padding: 6px 12px 6px 36px; font-size: 12.5px; }
+.nav-subitem {
+    margin-left: 20px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    border-left: 3.5px solid transparent;
+    border-radius: 6px;
+}
+.nav-subitem[data-filter="active"]    { border-left-color: var(--status-active); }
+.nav-subitem[data-filter="hold"]      { border-left-color: var(--status-hold); }
+.nav-subitem[data-filter="rejected"]  { border-left-color: var(--status-rejected); }
+.nav-subitem[data-filter="published"] { border-left-color: var(--status-published); }
+.nav-subitem[data-filter="suspend"]   { border-left-color: var(--status-suspend); }
+.nav-subitem[data-filter="obsolete"]  { border-left-color: var(--status-obsolete); }
 .nav-sublabel { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nav-badge { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 10px; background: var(--glass-white-16); color: var(--surface); }
 .nav-item.active .nav-badge { background: var(--green); color: #fff; }
@@ -559,6 +579,161 @@ body.sidebar-collapsed .main {
     border-radius: 8px;
     padding: 10px 16px;
     box-shadow: var(--shadow-subtle);
+}
+
+/* Shared Table Pagination Bar (Explorer, Archives, Workspace, System Logs) */
+.explorer-pagination-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-top: 8px;
+    box-shadow: var(--shadow-sm);
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.users-section > .explorer-pagination-bar {
+    margin-top: 0;
+}
+
+.pagination-info {
+    font-size: 12.5px;
+    color: var(--muted);
+}
+
+.pagination-info strong {
+    color: var(--ink);
+    font-weight: 600;
+}
+
+.pagination-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.pagination-per-page {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pagination-label {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+}
+
+.pagination-select {
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pagination-select:focus {
+    border-color: var(--green);
+    box-shadow: 0 0 0 2px var(--green-ring);
+}
+
+.pagination-nav-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pagination-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    padding: 0;
+}
+
+.pagination-btn svg {
+    width: 14px;
+    height: 14px;
+    color: var(--muted);
+    transition: color 0.15s ease;
+}
+
+.pagination-btn:hover:not(:disabled):not(.is-disabled) {
+    background: var(--surface-light);
+    border-color: var(--green);
+}
+
+.pagination-btn:hover:not(:disabled):not(.is-disabled) svg {
+    color: var(--green);
+}
+
+.pagination-btn:disabled,
+.pagination-btn.is-disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: var(--surface-light);
+    border-color: var(--border);
+}
+
+.pagination-pages {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.pagination-page-btn {
+    min-width: 28px;
+    height: 28px;
+    padding: 0 6px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pagination-page-btn:hover:not(.is-active) {
+    background: var(--surface-light);
+    border-color: var(--green);
+    color: var(--green);
+}
+
+.pagination-page-btn.is-active {
+    background: var(--green);
+    border-color: var(--green);
+    color: var(--surface);
+    cursor: default;
+    box-shadow: var(--shadow-sm);
+}
+
+.pagination-ellipsis {
+    padding: 0 4px;
+    font-size: 12px;
+    color: var(--muted);
+    user-select: none;
 }
 
 .explorer-search-form {
@@ -1277,18 +1452,18 @@ body.sidebar-collapsed .main {
 }
 
 .badge-suspend {
-    background: var(--info-blue-soft);
-    color: var(--info-blue-dark);
+    background: var(--cad-purple-soft);
+    color: var(--cad-purple);
 }
 
 .badge-rejected {
-    background: var(--info-blue-soft);
-    color: var(--info-blue-dark);
+    background: var(--red-soft);
+    color: var(--red-ink);
 }
 
 .badge-obsolete {
-    background: var(--red-soft);
-    color: var(--red-ink);
+    background: var(--wrapper-bg);
+    color: var(--muted);
 }
 
 .folder-type-label {
@@ -1596,7 +1771,8 @@ body.sidebar-collapsed .main {
 }
 .audit-timeline-dot.badge-publish  { background: var(--info-blue); }
 .audit-timeline-dot.badge-active   { background: var(--green); }
-.audit-timeline-dot.badge-hold     { background: var(--green); }
+.audit-timeline-dot.badge-hold     { background: var(--amber); }
+.audit-timeline-dot.badge-suspend  { background: var(--cad-purple); }
 .audit-timeline-dot.badge-rejected { background: var(--red); }
 .audit-timeline-dot.badge-suspend,
 .audit-timeline-dot.badge-suspended  { background: var(--red); }

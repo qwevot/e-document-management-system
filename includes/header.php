@@ -41,10 +41,10 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
     <title><?php echo e($pageTitle); ?> - EDMS</title>
     <meta name="csrf-token" content="<?php echo e(csrf_token()); ?>">
     <script>window.EDMS_CSRF_TOKEN = "<?php echo e(csrf_token()); ?>";</script>
-    <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/styles.css">
-    <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/responsive.css">
+    <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/styles.css?v=<?php echo @filemtime(__DIR__ . '/../assets/css/styles.css') ?: 1; ?>">
+    <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/responsive.css?v=<?php echo @filemtime(__DIR__ . '/../assets/css/responsive.css') ?: 1; ?>">
     <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/katex.min.css">
-    <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/theme-customizer.css">
+    <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/theme-customizer.css?v=<?php echo @filemtime(__DIR__ . '/../assets/css/theme-customizer.css') ?: 1; ?>">
     <script>
         (function() {
             try {
@@ -84,7 +84,7 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
     </script>
     <?php if (!empty($extraCss)): ?>
         <?php foreach ((array)$extraCss as $cssFile): ?>
-            <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/<?php echo e($cssFile); ?>">
+            <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/<?php echo e($cssFile); ?>?v=<?php echo @filemtime(__DIR__ . '/../assets/css/' . $cssFile) ?: 1; ?>">
         <?php endforeach; ?>
     <?php endif; ?>
     <?php
@@ -128,6 +128,10 @@ $hdrNotifCount = count($hdrPendingReviews) + count($hdrRecentVerdicts);
             </button>
 
             <div class="user-area">
+                <button type="button" class="sidebar-toggle theme-customizer-btn" onclick="openHelpModal()" title="User Guide & Help" aria-label="User Guide" style="margin-right: 4px;">
+                    <?php echo render_icon('help'); ?>
+                </button>
+
                 <button type="button" class="sidebar-toggle theme-customizer-btn" onclick="openThemeModal()" title="Customize Wallpaper" aria-label="Wallpaper Settings" style="margin-right: 4px;">
                     <?php echo render_icon('settings'); ?>
                 </button>

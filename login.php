@@ -20,32 +20,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Please enter your username and password.';
         } else {
             try {
-                $st = db()->prepare('SELECT * FROM users WHERE username = ?');
-                $st->execute([$username]);
-                $user = $st->fetch();
+                $clientIp = filter_var($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1', FILTER_VALIDATE_IP) ?: '127.0.0.1';
+                $rlStmt = db()->prepare("SELECT COUNT(*) FROM system_logs WHERE action = 'auth.login_failed' AND (ip_address = ? OR username = ?) AND created_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE)");
+                $rlStmt->execute([$clientIp, $username]);
+                if ((int)$rlStmt->fetchColumn() >= 5) {
+                    $error = 'Too many failed sign-in attempts. Please wait 5 minutes before trying again.';
+                } else {
+                    $st = db()->prepare('SELECT * FROM users WHERE username = ?');
+                    $st->execute([$username]);
+                    $user = $st->fetch();
 
-                if ($user !== false && password_verify($password, $user['password_hash'])) {
-                    session_regenerate_id(true);
-                    $_SESSION['user_id'] = (int)$user['id'];
-                    $_SESSION['username'] = $user['username'];
-                    $_SESSION['role'] = $user['role'];
-                    $_SESSION['user'] = [
-                        'id'        => (int)$user['id'],
-                        'username'  => $user['username'],
-                        'full_name' => $user['full_name'] ?? $user['username'],
-                        'role'      => $user['role'],
-                        'avatar'    => $user['avatar'] ?? null,
-                    ];
-                    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+                    if ($user !== false && password_verify($password, $user['password_hash'])) {
+                        session_regenerate_id(true);
+                        $_SESSION['user_id'] = (int)$user['id'];
+                        $_SESSION['username'] = $user['username'];
+                        $_SESSION['role'] = $user['role'];
+                        $_SESSION['user'] = [
+                            'id'        => (int)$user['id'],
+                            'username'  => $user['username'],
+                            'full_name' => $user['full_name'] ?? $user['username'],
+                            'role'      => $user['role'],
+                            'avatar'    => $user['avatar'] ?? null,
+                        ];
+                        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 
-                    log_activity('auth.login', 'user', (int)$user['id'], ['username' => $user['username']], (int)$user['id'], $user['username'], $user['role']);
+                        log_activity('auth.login', 'user', (int)$user['id'], ['username' => $user['username']], (int)$user['id'], $user['username'], $user['role']);
 
-                    header('Location: pages/my-workspace.php');
-                    exit;
+                        header('Location: pages/my-workspace.php');
+                        exit;
+                    }
+
+                    log_activity('auth.login_failed', 'user', $user ? (int)$user['id'] : null, ['attempted_username' => $username, 'reason' => 'Invalid credentials'], $user ? (int)$user['id'] : null, $username, $user ? $user['role'] : null);
+                    $error = 'Invalid username or password.';
                 }
-
-                log_activity('auth.login_failed', 'user', $user ? (int)$user['id'] : null, ['attempted_username' => $username, 'reason' => 'Invalid credentials'], $user ? (int)$user['id'] : null, $username, $user ? $user['role'] : null);
-                $error = 'Invalid username or password.';
             } catch (Exception $e) {
                 log_activity('auth.login_error', null, null, ['attempted_username' => $username, 'error' => $e->getMessage()]);
                 $error = 'Login is temporarily unavailable.';
