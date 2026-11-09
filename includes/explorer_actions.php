@@ -616,20 +616,21 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         $nStmt = $pdo->prepare("SELECT id, name, parent_id, node_type FROM dms_nodes WHERE id = ? AND (created_by = ? OR ? = 1)");
         $nStmt->execute([$nodeId, $currUid, $isAdmin]);
         $targetNode = $nStmt->fetch(PDO::FETCH_ASSOC);
-        $restoreIds = $targetNode ? get_descendant_node_ids($pdo, [$nodeId], false, true) : [];
-        $conflictName = null;
-        if ($restoreIds) {
-            foreach ($pdo->query("SELECT id, name, parent_id FROM dms_nodes WHERE id IN (" . implode(',', $restoreIds) . ") AND is_deleted = 1")->fetchAll(PDO::FETCH_ASSOC) as $rNode) {
-                if (is_node_duplicate($pdo, !empty($rNode['parent_id']) ? (int)$rNode['parent_id'] : null, $rNode['name'], (int)$rNode['id'])) {
-                    $conflictName = $rNode['name'];
-                    break;
-                }
-            }
+
+        if (!$targetNode) {
+            log_activity('auth.access_denied', 'node', $nodeId ?: null, [
+                'reason' => 'Item not found or unauthorized.'
+            ]);
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Item not found or unauthorized.']);
+            exit;
         }
 
-        if (!$targetNode || $conflictName !== null) {
-            $errMsg = $targetNode ? "Cannot restore: an active item named \"{$conflictName}\" already exists in the destination folder." : 'Item not found or unauthorized.';
-            log_activity($targetNode ? 'node.restore_failed' : 'auth.access_denied', 'node', $nodeId ?: null, [
+        $restoreRes = restore_archived_nodes($pdo, [$nodeId]);
+        if (!($restoreRes['success'] ?? false)) {
+            $conflictName = $restoreRes['conflicts'][0] ?? $targetNode['name'];
+            $errMsg = "Cannot restore: an active item named \"{$conflictName}\" already exists in the destination folder.";
+            log_activity('node.restore_failed', 'node', $nodeId, [
                 'conflict_name' => $conflictName,
                 'reason'        => $errMsg
             ]);
@@ -638,22 +639,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             exit;
         }
 
-        $pdo->exec("
-            UPDATE dms_nodes n
-            LEFT JOIN dms_document_versions v ON n.id = v.document_id AND v.is_current = 1
-            SET n.is_deleted = 0,
-                n.status = CASE
-                    WHEN n.node_type = 'folder' THEN 'active'
-                    WHEN v.review_status IN ('published', 'approved') THEN 'published'
-                    WHEN v.review_status = 'pending' THEN 'hold'
-                    WHEN v.review_status = 'rejected' THEN 'rejected'
-                    WHEN v.review_status = 'suspended' THEN 'suspend'
-                    ELSE 'active'
-                END,
-                n.updated_at = NOW()
-            WHERE n.id IN (" . implode(',', $restoreIds) . ") AND n.is_deleted = 1
-        ");
-        log_activity('node.restore', $targetNode['node_type'] ?? 'document', $nodeId, ['name' => $targetNode['name'], 'affected_node_ids' => $restoreIds]);
+        log_activity('node.restore', $targetNode['node_type'] ?? 'document', $nodeId, [
+            'name'              => $targetNode['name'],
+            'affected_node_ids' => $restoreRes['affected_ids']
+        ]);
 
         header('Content-Type: application/json');
         echo json_encode(['success' => true, 'message' => 'Document restored to active workspace.']);
@@ -762,51 +751,32 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 }
 
                 $userId = current_user()['id'] ?? 1;
+                $initialNodeStatus = ($status === 'published') ? 'published' : 'active';
+                $initialVersionNum = ($status === 'published') ? 'v1.0' : 'v0.1';
+                $initialReviewStat = ($status === 'published') ? 'approved' : 'draft';
+                $initialSummary    = ($status === 'published') ? 'Initial official release.' : 'Initial document baseline upload.';
 
-                $stmt = $pdo->prepare("
-                    INSERT INTO dms_nodes (
-                        parent_id, node_type, name, status, version,
-                        file_path, file_original_name, file_size, file_extension,
-                        mime_type, file_hash, is_deleted, created_by,
-                        created_at, updated_at
-                    ) VALUES (
-                        :parent_id, 'document', :name, :status, 'v0.1',
-                        :file_path, :file_original_name, :file_size, :file_extension,
-                        :mime_type, :file_hash, 0, :created_by,
-                        NOW(), NOW()
-                    )
-                ");
-
-                $stmt->execute([
-                    'parent_id'          => $postParentId,
-                    'name'               => $docName,
-                    'status'             => $status,
-                    'file_path'          => $relativeStoragePath,
-                    'file_original_name' => $originalName,
-                    'file_size'          => $fileSize,
-                    'file_extension'     => $fileExt,
-                    'mime_type'          => $mimeType,
-                    'file_hash'          => $fileHash,
-                    'created_by'         => $userId,
-                ]);
-
-                $newDocId = (int)$pdo->lastInsertId();
-
-                // Seed baseline version into dms_document_versions
+                $pdo->beginTransaction();
                 try {
-                    $verStmt = $pdo->prepare("
-                        INSERT INTO dms_document_versions (
-                            document_id, version_number, file_path, file_original_name,
-                            file_size, file_extension, mime_type, file_hash,
-                            change_summary, is_current, created_by, created_at
+                    $stmt = $pdo->prepare("
+                        INSERT INTO dms_nodes (
+                            parent_id, node_type, name, status, version,
+                            file_path, file_original_name, file_size, file_extension,
+                            mime_type, file_hash, is_deleted, created_by,
+                            created_at, updated_at
                         ) VALUES (
-                            :document_id, 'v0.1', :file_path, :file_original_name,
-                            :file_size, :file_extension, :mime_type, :file_hash,
-                            'Initial document baseline upload.', 1, :created_by, NOW()
+                            :parent_id, 'document', :name, :status, :version,
+                            :file_path, :file_original_name, :file_size, :file_extension,
+                            :mime_type, :file_hash, 0, :created_by,
+                            NOW(), NOW()
                         )
                     ");
-                    $verStmt->execute([
-                        'document_id'        => $newDocId,
+
+                    $stmt->execute([
+                        'parent_id'          => $postParentId,
+                        'name'               => $docName,
+                        'status'             => $initialNodeStatus,
+                        'version'            => $initialVersionNum,
                         'file_path'          => $relativeStoragePath,
                         'file_original_name' => $originalName,
                         'file_size'          => $fileSize,
@@ -815,8 +785,54 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                         'file_hash'          => $fileHash,
                         'created_by'         => $userId,
                     ]);
+
+                    $newDocId = (int)$pdo->lastInsertId();
+
+                    // Seed baseline version into dms_document_versions
+                    $verStmt = $pdo->prepare("
+                        INSERT INTO dms_document_versions (
+                            document_id, version_number, file_path, file_original_name,
+                            file_size, file_extension, mime_type, file_hash,
+                            change_summary, is_current, review_status, created_by, created_at
+                        ) VALUES (
+                            :document_id, :version_number, :file_path, :file_original_name,
+                            :file_size, :file_extension, :mime_type, :file_hash,
+                            :change_summary, 1, :review_status, :created_by, NOW()
+                        )
+                    ");
+                    $verStmt->execute([
+                        'document_id'        => $newDocId,
+                        'version_number'     => $initialVersionNum,
+                        'file_path'          => $relativeStoragePath,
+                        'file_original_name' => $originalName,
+                        'file_size'          => $fileSize,
+                        'file_extension'     => $fileExt,
+                        'mime_type'          => $mimeType,
+                        'file_hash'          => $fileHash,
+                        'change_summary'     => $initialSummary,
+                        'review_status'      => $initialReviewStat,
+                        'created_by'         => $userId,
+                    ]);
+
+                    $pdo->commit();
                 } catch (Throwable $e) {
-                    // Graceful fallback if table does not exist yet
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+                    if (file_exists($destinationPath)) {
+                        @unlink($destinationPath);
+                    }
+                    log_activity('document.upload_failed', 'document', null, [
+                        'name'   => $docName,
+                        'reason' => $e->getMessage()
+                    ]);
+                    if ($isAjax) {
+                        header('Content-Type: application/json');
+                        echo json_encode(['success' => false, 'message' => 'Failed to register document in database.']);
+                        exit;
+                    }
+                    header('Location: ' . ($_SERVER['HTTP_REFERER'] ?? 'explorer.php'));
+                    exit;
                 }
 
                 log_activity('document.upload', 'document', $newDocId, [
@@ -836,9 +852,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                         'v1.0',
                         'Initial submission upon document upload'
                     );
-                } elseif ($status === 'published') {
-                    $pdo->prepare("UPDATE dms_nodes SET version = 'v1.0', updated_at = NOW() WHERE id = ?")->execute([$newDocId]);
-                    $pdo->prepare("UPDATE dms_document_versions SET version_number = 'v1.0', review_status = 'approved', change_summary = 'Initial official release.' WHERE document_id = ? AND is_current = 1")->execute([$newDocId]);
                 }
 
                 if ($isAjax) {

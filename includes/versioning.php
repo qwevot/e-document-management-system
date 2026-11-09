@@ -141,11 +141,12 @@ function create_document_version(
         $pdo->commit();
 
         return [
-            'success'    => true,
-            'version_id' => $newVersionId,
-            'version'    => $nextVer,
-            'status'     => $newStatus,
-            'message'    => "Successfully updated to {$nextVer}"
+            'success'        => true,
+            'version_id'     => $newVersionId,
+            'version'        => $nextVer,
+            'version_number' => $nextVer,
+            'status'         => $newStatus,
+            'message'        => "Successfully updated to {$nextVer}"
         ];
     } catch (Exception $e) {
         $pdo->rollBack();
@@ -216,11 +217,12 @@ function publish_document(int $docId, ?string $publishNotes = null, int $userId 
         $pdo->commit();
 
         return [
-            'success'    => true,
-            'version_id' => $newVersionId,
-            'version'    => $nextMajorVer,
-            'status'     => 'published',
-            'message'    => "Document officially published as {$nextMajorVer}"
+            'success'        => true,
+            'version_id'     => $newVersionId,
+            'version'        => $nextMajorVer,
+            'version_number' => $nextMajorVer,
+            'status'         => 'published',
+            'message'        => "Document officially published as {$nextMajorVer}"
         ];
     } catch (Exception $e) {
         $pdo->rollBack();

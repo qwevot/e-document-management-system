@@ -161,6 +161,7 @@ if ($submittedByUserId === 0) {
 }
 
 $isAdmin = in_array(strtolower($currentUser['role'] ?? ''), ['super admin', 'admin'], true);
+$isSuperAdmin = is_super_admin($currentUser);
 $isViewer = !can_edit_dms($currentUser);
 $isGuestOwned = empty($doc['owner_user_id']);
 $isOwner = (!$isViewer && ((int)$doc['created_by'] === $userId || $isAdmin));
@@ -177,8 +178,8 @@ $isSubmitter = ($userId === $submittedByUserId || (int)$doc['created_by'] === $u
 // Reviewers can act on the review only if they have an active pending review in the current stage
 $canActOnReview = !$isHistoricalSnapshot && $isDocHold && ($userPendingReview !== null);
 
-// Only the submitter who is not currently an assigned reviewer can manage, edit, or retract the review workflow
-$canManageWorkflow = !$isHistoricalSnapshot && $isDocHold && $isSubmitter && !$isAssignedReviewer;
+// Only the submitter who is not currently an assigned reviewer (or a Super Admin) can manage, edit, or retract the review workflow
+$canManageWorkflow = !$isHistoricalSnapshot && $isDocHold && ($isSuperAdmin || ($isSubmitter && !$isAssignedReviewer));
 $canRetractReview = $canManageWorkflow;
 $eligibleReviewers = get_eligible_reviewers($userId);
 
@@ -435,10 +436,9 @@ if (!empty($reviews)) {
         </div>
     </header>
 
-    <?php if ($isSupportedViewer): ?>
-        <!-- 2. Main Workspace Layout Area (Supported Viewer) -->
-        <div class="workspace-stage-wrapper">
-            
+    <!-- 2. Main Workspace Layout Area -->
+    <div class="workspace-stage-wrapper">
+        <?php if ($isSupportedViewer): ?>
             <!-- Floating Left Tool Palette -->
             <aside class="floating-tool-dock" id="floatingToolDock">
                 <div class="tool-dock-section">
@@ -540,6 +540,29 @@ if (!empty($reviews)) {
                 </div>
 
             </main>
+        <?php else: ?>
+            <!-- Simple Unsupported Filetype Screen -->
+            <main class="workspace-center-stage workspace-unsupported-stage">
+                <div class="workspace-unsupported-card">
+                    <div class="unsupported-icon-circle">
+                        <?php echo render_icon(!empty($ext) ? $ext : 'files'); ?>
+                    </div>
+                    <h2 class="unsupported-title">No preview available</h2>
+                    <p class="unsupported-desc">
+                        The viewer does not support <strong><?php echo !empty($ext) ? '.' . e($ext) : 'this'; ?></strong> files. You can download the file to view it on your device.
+                    </p>
+                    <div class="unsupported-actions">
+                        <a href="<?php echo e($downloadUrl); ?>" class="btn-unsupported-download" download>
+                            <?php echo render_icon('download'); ?>
+                            <span>Download <?php echo !empty($ext) ? '.' . strtoupper(e($ext)) : 'File'; ?></span>
+                        </a>
+                        <a href="<?php echo e($backUrl); ?>" class="btn-unsupported-back" onclick="handleWorkspaceBack(event, '<?php echo e($backUrl); ?>')">
+                            <span>Back</span>
+                        </a>
+                    </div>
+                </div>
+            </main>
+        <?php endif; ?>
 
             <!-- Right Side Drawer: Annotation Layers & Version Lineage Tabs -->
             <aside class="workspace-right-drawer is-open" id="workspaceRightDrawer">
@@ -550,11 +573,13 @@ if (!empty($reviews)) {
 
                 <div class="drawer-header" style="padding: 10px 14px; gap: 8px;">
                     <div class="pill-tabs" style="display: flex; flex: 1; justify-content: stretch;">
+                        <?php if ($isSupportedViewer): ?>
                         <button type="button" class="pill-tab active" id="tabBtnAnnotations" style="flex: 1; justify-content: center; border: none; cursor: pointer;">
                             <?php echo render_icon('layers'); ?>
                             <span>Annotations</span>
                         </button>
-                        <button type="button" class="pill-tab" id="tabBtnVersions" style="flex: 1; justify-content: center; border: none; cursor: pointer;">
+                        <?php endif; ?>
+                        <button type="button" class="pill-tab <?php echo !$isSupportedViewer ? 'active' : ''; ?>" id="tabBtnVersions" style="flex: 1; justify-content: center; border: none; cursor: pointer;">
                             <?php echo render_icon('history'); ?>
                             <span>Versions</span>
                         </button>
@@ -563,6 +588,7 @@ if (!empty($reviews)) {
 
                 <div class="drawer-body">
                     
+                    <?php if ($isSupportedViewer): ?>
                     <!-- 1. Annotations Tab Content -->
                     <div id="drawerTabAnnotations" class="drawer-tab-pane">
                         <div class="layer-section-header-row">
@@ -601,9 +627,10 @@ if (!empty($reviews)) {
                             </div>
                         </div>
                     </div>
+                    <?php endif; ?>
 
                     <!-- 2. Version History Tab Content -->
-                    <div id="drawerTabVersions" class="drawer-tab-pane" style="display: none;">
+                    <div id="drawerTabVersions" class="drawer-tab-pane" style="<?php echo $isSupportedViewer ? 'display: none;' : 'display: block;'; ?>">
                         <div class="history-accordion-header is-open" id="btnToggleVersionHistoryDropdown" title="Toggle Version History" style="margin-top: 0; margin-bottom: 10px; cursor: pointer;">
                             <div class="history-accordion-title">
                                 <span class="history-accordion-arrow" id="versionHistoryAccordionArrow">
@@ -645,30 +672,7 @@ if (!empty($reviews)) {
                 </div>
             </aside>
 
-        </div>
-    <?php else: ?>
-        <!-- Simple Unsupported Filetype Screen -->
-        <main class="workspace-center-stage workspace-unsupported-stage">
-            <div class="workspace-unsupported-card">
-                <div class="unsupported-icon-circle">
-                    <?php echo render_icon(!empty($ext) ? $ext : 'files'); ?>
-                </div>
-                <h2 class="unsupported-title">No preview available</h2>
-                <p class="unsupported-desc">
-                    The viewer does not support <strong><?php echo !empty($ext) ? '.' . e($ext) : 'this'; ?></strong> files. You can download the file to view it on your device.
-                </p>
-                <div class="unsupported-actions">
-                    <a href="<?php echo e($downloadUrl); ?>" class="btn-unsupported-download" download>
-                        <?php echo render_icon('download'); ?>
-                        <span>Download <?php echo !empty($ext) ? '.' . strtoupper(e($ext)) : 'File'; ?></span>
-                    </a>
-                    <a href="<?php echo e($backUrl); ?>" class="btn-unsupported-back" onclick="handleWorkspaceBack(event, '<?php echo e($backUrl); ?>')">
-                        <span>Back</span>
-                    </a>
-                </div>
-            </div>
-        </main>
-    <?php endif; ?>
+    </div>
 
 </div>
 

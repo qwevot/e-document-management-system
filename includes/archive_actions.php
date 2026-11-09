@@ -26,9 +26,13 @@ function purge_archived_nodes(PDO $pdo, array $rootNodeIds): array
     $versionFiles = $vStmt->fetchAll(PDO::FETCH_COLUMN);
 
     $allFiles = array_unique(array_filter(array_merge($nodeFiles, $versionFiles)));
+    $cachedPdfsUnlinked = 0;
     foreach ($allFiles as $filePath) {
         $physicalPath = __DIR__ . '/../' . ltrim($filePath, '/\\');
         if (file_exists($physicalPath) && is_file($physicalPath)) {
+            if (function_exists('purge_cached_pdf_for_source')) {
+                $cachedPdfsUnlinked += purge_cached_pdf_for_source($physicalPath);
+            }
             @unlink($physicalPath);
         }
     }
@@ -37,8 +41,9 @@ function purge_archived_nodes(PDO $pdo, array $rootNodeIds): array
     $pdo->prepare("DELETE FROM dms_nodes WHERE id IN ($placeholders)")->execute($nodesToPurge);
 
     return [
-        'purged_ids'     => $nodesToPurge,
-        'files_unlinked' => count($allFiles),
+        'purged_ids'           => $nodesToPurge,
+        'files_unlinked'       => count($allFiles),
+        'cached_pdfs_unlinked' => $cachedPdfsUnlinked,
     ];
 }
 
@@ -92,16 +97,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $parentId = $nodeToRestore['parent_id'] !== null ? (int)$nodeToRestore['parent_id'] : null;
             $name = $nodeToRestore['name'];
-            $allAffectedIds = get_descendant_node_ids($pdo, [$nodeId], false, true);
-            $conflictName = null;
-            foreach ($pdo->query("SELECT id, name, parent_id FROM dms_nodes WHERE id IN (" . implode(',', $allAffectedIds) . ") AND is_deleted = 1")->fetchAll(PDO::FETCH_ASSOC) as $rNode) {
-                if (is_node_duplicate($pdo, $rNode['parent_id'] !== null ? (int)$rNode['parent_id'] : null, $rNode['name'], (int)$rNode['id'])) {
-                    $conflictName = $rNode['name'];
-                    break;
-                }
-            }
+            $restoreRes = restore_archived_nodes($pdo, [$nodeId]);
 
-            if ($conflictName !== null) {
+            if (!($restoreRes['success'] ?? false)) {
+                $conflictName = $restoreRes['conflicts'][0] ?? $name;
                 log_activity('node.restore_failed', 'node', $nodeId, [
                     'name'          => $name,
                     'conflict_name' => $conflictName,
@@ -119,27 +118,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 redirect_to('archives', 'error', "An item named '{$conflictName}' already exists in that folder.");
             }
 
-            $placeholders = implode(',', array_fill(0, count($allAffectedIds), '?'));
-            $pdo->prepare("
-                UPDATE dms_nodes n
-                LEFT JOIN dms_document_versions v ON n.id = v.document_id AND v.is_current = 1
-                SET n.is_deleted = 0,
-                    n.status = CASE
-                        WHEN n.node_type = 'folder' THEN 'active'
-                        WHEN v.review_status IN ('published', 'approved') THEN 'published'
-                        WHEN v.review_status = 'pending' THEN 'hold'
-                        WHEN v.review_status = 'rejected' THEN 'rejected'
-                        WHEN v.review_status = 'suspended' THEN 'suspend'
-                        ELSE 'active'
-                    END,
-                    n.updated_at = NOW()
-                WHERE n.id IN ($placeholders) AND n.is_deleted = 1
-            ")->execute($allAffectedIds);
-
             log_activity('node.restore', 'node', $nodeId, [
                 'name'              => $name,
                 'parent_id'         => $parentId,
-                'affected_node_ids' => $allAffectedIds
+                'affected_node_ids' => $restoreRes['affected_ids']
             ]);
 
             if ($isAjax) {
@@ -162,22 +144,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
-        $allAffectedIds = get_descendant_node_ids($pdo, $nodeIds, false, true);
-        $movingItems = $allAffectedIds ? $pdo->query("SELECT id, name, parent_id FROM dms_nodes WHERE id IN (" . implode(',', $allAffectedIds) . ") AND is_deleted = 1")->fetchAll(PDO::FETCH_ASSOC) : [];
-
-        $conflictingNames = [];
-        foreach ($movingItems as $mItem) {
-            $pid = $mItem['parent_id'] !== null ? (int)$mItem['parent_id'] : null;
-            if (is_node_duplicate($pdo, $pid, $mItem['name'], (int)$mItem['id'])) {
-                $conflictingNames[] = $mItem['name'];
-            }
-        }
-
-        if (!empty($conflictingNames)) {
-            $conflictList = implode(', ', array_map(fn($n) => "\"{$n}\"", array_unique($conflictingNames)));
+        $restoreRes = restore_archived_nodes($pdo, $nodeIds);
+        if (!($restoreRes['success'] ?? false) && !empty($restoreRes['conflicts'])) {
+            $conflictList = implode(', ', array_map(fn($n) => "\"{$n}\"", $restoreRes['conflicts']));
             log_activity('node.restore_failed', 'node', null, [
                 'selected_node_ids' => $nodeIds,
-                'conflicts'         => array_unique($conflictingNames),
+                'conflicts'         => $restoreRes['conflicts'],
                 'reason'            => 'Active duplicate exists in destination folder'
             ]);
             header('Content-Type: application/json');
@@ -189,27 +161,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
-        if (!empty($allAffectedIds)) {
-            $descPlaceholders = implode(',', array_fill(0, count($allAffectedIds), '?'));
-            $pdo->prepare("
-                UPDATE dms_nodes n
-                LEFT JOIN dms_document_versions v ON n.id = v.document_id AND v.is_current = 1
-                SET n.is_deleted = 0,
-                    n.status = CASE
-                        WHEN n.node_type = 'folder' THEN 'active'
-                        WHEN v.review_status IN ('published', 'approved') THEN 'published'
-                        WHEN v.review_status = 'pending' THEN 'hold'
-                        WHEN v.review_status = 'rejected' THEN 'rejected'
-                        WHEN v.review_status = 'suspended' THEN 'suspend'
-                        ELSE 'active'
-                    END,
-                    n.updated_at = NOW()
-                WHERE n.id IN ($descPlaceholders) AND n.is_deleted = 1
-            ")->execute($allAffectedIds);
-
+        if (!empty($restoreRes['affected_ids'])) {
             log_activity('node.batch_restore', 'node', null, [
                 'selected_node_ids' => $nodeIds,
-                'affected_node_ids' => $allAffectedIds,
+                'affected_node_ids' => $restoreRes['affected_ids'],
                 'count'             => count($nodeIds)
             ]);
         }

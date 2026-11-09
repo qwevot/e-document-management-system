@@ -272,18 +272,53 @@ try {
     }
 
     if (!empty($sqlQuery) && $pdo) {
-        $sqlQuery = trim(preg_replace('/\/\*[\s\S]*?\*\/|--.*$/m', '', $sqlQuery));
+        $sqlQuery = trim(preg_replace('/\/\*[\s\S]*?\*\/|--.*$|#.*$/m', '', $sqlQuery));
         $sqlQuery = rtrim($sqlQuery, "; \t\n\r\0\x0B");
-        // Keamanan Berlapis: Verifikasi apakah query murni Read-Only & tidak mengakses database sistem atau tabel kredensial
-        if (str_contains($sqlQuery, ';') || !preg_match('/^(SELECT|WITH|SHOW|DESCRIBE|EXPLAIN)\s+/i', $sqlQuery) || preg_match('/\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|RENAME|CREATE|REPLACE|GRANT|REVOKE|CALL|HANDLER)\b/i', $sqlQuery)) {
+
+        // Extract CTE names (if any) and validate all table references against a strict allowlist
+        $allowedTables = [
+            'dms_nodes',
+            'dms_document_versions',
+            'dms_document_reviews',
+            'dms_document_contributors',
+            'dms_annotation_layers',
+            'dms_annotations',
+            'dms_annotation_history',
+            'dms_document_comments',
+            'dms_starred_nodes',
+        ];
+        if ($isAdminUser) {
+            $allowedTables[] = 'system_logs';
+        }
+
+        $cteAliases = [];
+        if (preg_match_all('/\b(?:WITH(?:\s+RECURSIVE)?|,)\s*`?([a-zA-Z0-9_]+)`?\s+AS\s*\(/i', $sqlQuery, $cteMatches)) {
+            $cteAliases = array_map('strtolower', $cteMatches[1]);
+        }
+
+        $referencedTables = [];
+        if (preg_match_all('/\b(?:FROM|JOIN)\s+`?([a-zA-Z0-9_.]+)`?(?:\s*,\s*`?([a-zA-Z0-9_.]+)`?)*/i', $sqlQuery, $tableMatches, PREG_SET_ORDER)) {
+            foreach ($tableMatches as $tm) {
+                for ($i = 1; $i < count($tm); $i++) {
+                    if (!empty($tm[$i])) {
+                        $referencedTables[] = strtolower(trim($tm[$i], '`"'));
+                    }
+                }
+            }
+        }
+
+        $unallowedTables = array_diff($referencedTables, $allowedTables, $cteAliases);
+
+        // Keamanan Berlapis: Verifikasi apakah query murni Read-Only & hanya mengakses tabel allowlist
+        if (str_contains($sqlQuery, ';') || !preg_match('/^(SELECT|WITH)\s+/i', $sqlQuery) || preg_match('/\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|RENAME|CREATE|REPLACE|GRANT|REVOKE|CALL|HANDLER|SHOW|DESCRIBE|EXPLAIN|SET|USE|LOCK|UNLOCK)\b/i', $sqlQuery)) {
             $queryResult = ["error" => "Akses Ditolak: Hanya operasi pembacaan data (SELECT / Read-Only) yang diizinkan."];
             log_activity('ai.sql_blocked', 'ai', null, ['query' => $sqlQuery, 'reason' => 'Non-SELECT or multi-statement query blocked']);
         } elseif (preg_match('/\b(information_schema|performance_schema|mysql|sys)\b/i', $sqlQuery)) {
             $queryResult = ["error" => "Akses Ditolak: Dilarang mengakses database sistem internal."];
             log_activity('ai.sql_blocked', 'ai', null, ['query' => $sqlQuery, 'reason' => 'System schema access blocked']);
-        } elseif (preg_match('/(?:FROM|JOIN|TABLE|DESCRIBE|EXPLAIN|SHOW\s+COLUMNS\s+FROM)\s+[`"\']?(users|user_tokens|password_resets|auth_tokens|credentials' . (!$isAdminUser ? '|system_logs' : '') . ')[`"\']?\b/i', $sqlQuery) || preg_match('/\b(password_hash|passwd)\b/i', $sqlQuery)) {
+        } elseif (!empty($unallowedTables) || preg_match('/\b(users|user_tokens|password_resets|auth_tokens|credentials|password_hash|passwd' . (!$isAdminUser ? '|system_logs' : '') . ')\b/i', $sqlQuery)) {
             $queryResult = ["error" => "Akses Ditolak: Akses terhadap tabel pengguna atau log audit dibatasi."];
-            log_activity('ai.sql_blocked', 'ai', null, ['query' => $sqlQuery, 'reason' => 'Restricted table/column access blocked']);
+            log_activity('ai.sql_blocked', 'ai', null, ['query' => $sqlQuery, 'reason' => 'Restricted table/column access blocked', 'unallowed_tables' => array_values($unallowedTables)]);
         } elseif (preg_match('/\b(sleep|benchmark|load_file|into\s+outfile|into\s+dumpfile)\b/i', $sqlQuery)) {
             $queryResult = ["error" => "Akses Ditolak: Fungsi sistem atau operasi berbahaya tidak diizinkan."];
             log_activity('ai.sql_blocked', 'ai', null, ['query' => $sqlQuery, 'reason' => 'Dangerous SQL function blocked']);

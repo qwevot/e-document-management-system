@@ -208,7 +208,7 @@ CREATE TABLE IF NOT EXISTS `system_logs` (
 
 -- 1. Default Super Admin User
 INSERT INTO `users` (`id`, `username`, `password_hash`, `full_name`, `role`, `department`)
-VALUES (1, 'admin', '$2y$10$e8k8R7i31i7qC0Z1QvYqE.M7yK2E07g3eZ2K7Z1Y1Z1Y1Z1Y1Z1Y1', 'Super Admin', 'super admin', 'Engineering')
+VALUES (1, 'admin', '$2y$10$JqZl4clIKurOcAcGpnoOPOgIpHZTrRd.rvpVKCqTaOQG6MdZudlyq', 'Super Admin', 'super admin', 'Engineering')
 ON DUPLICATE KEY UPDATE `username` = VALUES(`username`);
 
 -- 2. Sample Root Folders

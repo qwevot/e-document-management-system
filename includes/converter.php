@@ -197,3 +197,42 @@ function convert_document_to_pdf(string $sourceFilePath, string $originalExt = '
     $cleanupLock();
     return null;
 }
+
+/**
+ * Remove any cached converted PDF and lockfile associated with a physical source file prior to purging.
+ */
+function purge_cached_pdf_for_source(string $sourceFilePath): int
+{
+    if (!file_exists($sourceFilePath) || !is_file($sourceFilePath)) {
+        return 0;
+    }
+
+    $cacheDir = __DIR__ . '/../uploads/cache/pdf';
+    if (!is_dir($cacheDir)) {
+        return 0;
+    }
+
+    $mtime = @filemtime($sourceFilePath);
+    $size  = @filesize($sourceFilePath);
+    if ($mtime === false || $size === false) {
+        return 0;
+    }
+
+    // Check both raw path and resolved realpath across both document and spreadsheet cache prefixes
+    $candidatePaths = array_unique(array_filter([$sourceFilePath, realpath($sourceFilePath) ?: null]));
+    $unlinked = 0;
+
+    foreach ($candidatePaths as $pathVariant) {
+        foreach (['doc_v1_', 'calc_v2_'] as $prefix) {
+            $hash = md5($prefix . $pathVariant . $mtime . $size);
+            foreach (['.pdf', '.lock'] as $ext) {
+                $target = $cacheDir . '/' . $hash . $ext;
+                if (is_file($target) && @unlink($target)) {
+                    $unlinked++;
+                }
+            }
+        }
+    }
+
+    return $unlinked;
+}

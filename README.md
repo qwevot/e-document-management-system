@@ -24,44 +24,52 @@ A lightweight, high-performance Engineering Document Management System built wit
 
 ```text
 edms/
-├── actions/                  # Standalone JSON/POST action endpoints
-│   ├── access-handler.php    # Contributor & Public/Restricted access API
-│   ├── ai-chat.php           # AI assistant + read-only SQL sandbox
-│   ├── ai-stt.php / ai-tts.php
-│   ├── comments-handler.php  # Page-anchored comment threads
-│   ├── review-handler.php    # Multi-stage review submission & verdicts
-│   ├── version-handler.php   # Revision uploads & document suspension
-│   └── create/update/delete-user.php
+├── actions/                     # Standalone JSON/POST action endpoints
+│   ├── ai-chat.php              # AI assistant + read-only SQL sandbox
+│   ├── ai-stt.php / ai-tts.php  # Voice transcription & speech synthesis
+│   ├── comments-handler.php     # Page-anchored comment threads
+│   ├── contributors-handler.php # Contributor & Public/Restricted access API
+│   ├── review-handler.php       # Multi-stage review submission & verdicts
+│   ├── version-handler.php      # Revision uploads & document suspension
+│   ├── save-user.php            # Create & update user accounts (Super Admin)
+│   ├── delete-user.php          # User deletion & review/ownership reconciliation
+│   ├── update-profile.php       # User profile & password self-service
+│   └── export-logs.php / purge-logs.php
 ├── assets/
-│   ├── css/                  # Modular stylesheets (styles.css, explorer.css, viewer.css)
+│   ├── css/                     # Modular stylesheets (styles.css, explorer.css, viewer.css, etc.)
 │   ├── js/
-│   │   ├── core.js           # Global UI utilities, CSRF fetch interceptor, theme/toast helpers
-│   │   ├── explorer.js       # Workspace file manager, drag-drop upload, marquee selection
-│   │   ├── viewer.js         # PDF.js / Image / DOCX canvas renderer & vector annotation engine
-│   │   ├── viewer-workflow.js# Version history, review verdicts, audit trail & access modals
-│   │   └── comments.js       # Page-level comment pins & thread drawer
-│   └── vendor/               # Bundled PDF.js, pdf-lib, JSZip, docx-preview
+│   │   ├── core.js              # Global UI utilities, CSRF fetch interceptor, theme/toast helpers
+│   │   ├── explorer.js          # Workspace file manager, drag-drop upload, marquee selection
+│   │   ├── viewer.js            # PDF.js / Image / DOCX canvas renderer & vector annotation engine
+│   │   ├── viewer-workflow.js   # Version history, review verdicts, audit trail & access modals
+│   │   ├── comments.js          # Page-level comment pins & thread drawer
+│   │   └── archives.js          # Archives restore & permanent purge interactions
+│   └── vendor/                  # Bundled PDF.js, pdf-lib, JSZip, docx-preview, KaTeX, Marked
 ├── config/
-│   ├── schema.sql            # Canonical relational schema & seed data
-│   └── secrets.example.php   # Template for local API keys
-├── includes/                 # Core domain logic & reusable partials
-│   ├── config.php & db.php   # Environment constants & PDO singleton
-│   ├── functions.php         # Auth, CSRF, recursive CTE helpers, file storage, audit logger
-│   ├── contributors.php      # Ownership, contributor & node management permission checks
-│   ├── versioning.php        # Semantic version bumps (minor vs major) & publication
-│   ├── review.php            # Sequential multi-stage review state machine
-│   ├── converter.php         # Headless LibreOffice -> PDF conversion with lockfile caching
-│   ├── explorer_actions.php  # POST/AJAX controller for pages/explorer.php
-│   ├── archive_actions.php   # POST/AJAX controller for pages/archives.php
-│   ├── viewer_actions.php    # Annotation & layer persistence API for pages/view.php
-│   └── viewer_modals.php     # Modals for pages/view.php (Revision, Verdict, Access, Suspend)
-└── pages/                    # Application views
-    ├── explorer.php          # Main hierarchical folder/document workspace
-    ├── view.php              # Fullscreen document viewer & annotation studio
-    ├── reviews.php           # Reviewer queue & sign-off dashboard
-    ├── archives.php          # Soft-deleted / obsolete repository & purge controls
-    ├── users.php             # User management (Super Admin / Admin)
-    └── system-logs.php       # Audit trail & security telemetry
+│   ├── schema.sql               # Canonical relational schema & seed data
+│   └── secrets.example.php      # Template for local API keys
+├── includes/                    # Core domain logic & reusable partials
+│   ├── config.php & db.php      # Environment constants & PDO singleton
+│   ├── auth.php                 # Role definitions & route guards
+│   ├── functions.php            # Auth, CSRF, recursive CTE helpers, file storage, audit logger
+│   ├── contributors.php         # Ownership, contributor & node management permission checks
+│   ├── versioning.php           # Semantic version bumps (minor vs major) & publication
+│   ├── review.php               # Sequential multi-stage review state machine
+│   ├── converter.php            # Headless LibreOffice -> PDF conversion with lockfile caching
+│   ├── explorer_actions.php     # POST/AJAX controller for pages/explorer.php & my-workspace.php
+│   ├── archive_actions.php      # POST/AJAX controller for pages/archives.php
+│   ├── viewer_actions.php       # Annotation & layer persistence API for pages/view.php
+│   ├── viewer_modals.php        # Modals for pages/view.php (Revision, Verdict, Access, Suspend)
+│   └── workflow-modal.php       # Tiered sequential approval pipeline modal
+└── pages/                       # Application views & streaming endpoints
+    ├── my-workspace.php         # Personal workspace, starred items, recent & pending reviews
+    ├── explorer.php             # Main hierarchical folder/document repository
+    ├── view.php                 # Fullscreen document viewer & annotation studio
+    ├── stream.php / download.php# RFC 7233 byte-range streaming & attachment downloads
+    ├── archives.php             # Soft-deleted / obsolete repository & purge controls
+    ├── profile.php              # User profile & security settings
+    ├── users.php                # User management (Super Admin)
+    └── system-logs.php          # Audit trail & security telemetry (Super Admin / Admin)
 ```
 
 ---
@@ -103,7 +111,8 @@ stateDiagram-v2
 | Mutate / annotate / revise a `public` document | Yes | Yes | All Engineers & Technicians | No |
 | Annotate a document in `hold` status | Assigned Active-Stage Reviewers Only | Assigned Active-Stage Reviewers Only | Assigned Active-Stage Reviewers Only | Assigned Active-Stage Reviewers Only |
 | Restore items from Archives | Yes | Yes | Own items (via Workspace) | No |
-| Permanently purge from Archives / Manage Super Admins | Yes | No | No | No |
+| Edit or cancel any active `hold` review workflow | Yes | Submitter / Owner only | Submitter / Owner only | No |
+| Permanently purge from Archives / Manage Users | Yes | No | No | No |
 
 ---
 

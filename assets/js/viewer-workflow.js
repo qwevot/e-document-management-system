@@ -832,4 +832,8 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
     }
+
+    if (!config.isSupportedViewer) {
+        loadVersionHistory();
+    }
 });

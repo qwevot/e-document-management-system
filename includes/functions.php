@@ -10,6 +10,17 @@ require_once __DIR__ . '/review.php';
 require_once __DIR__ . '/contributors.php';
 
 if (session_status() === PHP_SESSION_NONE) {
+    @ini_set('session.use_strict_mode', '1');
+    @ini_set('session.cookie_httponly', '1');
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || ((int)($_SERVER['SERVER_PORT'] ?? 80) === 443);
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path'     => '/',
+        'secure'   => $isHttps,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
     session_start();
 }
 
@@ -491,16 +502,16 @@ function render_user_avatar_sm(?string $name, ?string $avatar): string
  */
 function get_descendant_node_ids(PDO $pdo, array $nodeIds, bool $activeOnly = false, bool $includeAncestors = false): array
 {
-    $cleanIds = array_values(array_unique(array_filter(array_map('intval', $nodeIds))));
+    $cleanIds = array_values(array_unique(array_filter(array_map('intval', $nodeIds), fn($id) => $id > 0)));
     if (empty($cleanIds)) {
         return [];
     }
 
-    $inClause = implode(',', $cleanIds);
+    $placeholders = implode(',', array_fill(0, count($cleanIds), '?'));
     $activeFilter = $activeOnly ? 'AND is_deleted = 0' : '';
-    $stmt = $pdo->query("
+    $stmt = $pdo->prepare("
         WITH RECURSIVE node_tree AS (
-            SELECT id FROM dms_nodes WHERE id IN ($inClause)
+            SELECT id FROM dms_nodes WHERE id IN ($placeholders)
             UNION ALL
             SELECT n.id FROM dms_nodes n
             INNER JOIN node_tree t ON n.parent_id = t.id
@@ -508,15 +519,78 @@ function get_descendant_node_ids(PDO $pdo, array $nodeIds, bool $activeOnly = fa
         )
         SELECT id FROM node_tree
     ");
+    $stmt->execute($cleanIds);
     $allIds = array_values(array_unique(array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN))));
 
     if ($includeAncestors) {
         for ($cur = $cleanIds; !empty($cur); ) {
-            $cur = array_values(array_filter(array_map('intval', $pdo->query("SELECT parent_id FROM dms_nodes WHERE id IN (" . implode(',', $cur) . ") AND parent_id IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN)), fn($id) => !in_array($id, $allIds, true)));
+            $curPlaceholders = implode(',', array_fill(0, count($cur), '?'));
+            $ancStmt = $pdo->prepare("SELECT parent_id FROM dms_nodes WHERE id IN ($curPlaceholders) AND parent_id IS NOT NULL");
+            $ancStmt->execute($cur);
+            $cur = array_values(array_filter(
+                array_map('intval', $ancStmt->fetchAll(PDO::FETCH_COLUMN)),
+                fn($id) => $id > 0 && !in_array($id, $allIds, true)
+            ));
             $allIds = array_merge($allIds, $cur);
         }
     }
     return $allIds;
+}
+
+/**
+ * Restore one or more archived nodes (along with nested descendants and archived ancestors),
+ * checking for duplicate name collisions in destination folders and recovering version statuses.
+ */
+function restore_archived_nodes(PDO $pdo, array $nodeIds): array
+{
+    $allAffectedIds = get_descendant_node_ids($pdo, $nodeIds, false, true);
+    if (empty($allAffectedIds)) {
+        return ['success' => false, 'conflicts' => [], 'affected_ids' => []];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($allAffectedIds), '?'));
+    $checkStmt = $pdo->prepare("SELECT id, name, parent_id FROM dms_nodes WHERE id IN ($placeholders) AND is_deleted = 1");
+    $checkStmt->execute($allAffectedIds);
+    $archivedNodes = $checkStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $conflictingNames = [];
+    foreach ($archivedNodes as $rNode) {
+        $pid = $rNode['parent_id'] !== null ? (int)$rNode['parent_id'] : null;
+        if (is_node_duplicate($pdo, $pid, $rNode['name'], (int)$rNode['id'])) {
+            $conflictingNames[] = $rNode['name'];
+        }
+    }
+
+    if (!empty($conflictingNames)) {
+        return [
+            'success'      => false,
+            'conflicts'    => array_values(array_unique($conflictingNames)),
+            'affected_ids' => $allAffectedIds,
+        ];
+    }
+
+    $updStmt = $pdo->prepare("
+        UPDATE dms_nodes n
+        LEFT JOIN dms_document_versions v ON n.id = v.document_id AND v.is_current = 1
+        SET n.is_deleted = 0,
+            n.status = CASE
+                WHEN n.node_type = 'folder' THEN 'active'
+                WHEN v.review_status IN ('published', 'approved') THEN 'published'
+                WHEN v.review_status = 'pending' THEN 'hold'
+                WHEN v.review_status = 'rejected' THEN 'rejected'
+                WHEN v.review_status = 'suspended' THEN 'suspend'
+                ELSE 'active'
+            END,
+            n.updated_at = NOW()
+        WHERE n.id IN ($placeholders) AND n.is_deleted = 1
+    ");
+    $updStmt->execute($allAffectedIds);
+
+    return [
+        'success'      => true,
+        'conflicts'    => [],
+        'affected_ids' => $allAffectedIds,
+    ];
 }
 
 /**

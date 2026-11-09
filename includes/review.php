@@ -126,7 +126,7 @@ function submit_document_for_review(
     $targetVer = $targetVersion ?: calculate_next_version($curVersion, 'major');
     $isEditingHold = ($doc['status'] === 'hold');
 
-    // If the document is currently in review, only the submitter, author, or a collaborator on a Guest-owned doc can modify the workflow
+    // If the document is currently in review, only the submitter, author, a collaborator on a Guest-owned doc, or a Super Admin can modify the workflow
     if ($isEditingHold) {
         $stReq = $pdo->prepare("SELECT requested_by FROM dms_document_reviews WHERE document_id = :doc_id AND version = :version ORDER BY id DESC LIMIT 1");
         $stReq->execute(['doc_id' => $docId, 'version' => $targetVer]);
@@ -136,13 +136,18 @@ function submit_document_for_review(
         $ownerExistsStmt->execute(['id' => (int)$doc['created_by']]);
         $isGuestOwned = !$ownerExistsStmt->fetchColumn();
 
-        $isSubmitter = ($userId === $requestedBy || (int)$doc['created_by'] === $userId || ($isGuestOwned && is_document_contributor($docId, $userId)));
+        $uRoleStmt = $pdo->prepare("SELECT role FROM users WHERE id = :id");
+        $uRoleStmt->execute(['id' => $userId]);
+        $operatorRole = strtolower(trim((string)$uRoleStmt->fetchColumn()));
+        $isSuperAdminOperator = in_array($operatorRole, ['super admin', 'super_admin', 'superadmin'], true);
+
+        $isSubmitter = ($isSuperAdminOperator || $userId === $requestedBy || (int)$doc['created_by'] === $userId || ($isGuestOwned && is_document_contributor($docId, $userId)));
         if (!$isSubmitter) {
             log_activity('auth.access_denied', 'document', $docId, [
                 'attempted_action' => 'edit_review_workflow',
                 'reason'           => 'Non-submitter attempted to modify active Hold workflow'
             ], $userId);
-            return ['success' => false, 'message' => 'Unauthorized. Reviewers cannot edit or cancel the review submission.'];
+            return ['success' => false, 'message' => 'Unauthorized. Only the submitter, document owner, or a Super Administrator can edit or cancel the review submission.'];
         }
     }
 
@@ -561,18 +566,20 @@ function cancel_document_review(int $docId, int $userId): array
     $ownerExistsStmt->execute(['id' => (int)$doc['created_by']]);
     $isGuestOwned = !$ownerExistsStmt->fetchColumn();
 
-    $isSubmitter = ($userId === $requestedBy || (int)$doc['created_by'] === $userId || ($isGuestOwned && is_document_contributor($docId, $userId)));
+    $userStmt = $pdo->prepare("SELECT full_name, role FROM users WHERE id = :id");
+    $userStmt->execute(['id' => $userId]);
+    $user = $userStmt->fetch(PDO::FETCH_ASSOC);
+    $operatorRole = strtolower(trim((string)($user['role'] ?? '')));
+    $isSuperAdminOperator = in_array($operatorRole, ['super admin', 'super_admin', 'superadmin'], true);
+
+    $isSubmitter = ($isSuperAdminOperator || $userId === $requestedBy || (int)$doc['created_by'] === $userId || ($isGuestOwned && is_document_contributor($docId, $userId)));
     if (!$isSubmitter) {
         log_activity('auth.access_denied', 'document', $docId, [
             'attempted_action' => 'cancel_review',
             'reason'           => 'Non-submitter attempted to cancel active review'
         ], $userId);
-        return ['success' => false, 'message' => 'Only the user who submitted the review request can cancel/retract it.'];
+        return ['success' => false, 'message' => 'Only the user who submitted the review request or a Super Administrator can cancel/retract it.'];
     }
-
-    $userStmt = $pdo->prepare("SELECT full_name FROM users WHERE id = :id");
-    $userStmt->execute(['id' => $userId]);
-    $user = $userStmt->fetch(PDO::FETCH_ASSOC);
 
     $pdo->beginTransaction();
     try {

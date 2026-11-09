@@ -4,11 +4,8 @@
    Upload Dropzone, Batch Upload Ingestion Dock, and Drag-Marquee Selection.
    ========================================================================== */
 
-/* Note: Action Popover Menu (.edms-action-popover, .popover-item, .popover-divider)
-   is maintained globally in styles.css for universal accessibility across all pages. */
-
 /* ============================================================
-   Google Drive Style "Move To" Modal Navigator
+  "Move To" Modal Navigator
    ============================================================ */
 .modal-dialog-drive {
     max-width: 480px;
@@ -772,4 +769,4 @@
     border-bottom: 1px solid var(--surface-muted);
     margin-bottom: 2px;
 }
-
+

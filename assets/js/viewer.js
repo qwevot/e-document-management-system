@@ -2489,10 +2489,11 @@ document.addEventListener("DOMContentLoaded", function () {
                         document.body.removeChild(downloadLink);
 
                         setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
+                        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
                         fetch(`view.php?id=${docId}&action=log_export_annotated`, {
                             method: "POST",
-                            headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-                            body: JSON.stringify({ filename: downloadFileName, format: outExt, version_id: versionId })
+                            headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfMeta ? csrfMeta.content : "" },
+                            body: JSON.stringify({ filename: downloadFileName, format: outExt, version_id: config.activeVersionId || 0 })
                         }).catch(() => {});
                     }, mimeType, 0.95);
                 } else {
@@ -2563,10 +2564,11 @@ document.addEventListener("DOMContentLoaded", function () {
                     document.body.removeChild(downloadLink);
 
                     setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
+                    const csrfMeta = document.querySelector('meta[name="csrf-token"]');
                     fetch(`view.php?id=${docId}&action=log_export_annotated`, {
                         method: "POST",
-                        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-                        body: JSON.stringify({ filename: downloadFileName, format: "pdf", version_id: versionId })
+                        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfMeta ? csrfMeta.content : "" },
+                        body: JSON.stringify({ filename: downloadFileName, format: "pdf", version_id: config.activeVersionId || 0 })
                     }).catch(() => {});
                 }
             } catch (err) {

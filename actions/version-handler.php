@@ -107,7 +107,7 @@ if ($action === 'upload_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($result['success'] ?? false) {
         log_activity('version.upload', 'document', $docId, [
-            'version_number'  => $result['version_number'] ?? null,
+            'version_number'  => $result['version'] ?? ($result['version_number'] ?? null),
             'change_summary'  => $changeSummary,
             'original_name'   => $origName,
             'file_size'       => $fileSize
