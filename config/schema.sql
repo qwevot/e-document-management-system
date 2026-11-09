@@ -211,24 +211,27 @@ INSERT INTO `users` (`id`, `username`, `password_hash`, `full_name`, `role`, `de
 VALUES (1, 'admin', '$2y$10$JqZl4clIKurOcAcGpnoOPOgIpHZTrRd.rvpVKCqTaOQG6MdZudlyq', 'Super Admin', 'super admin', 'Engineering')
 ON DUPLICATE KEY UPDATE `username` = VALUES(`username`);
 
--- 2. Sample Root Folders
+-- 2. Initial Root Folder: Panduan
 INSERT INTO `dms_nodes` (`id`, `parent_id`, `node_type`, `name`, `status`, `version`, `created_by`) VALUES
-(1, NULL, 'folder', 'Project Alpha - WMS Upgrade', 'active', 'v0.1', 1),
-(2, NULL, 'folder', 'Project Beta - Cloud Migration', 'active', 'v0.1', 1),
-(3, NULL, 'folder', 'Standard Operating Procedures', 'active', 'v0.1', 1),
-(4, NULL, 'folder', 'Technical Drawings', 'active', 'v0.1', 1)
+(1, NULL, 'folder', 'Panduan', 'active', 'v0.1', 1)
 ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
--- 3. Sample Subfolders inside Project Alpha
-INSERT INTO `dms_nodes` (`id`, `parent_id`, `node_type`, `name`, `status`, `version`, `created_by`) VALUES
-(5, 1, 'folder', 'Architecture & Design', 'active', 'v0.1', 1),
-(6, 1, 'folder', 'Specifications & Requirements', 'active', 'v0.1', 1),
-(7, 5, 'folder', 'Database Schemas', 'active', 'v0.1', 1)
-ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
+-- 3. Initial Guide Document inside 'Panduan' Folder (Place your .docx file at: assets/docs/Panduan_Penggunaan_EDMS.docx)
+INSERT INTO `dms_nodes` (
+    `id`, `parent_id`, `node_type`, `name`, `status`, `access_mode`,
+    `version`, `file_path`, `file_original_name`, `file_size`, `file_extension`, `mime_type`, `created_by`
+) VALUES (
+    2, 1, 'document', 'User_Manual_EDMS_NEC.docx', 'published', 'public',
+    'v1.0', 'assets/docs/User_Manual_EDMS_NEC.docx', 'User_Manual_EDMS_NEC.docx', NULL, 'docx',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 1
+) ON DUPLICATE KEY UPDATE `name` = VALUES(`name`), `file_path` = VALUES(`file_path`);
 
--- 4. Sample Documents
-INSERT INTO `dms_nodes` (`id`, `parent_id`, `node_type`, `name`, `status`, `version`, `file_extension`, `mime_type`, `created_by`) VALUES
-(8, 7, 'document', 'EDMS_Relational_Schema_v0.1.pdf', 'active', 'v0.1', 'pdf', 'application/pdf', 1),
-(9, 6, 'document', 'System_Requirement_Specification.docx', 'published', 'v0.2', 'docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 1),
-(10, 3, 'document', 'SOP_Document_Control_Standard.pdf', 'published', 'v1.0', 'pdf', 'application/pdf', 1)
-ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
+-- 4. Initial Version History Record for the Guide Document
+INSERT INTO `dms_document_versions` (
+    `id`, `document_id`, `version_number`, `file_path`, `file_original_name`,
+    `file_size`, `file_extension`, `mime_type`, `change_summary`, `is_current`, `review_status`, `created_by`
+) VALUES (
+    1, 2, 'v1.0', 'assets/docs/Panduan_Penggunaan_EDMS.docx', 'Panduan_Penggunaan_EDMS.docx',
+    NULL, 'docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'Dokumen panduan penggunaan resmi NEC EDMS', 1, 'published', 1
+) ON DUPLICATE KEY UPDATE `file_path` = VALUES(`file_path`);
